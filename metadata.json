@@ -1,0 +1,6 @@
+{
+  "name": "JB³ GameHub",
+  "description": "One Platform. Every World. The easiest way to build, manage, and play Minecraft together with real-time stats and AI Copilot.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

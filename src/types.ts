@@ -98,6 +98,33 @@ export interface ConsoleLog {
   source?: string;
 }
 
+export interface BackupItem {
+  id: string;
+  name: string;
+  timestamp: string;
+  sizeMb: number;
+  type: 'auto' | 'manual' | 'ai_snapshot';
+  worldCount: number;
+  pluginCount: number;
+  status: 'completed' | 'in_progress' | 'restoring';
+}
+
+export interface Project {
+  id: string;
+  name: string;
+  tagline: string;
+  category: 'Family' | 'Education' | 'Creator' | 'Community' | 'Custom';
+  icon: string;
+  servers: MinecraftServer[];
+  activeServerId: string;
+  worlds: WorldItem[];
+  plugins: PluginItem[];
+  backups: BackupItem[];
+  players: Player[];
+  createdAt: string;
+  lastUpdated: string;
+}
+
 export interface CopilotMessage {
   id: string;
   sender: 'user' | 'jb_ai';

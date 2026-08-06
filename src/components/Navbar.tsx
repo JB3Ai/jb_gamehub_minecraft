@@ -14,9 +14,12 @@ import {
   Wifi,
   ShieldCheck
 } from 'lucide-react';
-import { MinecraftServer, ServerStatus } from '../types';
+import { MinecraftServer, ServerStatus, Project } from '../types';
 
 interface NavbarProps {
+  projects?: Project[];
+  activeProject?: Project;
+  setActiveProjectId?: (id: string) => void;
   servers: MinecraftServer[];
   activeServer: MinecraftServer;
   setActiveServerId: (id: string) => void;
@@ -28,6 +31,9 @@ interface NavbarProps {
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
+  projects,
+  activeProject,
+  setActiveProjectId,
   servers,
   activeServer,
   setActiveServerId,
@@ -38,6 +44,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onToggleServerPower,
 }) => {
   const [isServerDropdownOpen, setIsServerDropdownOpen] = React.useState(false);
+  const [isProjectDropdownOpen, setIsProjectDropdownOpen] = React.useState(false);
 
   const getStatusBadge = (status: ServerStatus) => {
     switch (status) {
@@ -89,12 +96,82 @@ export const Navbar: React.FC<NavbarProps> = ({
             </div>
           </div>
 
-          {/* Active Server Switcher Dropdown */}
-          <div className="relative">
-            <button
-              onClick={() => setIsServerDropdownOpen(!isServerDropdownOpen)}
-              className="flex items-center gap-3 px-4 py-2 bg-[#18181b] hover:bg-zinc-800 border border-zinc-800 rounded-full text-left transition-all duration-150 shadow-inner group"
-            >
+          {/* Active Workspace Project Switcher & Server Dropdown */}
+          <div className="flex items-center gap-2">
+            {/* Project Workspace Dropdown */}
+            {projects && activeProject && setActiveProjectId && (
+              <div className="relative">
+                <button
+                  onClick={() => {
+                    setIsProjectDropdownOpen(!isProjectDropdownOpen);
+                    setIsServerDropdownOpen(false);
+                  }}
+                  className="flex items-center gap-2.5 px-3.5 py-2 bg-emerald-950/50 hover:bg-emerald-900/60 border border-emerald-800/80 rounded-full text-left transition-all duration-150 group shadow-sm"
+                >
+                  <span className="text-base leading-none">{activeProject.icon}</span>
+                  <div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-black text-emerald-300 group-hover:text-emerald-200 transition-colors uppercase tracking-wider">
+                        {activeProject.name}
+                      </span>
+                      <span className="text-[9px] text-emerald-400 bg-emerald-950 border border-emerald-800/80 px-1.5 py-0.2 rounded font-mono font-bold">
+                        PROJECT
+                      </span>
+                    </div>
+                  </div>
+                  <ChevronDown className={`w-3.5 h-3.5 text-emerald-400 transition-transform duration-200 ${isProjectDropdownOpen ? 'rotate-180' : ''}`} />
+                </button>
+
+                {/* Project Dropdown Menu */}
+                {isProjectDropdownOpen && (
+                  <div className="absolute left-0 mt-2 w-80 bg-[#18181b] border border-zinc-700 rounded-2xl shadow-2xl z-50 overflow-hidden py-2 divide-y divide-zinc-800 animate-in fade-in slide-in-from-top-2 duration-150">
+                    <div className="px-3.5 py-2 text-[10px] font-mono font-bold text-emerald-400 uppercase tracking-widest flex items-center justify-between">
+                      <span>Project Workspaces</span>
+                      <span className="text-zinc-500">{projects.length} Total</span>
+                    </div>
+                    <div className="py-1">
+                      {projects.map((proj) => (
+                        <button
+                          key={proj.id}
+                          onClick={() => {
+                            setActiveProjectId(proj.id);
+                            setIsProjectDropdownOpen(false);
+                          }}
+                          className={`w-full text-left px-3.5 py-2.5 flex items-center justify-between hover:bg-zinc-800/80 transition-colors ${
+                            proj.id === activeProject.id ? 'bg-emerald-950/40 border-l-2 border-emerald-500' : ''
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5">
+                            <span className="text-xl">{proj.icon}</span>
+                            <div>
+                              <div className="text-xs font-extrabold text-zinc-100 flex items-center gap-1.5">
+                                {proj.name}
+                              </div>
+                              <div className="text-[10px] text-zinc-400 font-mono">
+                                {proj.tagline}
+                              </div>
+                            </div>
+                          </div>
+                          <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 bg-zinc-900 border border-zinc-700 text-zinc-400 rounded">
+                            {proj.category}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Active Server Switcher Dropdown */}
+            <div className="relative">
+              <button
+                onClick={() => {
+                  setIsServerDropdownOpen(!isServerDropdownOpen);
+                  setIsProjectDropdownOpen(false);
+                }}
+                className="flex items-center gap-3 px-4 py-2 bg-[#18181b] hover:bg-zinc-800 border border-zinc-800 rounded-full text-left transition-all duration-150 shadow-inner group"
+              >
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-[0_0_8px_#10b981] animate-pulse"></span>
               <div>
                 <div className="flex items-center gap-2">
@@ -152,6 +229,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               </div>
             )}
           </div>
+        </div>
 
           {/* Quick Action Header Buttons */}
           <div className="flex items-center gap-2">

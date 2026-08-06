@@ -21,6 +21,7 @@ import {
   INITIAL_WORLDS,
   MARKETPLACE_WORLDS,
   INITIAL_LOGS,
+  INITIAL_PROJECTS,
   GENERATE_PERFORMANCE_HISTORY
 } from './data/mockData';
 
@@ -32,19 +33,39 @@ import {
   ConsoleLog,
   PerformanceMetric,
   CopilotMessage,
-  ServerType
+  ServerType,
+  Project,
+  BackupItem
 } from './types';
 
 export default function App() {
-  const [servers, setServers] = useState<MinecraftServer[]>(INITIAL_SERVERS);
-  const [activeServerId, setActiveServerId] = useState<string>('srv-1');
-  const [players, setPlayers] = useState<Player[]>(INITIAL_PLAYERS);
-  const [plugins, setPlugins] = useState<PluginItem[]>(INITIAL_PLUGINS);
-  const [activeWorlds, setActiveWorlds] = useState<WorldItem[]>(INITIAL_WORLDS);
+  const [projects, setProjects] = useState<Project[]>(INITIAL_PROJECTS);
+  const [activeProjectId, setActiveProjectId] = useState<string>('proj-family');
+
+  const activeProject = projects.find((p) => p.id === activeProjectId) || projects[0];
+
+  const [servers, setServers] = useState<MinecraftServer[]>(activeProject.servers);
+  const [activeServerId, setActiveServerId] = useState<string>(activeProject.activeServerId);
+  const [players, setPlayers] = useState<Player[]>(activeProject.players);
+  const [plugins, setPlugins] = useState<PluginItem[]>(activeProject.plugins);
+  const [activeWorlds, setActiveWorlds] = useState<WorldItem[]>(activeProject.worlds);
   const [marketplaceWorlds] = useState<WorldItem[]>(MARKETPLACE_WORLDS);
   const [consoleLogs, setConsoleLogs] = useState<ConsoleLog[]>(INITIAL_LOGS);
   const [performanceHistory, setPerformanceHistory] = useState<PerformanceMetric[]>(GENERATE_PERFORMANCE_HISTORY);
   const [activeTab, setActiveTab] = useState<string>('dashboard');
+
+  // Sync state when active project changes
+  const handleSelectProject = (projId: string) => {
+    setActiveProjectId(projId);
+    const targetProj = projects.find((p) => p.id === projId);
+    if (targetProj) {
+      setServers(targetProj.servers);
+      setActiveServerId(targetProj.activeServerId);
+      setPlayers(targetProj.players);
+      setPlugins(targetProj.plugins);
+      setActiveWorlds(targetProj.worlds);
+    }
+  };
 
   // Modals
   const [isNewServerModalOpen, setIsNewServerModalOpen] = useState(false);
@@ -344,6 +365,9 @@ export default function App() {
       <div>
         {/* Navigation Header */}
         <Navbar
+          projects={projects}
+          activeProject={activeProject}
+          setActiveProjectId={handleSelectProject}
           servers={servers}
           activeServer={activeServer}
           setActiveServerId={setActiveServerId}
@@ -358,6 +382,12 @@ export default function App() {
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           {activeTab === 'dashboard' && (
             <DashboardView
+              projects={projects}
+              activeProject={activeProject}
+              onSelectProject={handleSelectProject}
+              onSelectServer={(serverId) => {
+                setActiveServerId(serverId);
+              }}
               activeServer={activeServer}
               players={players}
               consoleLogs={consoleLogs}

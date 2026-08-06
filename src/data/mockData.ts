@@ -1,4 +1,4 @@
-import { MinecraftServer, Player, PluginItem, WorldItem, ConsoleLog, PerformanceMetric } from '../types';
+import { MinecraftServer, Player, PluginItem, WorldItem, ConsoleLog, PerformanceMetric, BackupItem, Project } from '../types';
 
 export const INITIAL_SERVERS: MinecraftServer[] = [
   {
@@ -490,3 +490,107 @@ export const GENERATE_PERFORMANCE_HISTORY = (): PerformanceMetric[] => {
   }
   return data;
 };
+
+export const INITIAL_BACKUPS: BackupItem[] = [
+  {
+    id: 'bak-1',
+    name: 'Nightly Scheduled Cloud Snapshot',
+    timestamp: 'Today at 03:00 AM',
+    sizeMb: 1840,
+    type: 'auto',
+    worldCount: 3,
+    pluginCount: 42,
+    status: 'completed',
+  },
+  {
+    id: 'bak-2',
+    name: 'Pre-1.21.4 Update AI Snapshot',
+    timestamp: 'Yesterday at 11:30 PM',
+    sizeMb: 1790,
+    type: 'ai_snapshot',
+    worldCount: 3,
+    pluginCount: 42,
+    status: 'completed',
+  },
+  {
+    id: 'bak-3',
+    name: 'Manual Family Creative World Snapshot',
+    timestamp: 'Aug 4, 2026',
+    sizeMb: 1210,
+    type: 'manual',
+    worldCount: 2,
+    pluginCount: 38,
+    status: 'completed',
+  },
+];
+
+export const INITIAL_PROJECTS: Project[] = [
+  {
+    id: 'proj-family',
+    name: 'Family SMP Workspace',
+    tagline: 'Survival, Creative & Crossplay for Family & Friends',
+    category: 'Family',
+    icon: '🏰',
+    servers: [INITIAL_SERVERS[0], INITIAL_SERVERS[2]],
+    activeServerId: 'srv-1',
+    worlds: [INITIAL_WORLDS[0], INITIAL_WORLDS[1], INITIAL_WORLDS[2]],
+    plugins: INITIAL_PLUGINS,
+    backups: INITIAL_BACKUPS,
+    players: [INITIAL_PLAYERS[0], INITIAL_PLAYERS[1], INITIAL_PLAYERS[3]],
+    createdAt: '2026-07-01',
+    lastUpdated: 'Just now',
+  },
+  {
+    id: 'proj-school',
+    name: 'Class 5A STEM Classroom',
+    tagline: 'Curriculum worlds, coding challenges & homework rewards',
+    category: 'Education',
+    icon: '🎓',
+    servers: [INITIAL_SERVERS[2]],
+    activeServerId: 'srv-3',
+    worlds: [INITIAL_WORLDS[3]],
+    plugins: [INITIAL_PLUGINS[1], INITIAL_PLUGINS[2]],
+    backups: [
+      {
+        id: 'bak-sch-1',
+        name: 'Weekly STEM Homework Snapshot',
+        timestamp: 'Aug 1, 2026',
+        sizeMb: 450,
+        type: 'auto',
+        worldCount: 1,
+        pluginCount: 2,
+        status: 'completed',
+      },
+    ],
+    players: [INITIAL_PLAYERS[2]],
+    createdAt: '2026-07-15',
+    lastUpdated: '2 hours ago',
+  },
+  {
+    id: 'proj-youtube',
+    name: 'YouTube & Creator Series',
+    tagline: 'Custom modpack, Jurassic world & sub-only events',
+    category: 'Creator',
+    icon: '🎥',
+    servers: [INITIAL_SERVERS[1], INITIAL_SERVERS[3]],
+    activeServerId: 'srv-2',
+    worlds: [INITIAL_WORLDS[4]],
+    plugins: [INITIAL_PLUGINS[3], INITIAL_PLUGINS[4], INITIAL_PLUGINS[6]],
+    backups: [
+      {
+        id: 'bak-yt-1',
+        name: 'Episode 1 Recording Snapshot',
+        timestamp: 'Aug 2, 2026',
+        sizeMb: 920,
+        type: 'manual',
+        worldCount: 1,
+        pluginCount: 18,
+        status: 'completed',
+      },
+    ],
+    players: [INITIAL_PLAYERS[4]],
+    createdAt: '2026-06-20',
+    lastUpdated: 'Yesterday',
+  },
+];
+

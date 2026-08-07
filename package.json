@@ -9,7 +9,9 @@
     "start": "node dist/server.cjs",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "test": "tsx --test tests/**/*.test.ts",
+    "test:contracts": "tsx --test tests/provider-contract.test.ts tests/api-contract.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
@@ -22,10 +24,12 @@
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
     "recharts": "^3.10.1",
-    "vite": "^6.2.3"
+    "vite": "^6.2.3",
+    "ws": "^8.18.3"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
+    "@types/ws": "^8.18.1",
     "autoprefixer": "^10.4.21",
     "esbuild": "^0.25.0",
     "tailwindcss": "^4.1.14",

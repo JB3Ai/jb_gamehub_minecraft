@@ -1,5 +1,6 @@
 import { MinecraftProvider } from "../minecraft-provider/index";
 import { InMemoryProviderManager } from "../provider-manager/index";
+import { loadRuntimeConfig, RuntimeConfig } from "./runtime-config";
 
 export interface CoreBootstrapConfig {
   minecraftServerDir?: string;
@@ -11,15 +12,25 @@ export interface CoreBootstrapConfig {
 }
 
 export async function bootstrapCore(config: CoreBootstrapConfig = {}): Promise<InMemoryProviderManager> {
+  const runtime: RuntimeConfig = {
+    ...loadRuntimeConfig(process.env),
+    ...(config.minecraftServerDir ? { minecraftServerDir: config.minecraftServerDir } : {}),
+    ...(config.minecraftHost ? { minecraftHost: config.minecraftHost } : {}),
+    ...(typeof config.minecraftJavaPort === "number" ? { minecraftJavaPort: config.minecraftJavaPort } : {}),
+    ...(typeof config.minecraftBedrockPort === "number" ? { minecraftBedrockPort: config.minecraftBedrockPort } : {}),
+    ...(config.minecraftStartCommand ? { minecraftStartCommand: config.minecraftStartCommand } : {}),
+    ...(config.minecraftStopCommand ? { minecraftStopCommand: config.minecraftStopCommand } : {}),
+  };
+
   const providerManager = new InMemoryProviderManager();
 
   const minecraftProvider = new MinecraftProvider({
-    serverDir: config.minecraftServerDir || process.env.MINECRAFT_SERVER_DIR || process.cwd(),
-    host: config.minecraftHost || process.env.MINECRAFT_HOST || "127.0.0.1",
-    javaPort: config.minecraftJavaPort ?? Number(process.env.MINECRAFT_JAVA_PORT || 25565),
-    bedrockPort: config.minecraftBedrockPort ?? Number(process.env.MINECRAFT_BEDROCK_PORT || 19132),
-    startCommand: config.minecraftStartCommand || process.env.MINECRAFT_START_COMMAND,
-    stopCommand: config.minecraftStopCommand || process.env.MINECRAFT_STOP_COMMAND,
+    serverDir: runtime.minecraftServerDir,
+    host: runtime.minecraftHost,
+    javaPort: runtime.minecraftJavaPort,
+    bedrockPort: runtime.minecraftBedrockPort,
+    startCommand: runtime.minecraftStartCommand,
+    stopCommand: runtime.minecraftStopCommand,
   });
 
   await providerManager.register(minecraftProvider);

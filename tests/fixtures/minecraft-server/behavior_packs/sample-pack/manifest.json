@@ -1,0 +1,17 @@
+{
+  "format_version": 2,
+  "header": {
+    "name": "Sample Pack",
+    "description": "Fixture",
+    "uuid": "f3f864e5-0cd1-40e3-aaa5-00d58a983253",
+    "version": [1, 0, 8],
+    "min_engine_version": [1, 20, 0]
+  },
+  "modules": [
+    {
+      "type": "data",
+      "uuid": "7244a0ff-b4e6-4f53-9f11-9e0d1d4400a1",
+      "version": [1, 0, 0]
+    }
+  ]
+}

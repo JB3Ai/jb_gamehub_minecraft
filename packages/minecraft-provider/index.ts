@@ -5,7 +5,7 @@ import { spawn } from "child_process";
 import {
   CapabilityMap,
   GameProvider,
-  OperationRef,
+  ProviderActionResult,
   ProviderMetadata,
   ServerStatus,
   ServerSummary,
@@ -26,13 +26,6 @@ interface MinecraftProviderConfig {
   bedrockPort?: number;
   startCommand?: string;
   stopCommand?: string;
-}
-
-function operationRef(status: OperationRef["status"]): OperationRef {
-  return {
-    operationId: `op_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`,
-    status,
-  };
 }
 
 async function exists(targetPath: string): Promise<boolean> {
@@ -168,28 +161,34 @@ export class MinecraftProvider implements GameProvider {
     };
   }
 
-  async startServer(serverId: string): Promise<OperationRef> {
+  async startServer(serverId: string): Promise<ProviderActionResult> {
     this.assertServerId(serverId);
     if (!this.config.startCommand) {
-      return operationRef("completed");
+      return {
+        simulated: true,
+        message: "No start command configured. Development-safe completion only.",
+      };
     }
 
     await this.runShellCommand(this.config.startCommand);
     this.startedAt = Date.now();
-    return operationRef("completed");
+    return { simulated: false, message: "Start command executed." };
   }
 
-  async stopServer(serverId: string): Promise<OperationRef> {
+  async stopServer(serverId: string): Promise<ProviderActionResult> {
     this.assertServerId(serverId);
     if (!this.config.stopCommand) {
-      return operationRef("completed");
+      return {
+        simulated: true,
+        message: "No stop command configured. Development-safe completion only.",
+      };
     }
 
     await this.runShellCommand(this.config.stopCommand);
-    return operationRef("completed");
+    return { simulated: false, message: "Stop command executed." };
   }
 
-  async restartServer(serverId: string): Promise<OperationRef> {
+  async restartServer(serverId: string): Promise<ProviderActionResult> {
     this.assertServerId(serverId);
     await this.stopServer(serverId);
     return this.startServer(serverId);

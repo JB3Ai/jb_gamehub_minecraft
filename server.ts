@@ -1,13 +1,19 @@
+import "dotenv/config";
 import express from "express";
+import http from "http";
 import path from "path";
+import { fileURLToPath } from "url";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
+import { WebSocketServer } from "ws";
 import { bootstrapCore } from "./packages/core/index";
 import { InMemoryProviderManager } from "./packages/provider-manager/index";
+import { loadRuntimeConfig, runtimeConfigDiagnostics } from "./packages/core/runtime-config";
 
 const app = express();
 const PORT = 3000;
 let providerManager: InMemoryProviderManager;
+let wsServer: WebSocketServer | undefined;
 
 app.use(express.json());
 
@@ -122,6 +128,19 @@ app.post("/api/servers/:id/worlds/:worldId/validate", async (req, res) => {
   }
 });
 
+app.get("/api/operations/:id", (req, res) => {
+  const operation = providerManager.getOperation(req.params.id);
+  if (!operation) {
+    return res.status(404).json({
+      error: {
+        code: "NOT_FOUND",
+        message: `Operation not found: ${req.params.id}`,
+      },
+    });
+  }
+  return res.json(operation);
+});
+
 // AI Copilot Endpoint ("Hey JB...")
 app.post("/api/ai/copilot", async (req, res) => {
   try {
@@ -228,8 +247,47 @@ Be concise, witty, and directly execute the requested changes for the user!`;
   }
 });
 
-async function startServer() {
-  providerManager = await bootstrapCore();
+function wireWebSocket(httpServer: http.Server) {
+  wsServer = new WebSocketServer({ server: httpServer, path: "/ws" });
+
+  wsServer.on("connection", (socket) => {
+    socket.send(
+      JSON.stringify({
+        type: "connection.ready",
+        timestamp: new Date().toISOString(),
+        payload: { message: "Connected to GameHub event stream" },
+      }),
+    );
+  });
+
+  providerManager.onEvent((event) => {
+    if (!wsServer) {
+      return;
+    }
+    const payload = JSON.stringify(event);
+    for (const client of wsServer.clients) {
+      if (client.readyState === 1) {
+        client.send(payload);
+      }
+    }
+  });
+}
+
+export async function startServer(port = PORT) {
+  const config = loadRuntimeConfig(process.env);
+  providerManager = await bootstrapCore({
+    minecraftServerDir: config.minecraftServerDir,
+    minecraftHost: config.minecraftHost,
+    minecraftJavaPort: config.minecraftJavaPort,
+    minecraftBedrockPort: config.minecraftBedrockPort,
+    minecraftStartCommand: config.minecraftStartCommand,
+    minecraftStopCommand: config.minecraftStopCommand,
+  });
+
+  console.log("[JB3 GameHub] Runtime configuration:");
+  for (const line of runtimeConfigDiagnostics(config)) {
+    console.log(`[JB3 GameHub] - ${line}`);
+  }
 
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
@@ -245,9 +303,22 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`[JB³ GameHub] Server running on http://localhost:${PORT}`);
+  const httpServer = http.createServer(app);
+  wireWebSocket(httpServer);
+
+  httpServer.listen(port, "0.0.0.0", () => {
+    console.log(`[JB3 GameHub] Server running on http://localhost:${port}`);
+    console.log("[JB3 GameHub] WebSocket endpoint available at /ws");
   });
+
+  return httpServer;
 }
 
-startServer();
+const entryPath = process.argv[1] ? path.resolve(process.argv[1]) : "";
+const currentPath = fileURLToPath(import.meta.url);
+if (entryPath === currentPath) {
+  startServer().catch((err) => {
+    console.error("[JB3 GameHub] Startup error", err);
+    process.exit(1);
+  });
+}

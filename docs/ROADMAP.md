@@ -18,7 +18,7 @@
 - [x] Reusable component library (`<ServerCard />`, `<PlayerCard />`, `<MetricCard />`, `<ConsoleWindow />`, `<PluginCard />`, `<WorldCard />`, `<AIChat />`)
 
 ### Sprint 2: Backend API & Server Discovery (Next)
-- [ ] Express.js API backend endpoints for server discovery and health checks
+- [x] Express.js API backend endpoints for server discovery and health checks
 - [ ] Parser for `server.properties` and RCON authentication handlers
 - [ ] Live WebSocket streaming for telemetry metrics
 

@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "jbgh/server.schema.json",
+  "title": "JBGH Server Schema",
+  "$comment": "Document ID: JBGH-SCH-002 | Status: DRAFT | Depends On: JBGH-005,JBGH-006 | Requirement IDs: REQ-DB-001,REQ-DB-002,REQ-DB-004",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["serverId", "providerId", "worldId", "state"],
+  "properties": {
+    "serverId": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9_-]+$"
+    },
+    "providerId": {
+      "type": "string"
+    },
+    "worldId": {
+      "type": "string"
+    },
+    "state": {
+      "type": "string",
+      "enum": ["draft", "validated", "deployed", "failed"]
+    },
+    "lastValidation": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "lastDeployment": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  }
+}

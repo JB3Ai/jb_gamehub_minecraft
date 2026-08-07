@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "jbgh/provider.schema.json",
+  "title": "JBGH Provider Schema",
+  "$comment": "Document ID: JBGH-SCH-001 | Status: DRAFT | Depends On: JBGH-003,JBGH-004 | Requirement IDs: REQ-TECH-001,REQ-TECH-002",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["providerId", "name", "version", "capabilities"],
+  "properties": {
+    "providerId": {
+      "type": "string",
+      "pattern": "^[a-z0-9_.-]+$"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "capabilities": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string"
+      }
+    },
+    "compatibility": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  }
+}

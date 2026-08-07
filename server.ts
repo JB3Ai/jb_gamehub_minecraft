@@ -2,11 +2,25 @@ import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
+import { bootstrapCore } from "./packages/core/index";
+import { InMemoryProviderManager } from "./packages/provider-manager/index";
 
 const app = express();
 const PORT = 3000;
+let providerManager: InMemoryProviderManager;
 
 app.use(express.json());
+
+function handleApiError(res: express.Response, err: unknown) {
+  const message = err instanceof Error ? err.message : "Unknown error";
+  const status = message.includes("not found") || message.includes("Unknown server") ? 404 : 500;
+  res.status(status).json({
+    error: {
+      code: status === 404 ? "NOT_FOUND" : "INTERNAL_ERROR",
+      message,
+    },
+  });
+}
 
 // Initialize Gemini Client
 const ai = new GoogleGenAI({
@@ -21,6 +35,91 @@ const ai = new GoogleGenAI({
 // Health check endpoint
 app.get("/api/health", (_req, res) => {
   res.json({ status: "ok", app: "JB³ GameHub", time: new Date().toISOString() });
+});
+
+app.get("/api/providers", (_req, res) => {
+  const providers = providerManager.listProviders();
+  res.json({ providers });
+});
+
+app.get("/api/providers/:id", (req, res) => {
+  try {
+    const provider = providerManager.getProvider(req.params.id);
+    res.json({
+      ...provider.metadata(),
+      capabilities: provider.getCapabilities(),
+    });
+  } catch (err) {
+    handleApiError(res, err);
+  }
+});
+
+app.get("/api/servers", async (req, res) => {
+  try {
+    const providerId = typeof req.query.provider === "string" ? req.query.provider : undefined;
+    const servers = await providerManager.listServers(providerId);
+    res.json({ servers });
+  } catch (err) {
+    handleApiError(res, err);
+  }
+});
+
+app.get("/api/servers/:id", async (req, res) => {
+  try {
+    const server = await providerManager.getServer(req.params.id);
+    if (!server) {
+      return res.status(404).json({ error: { code: "NOT_FOUND", message: "Server not found" } });
+    }
+    const status = await providerManager.getServerStatus(server.id);
+    return res.json({ ...server, status: status.status });
+  } catch (err) {
+    return handleApiError(res, err);
+  }
+});
+
+app.post("/api/servers/:id/start", async (req, res) => {
+  try {
+    const operation = await providerManager.startServer(req.params.id);
+    res.status(202).json(operation);
+  } catch (err) {
+    handleApiError(res, err);
+  }
+});
+
+app.post("/api/servers/:id/stop", async (req, res) => {
+  try {
+    const operation = await providerManager.stopServer(req.params.id);
+    res.status(202).json(operation);
+  } catch (err) {
+    handleApiError(res, err);
+  }
+});
+
+app.get("/api/servers/:id/status", async (req, res) => {
+  try {
+    const status = await providerManager.getServerStatus(req.params.id);
+    res.json(status);
+  } catch (err) {
+    handleApiError(res, err);
+  }
+});
+
+app.get("/api/servers/:id/worlds", async (req, res) => {
+  try {
+    const worlds = await providerManager.getWorlds(req.params.id);
+    res.json({ worlds });
+  } catch (err) {
+    handleApiError(res, err);
+  }
+});
+
+app.post("/api/servers/:id/worlds/:worldId/validate", async (req, res) => {
+  try {
+    const result = await providerManager.validateWorld(req.params.id, req.params.worldId);
+    res.json(result);
+  } catch (err) {
+    handleApiError(res, err);
+  }
 });
 
 // AI Copilot Endpoint ("Hey JB...")
@@ -130,6 +229,8 @@ Be concise, witty, and directly execute the requested changes for the user!`;
 });
 
 async function startServer() {
+  providerManager = await bootstrapCore();
+
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },

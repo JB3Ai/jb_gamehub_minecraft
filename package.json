@@ -12,7 +12,12 @@
     "lint": "tsc --noEmit",
     "test": "tsx --test tests/**/*.test.ts",
     "test:contracts": "tsx --test tests/provider-contract.test.ts tests/api-contract.test.ts",
-    "diagnose:minecraft": "tsx scripts/diagnose-minecraft.ts"
+    "diagnose:minecraft": "tsx scripts/diagnose-minecraft.ts",
+    "minecraft:test:setup": "tsx integration/minecraft/scripts/manage.ts setup",
+    "minecraft:test:start": "tsx integration/minecraft/scripts/manage.ts start",
+    "minecraft:test:stop": "tsx integration/minecraft/scripts/manage.ts stop",
+    "minecraft:test:status": "tsx integration/minecraft/scripts/manage.ts status",
+    "minecraft:test:clean": "tsx integration/minecraft/scripts/manage.ts clean"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

@@ -1,0 +1,17 @@
+{
+  "format_version": 2,
+  "header": {
+    "name": "JB3 Integration Behavior Pack",
+    "description": "Behavior pack fixture for the isolated integration environment",
+    "uuid": "f1f6d2b7-4c77-4a53-a88f-13cefa8a4a51",
+    "version": [1, 0, 0],
+    "min_engine_version": [1, 20, 0]
+  },
+  "modules": [
+    {
+      "type": "data",
+      "uuid": "d1a7a459-5bfc-4f92-b2da-8f73774c93d3",
+      "version": [1, 0, 0]
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+## JB³ GAMEHUB INTEGRATION TEST SERVER
+server-ip={{MINECRAFT_HOST}}
+server-port={{MINECRAFT_JAVA_PORT}}
+motd=JB³ GAMEHUB INTEGRATION TEST SERVER
+level-name=jb3-integration-test-world
+online-mode=false
+allow-flight=true
+spawn-protection=0
+view-distance=8
+simulation-distance=6
+enable-command-block=true
+enable-rcon=false
+use-native-transport=false
+max-players=8

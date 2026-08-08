@@ -6,3 +6,8 @@ coverage/
 *.log
 .env*
 !.env.example
+!.env.minecraft-test.example
+
+# Managed integration test server runtime artifacts
+integration/minecraft/server/**
+!integration/minecraft/server/.gitkeep

@@ -1,0 +1,11 @@
+bedrock:
+  address: 0.0.0.0
+  port: {{MINECRAFT_BEDROCK_PORT}}
+  motd1: JB3 GameHub Integration Test Server
+  motd2: Geyser bridge for local validation
+remote:
+  address: {{MINECRAFT_HOST}}
+  port: {{MINECRAFT_JAVA_PORT}}
+auth-type: offline
+clone-remote-port: false
+passthrough-motd: true

@@ -1,0 +1,17 @@
+{
+  "format_version": 2,
+  "header": {
+    "name": "JB3 Integration Resource Pack",
+    "description": "Resource pack fixture for the isolated integration environment",
+    "uuid": "9e4c7a64-9d2a-4fd0-91cb-94aa4d6be552",
+    "version": [1, 0, 0],
+    "min_engine_version": [1, 20, 0]
+  },
+  "modules": [
+    {
+      "type": "resources",
+      "uuid": "bbd2fd9d-fb2d-43a6-8d12-a4f3d5adf4ee",
+      "version": [1, 0, 0]
+    }
+  ]
+}

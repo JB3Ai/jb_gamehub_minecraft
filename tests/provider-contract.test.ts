@@ -13,12 +13,46 @@ test("provider discovery and capability reporting", async () => {
   });
 
   const providers = manager.listProviders();
-  assert.equal(providers.length, 1);
-  assert.equal(providers[0]?.id, "minecraft");
+  assert.equal(providers.length, 2);
+  assert.ok(providers.some((provider) => provider.id === "minecraft"));
+  assert.ok(providers.some((provider) => provider.id === "synthetic"));
 
   const capabilities = manager.getCapabilities("minecraft");
   assert.equal(capabilities["server.start"], true);
   assert.equal(capabilities["world.list"], true);
+
+  const syntheticCapabilities = manager.getCapabilities("synthetic");
+  assert.equal(syntheticCapabilities["server.start"], true);
+  assert.equal(syntheticCapabilities["world.list"], true);
+});
+
+test("multi-provider server discovery and synthetic operation lifecycle", async () => {
+  const manager = await bootstrapCore({
+    minecraftServerDir: fixtureDir,
+  });
+
+  const servers = await manager.listServers();
+  assert.ok(servers.some((server) => server.id === "minecraft-main" && server.providerId === "minecraft"));
+  assert.ok(servers.some((server) => server.id === "synthetic-main" && server.providerId === "synthetic"));
+
+  const syntheticBefore = await manager.getServerStatus("synthetic-main");
+  assert.equal(syntheticBefore.status, "offline");
+
+  const syntheticStart = await manager.startServer("synthetic-main");
+  const syntheticStartRecord = manager.getOperation(syntheticStart.operationId);
+  assert.equal(syntheticStartRecord?.providerId, "synthetic");
+  assert.equal(syntheticStartRecord?.type, "server.start");
+
+  const syntheticAfter = await manager.getServerStatus("synthetic-main");
+  assert.equal(syntheticAfter.status, "online");
+
+  const syntheticStop = await manager.stopServer("synthetic-main");
+  const syntheticStopRecord = manager.getOperation(syntheticStop.operationId);
+  assert.equal(syntheticStopRecord?.providerId, "synthetic");
+  assert.equal(syntheticStopRecord?.type, "server.stop");
+
+  const syntheticFinal = await manager.getServerStatus("synthetic-main");
+  assert.equal(syntheticFinal.status, "offline");
 });
 
 test("server status, start/stop operation tracking, and operation retrieval", async () => {

@@ -135,7 +135,7 @@ Target flow:
 
 ## Known Limitations
 
-- Only one server is currently exposed by the current provider configuration.
+- Operational state is currently memory-backed and reset on backend restart.
 - Operation history starts from app session time; it is not yet persisted across reloads.
 - The dashboard is intentionally operational-first and not yet final visual branding.
 

@@ -80,6 +80,7 @@ app.get("/api/servers", async (req, res) => {
         const host = activeRuntimeConfig?.minecraftHost ?? "127.0.0.1";
         const javaPort = activeRuntimeConfig?.minecraftJavaPort ?? 25565;
         const bedrockPort = activeRuntimeConfig?.minecraftBedrockPort ?? 19132;
+        const isMinecraftProvider = server.providerId === "minecraft";
 
         return {
           ...server,
@@ -88,8 +89,8 @@ app.get("/api/servers", async (req, res) => {
           availability: status.status === "online" || status.status === "starting",
           lastStatusUpdate: new Date().toISOString(),
           endpoints: {
-            java: `${host}:${javaPort}`,
-            bedrock: diagnostics?.geyserDetected ? `${host}:${bedrockPort}` : undefined,
+            java: isMinecraftProvider ? `${host}:${javaPort}` : `synthetic://${server.id}`,
+            bedrock: isMinecraftProvider && diagnostics?.geyserDetected ? `${host}:${bedrockPort}` : undefined,
           },
           diagnostics,
         };

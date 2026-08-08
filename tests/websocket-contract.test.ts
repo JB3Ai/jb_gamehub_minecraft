@@ -200,3 +200,49 @@ test("WebSocket receives world validation completion events", async () => {
     await closeServer(server);
   }
 });
+
+test("WebSocket synthetic provider events include independent provider and server identity", async () => {
+  const port = 3324;
+  const server = await startServer(port, {
+    minecraftServerDir: fixtureDir,
+    minecraftHost: "127.0.0.1",
+    minecraftJavaPort: 45681,
+    minecraftBedrockPort: 19132,
+    minecraftStartCommand: "node -e \"process.exit(0)\"",
+    minecraftStopCommand: "node -e \"process.exit(0)\"",
+  });
+
+  const socket = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+  const collector = createCollector(socket);
+
+  try {
+    await once(socket, "open");
+
+    const response = await fetch(`http://127.0.0.1:${port}/api/servers/synthetic-main/start`, {
+      method: "POST",
+    });
+    assert.equal(response.status, 202);
+
+    const operationEvents = await collector.waitForTypeSequence([
+      "operation.created",
+      "operation.started",
+      "operation.completed",
+    ]);
+
+    assert.equal(operationEvents[0]?.providerId, "synthetic");
+    assert.equal(operationEvents[0]?.serverId, "synthetic-main");
+    assert.equal(operationEvents[1]?.providerId, "synthetic");
+    assert.equal(operationEvents[2]?.providerId, "synthetic");
+
+    const statusResponse = await fetch(`http://127.0.0.1:${port}/api/servers/synthetic-main/status`);
+    assert.equal(statusResponse.status, 200);
+
+    const statusEvent = await collector.waitForType("server.status.changed");
+    assert.equal(statusEvent.providerId, "synthetic");
+    assert.equal(statusEvent.serverId, "synthetic-main");
+    assert.equal(statusEvent.status, "online");
+  } finally {
+    socket.close();
+    await closeServer(server);
+  }
+});

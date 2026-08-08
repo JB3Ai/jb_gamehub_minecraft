@@ -31,7 +31,8 @@ test("provider and server API contract with operation retrieval", async () => {
     const providersRes = await fetch("http://127.0.0.1:3310/api/providers");
     assert.equal(providersRes.status, 200);
     const providersBody = (await providersRes.json()) as { providers: Array<{ id: string }> };
-    assert.equal(providersBody.providers[0]?.id, "minecraft");
+    assert.ok(providersBody.providers.some((provider) => provider.id === "minecraft"));
+    assert.ok(providersBody.providers.some((provider) => provider.id === "synthetic"));
 
     const serversRes = await fetch("http://127.0.0.1:3310/api/servers");
     assert.equal(serversRes.status, 200);
@@ -52,6 +53,11 @@ test("provider and server API contract with operation retrieval", async () => {
     assert.equal(typeof serversBody.servers[0]?.availability, "boolean");
     assert.equal(typeof serversBody.servers[0]?.lastStatusUpdate, "string");
     assert.equal(typeof serversBody.servers[0]?.endpoints?.java, "string");
+
+    const syntheticServer = serversBody.servers.find((server) => server.id === "synthetic-main");
+    assert.ok(syntheticServer);
+    assert.equal(syntheticServer?.serverType, "Example Test Provider");
+    assert.match(String(syntheticServer?.endpoints.java), /^synthetic:\/\//);
 
     const startRes = await fetch(`http://127.0.0.1:3310/api/servers/${serverId}/start`, { method: "POST" });
     assert.equal(startRes.status, 202);

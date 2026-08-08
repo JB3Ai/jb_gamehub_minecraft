@@ -1,5 +1,6 @@
 import { MinecraftProvider } from "../minecraft-provider/index";
 import { InMemoryProviderManager } from "../provider-manager/index";
+import { SyntheticProvider } from "../synthetic-provider/index";
 import { loadRuntimeConfig, RuntimeConfig } from "./runtime-config";
 
 export interface CoreBootstrapConfig {
@@ -34,5 +35,7 @@ export async function bootstrapCore(config: CoreBootstrapConfig = {}): Promise<I
   });
 
   await providerManager.register(minecraftProvider);
+  const syntheticProvider = new SyntheticProvider();
+  await providerManager.register(syntheticProvider);
   return providerManager;
 }

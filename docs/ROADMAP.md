@@ -1,5 +1,13 @@
 # ROADMAP.md - JB³ GameHub Feature Roadmap
 
+## Validated Vertical Slices
+
+- [x] JBGH-011A: Local Paper + Geyser Integration Environment
+- [x] JBGH-012: Provider Lifecycle Hardening + Real Event Evidence
+- [x] JBGH-012A: Lifecycle Evidence Assertion
+- [x] JBGH-013: Minimal Operational Dashboard
+- [x] JBGH-014: Multi-Server / Provider Registry
+
 ## 🚀 Sprint Roadmap
 
 ### Sprint 0: Foundation & Specification ✅

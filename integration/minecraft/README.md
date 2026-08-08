@@ -31,6 +31,7 @@ npm run minecraft:test:setup -- --accept-eula
 npm run minecraft:test:start
 npm run minecraft:test:status
 npm run minecraft:test:stop
+npm run minecraft:test:evidence
 npm run minecraft:test:clean -- --confirm
 ```
 
@@ -49,3 +50,4 @@ npm run minecraft:test:clean -- --confirm
 - `setup` does not accept the EULA silently.
 - `clean` refuses to delete anything unless `--confirm` is passed.
 - `start` and `stop` act only on the managed integration server directory.
+- `evidence` captures a full REST + WebSocket lifecycle trace and writes artifacts to `integration/minecraft/evidence`.

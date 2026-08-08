@@ -14,6 +14,7 @@ const app = express();
 const PORT = 3000;
 let providerManager: InMemoryProviderManager;
 let wsServer: WebSocketServer | undefined;
+let activeRuntimeConfig: RuntimeConfig | undefined;
 
 app.use(express.json());
 
@@ -64,7 +65,38 @@ app.get("/api/servers", async (req, res) => {
   try {
     const providerId = typeof req.query.provider === "string" ? req.query.provider : undefined;
     const servers = await providerManager.listServers(providerId);
-    res.json({ servers });
+    const diagnosticsCache = new Map<string, Awaited<ReturnType<ReturnType<typeof providerManager.getProvider>["getDiagnostics"]>>>();
+
+    const enriched = await Promise.all(
+      servers.map(async (server) => {
+        const provider = providerManager.getProvider(server.providerId);
+        let diagnostics = diagnosticsCache.get(server.providerId);
+        if (!diagnostics) {
+          diagnostics = await provider.getDiagnostics();
+          diagnosticsCache.set(server.providerId, diagnostics);
+        }
+
+        const status = await providerManager.getServerStatus(server.id);
+        const host = activeRuntimeConfig?.minecraftHost ?? "127.0.0.1";
+        const javaPort = activeRuntimeConfig?.minecraftJavaPort ?? 25565;
+        const bedrockPort = activeRuntimeConfig?.minecraftBedrockPort ?? 19132;
+
+        return {
+          ...server,
+          serverType: provider.metadata().name,
+          status: status.status,
+          availability: status.status === "online" || status.status === "starting",
+          lastStatusUpdate: new Date().toISOString(),
+          endpoints: {
+            java: `${host}:${javaPort}`,
+            bedrock: diagnostics?.geyserDetected ? `${host}:${bedrockPort}` : undefined,
+          },
+          diagnostics,
+        };
+      }),
+    );
+
+    res.json({ servers: enriched });
   } catch (err) {
     handleApiError(res, err);
   }
@@ -95,6 +127,15 @@ app.post("/api/servers/:id/start", async (req, res) => {
 app.post("/api/servers/:id/stop", async (req, res) => {
   try {
     const operation = await providerManager.stopServer(req.params.id);
+    res.status(202).json(operation);
+  } catch (err) {
+    handleApiError(res, err);
+  }
+});
+
+app.post("/api/servers/:id/restart", async (req, res) => {
+  try {
+    const operation = await providerManager.restartServer(req.params.id);
     res.status(202).json(operation);
   } catch (err) {
     handleApiError(res, err);
@@ -278,6 +319,7 @@ export async function startServer(port = PORT, overrides: Partial<RuntimeConfig>
     ...loadRuntimeConfig(process.env),
     ...overrides,
   };
+  activeRuntimeConfig = config;
   providerManager = await bootstrapCore({
     minecraftServerDir: config.minecraftServerDir,
     minecraftHost: config.minecraftHost,

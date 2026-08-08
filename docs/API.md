@@ -5,14 +5,66 @@
 ### `GET /api/health`
 Returns current server health status.
 
+### `GET /api/providers`
+Returns registered providers.
+
+### `GET /api/providers/:id`
+Returns provider metadata and capabilities.
+
 ### `GET /api/servers`
-Retrieves list of managed Minecraft server instances.
+Returns discovered servers with provider-backed operational metadata used by the dashboard.
 
-### `POST /api/servers/:id/power`
-Executes power toggle (`start`, `stop`, `restart`) on the target server.
+Response fields include:
 
-### `POST /api/console/command`
-Dispatches an RCON command string directly to the active server instance.
+- `id`
+- `providerId`
+- `name`
+- `serverType`
+- `status`
+- `availability`
+- `lastStatusUpdate`
+- `endpoints.java`
+- `endpoints.bedrock` (when available)
+- `diagnostics.paperDetected`
+- `diagnostics.geyserDetected`
 
-### `POST /api/copilot/prompt`
-Sends natural language admin commands to Gemini 3.6 Flash for automated execution.
+### `GET /api/servers/:id`
+Returns one server summary and current status.
+
+### `GET /api/servers/:id/status`
+Returns current server lifecycle state.
+
+### `POST /api/servers/:id/start`
+Starts a server and returns an operation reference.
+
+### `POST /api/servers/:id/stop`
+Stops a server and returns an operation reference.
+
+### `POST /api/servers/:id/restart`
+Restarts a server and returns an operation reference.
+
+### `GET /api/servers/:id/worlds`
+Lists worlds from the provider.
+
+### `POST /api/servers/:id/worlds/:worldId/validate`
+Runs provider-owned world/pack validation.
+
+### `GET /api/operations/:id`
+Returns operation details by ID.
+
+### `POST /api/ai/copilot`
+Sends natural language admin commands to Gemini for copilot-driven actions.
+
+## WebSocket Endpoint
+
+### `GET /ws` (WebSocket upgrade)
+Streams provider events to connected clients.
+
+Current event types:
+
+- `operation.created`
+- `operation.started`
+- `operation.completed`
+- `operation.failed`
+- `server.status.changed`
+- `world.validation.completed`

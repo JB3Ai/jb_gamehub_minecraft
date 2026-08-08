@@ -1,0 +1,95 @@
+{
+  "generatedAt": "2026-08-08T08:08:13.731Z",
+  "providerId": "minecraft",
+  "serverId": "minecraft-main",
+  "startOperationId": "op_start_001",
+  "stopOperationId": "op_stop_001",
+  "statusChecks": {
+    "beforeStart": "offline",
+    "afterStart": "online",
+    "afterStop": "offline"
+  },
+  "timeline": [
+    {
+      "type": "server.status.changed",
+      "timestamp": "2026-08-08T08:07:56.894Z",
+      "providerId": "minecraft",
+      "serverId": "minecraft-main",
+      "status": "offline"
+    },
+    {
+      "type": "operation.created",
+      "timestamp": "2026-08-08T08:07:56.915Z",
+      "providerId": "minecraft",
+      "serverId": "minecraft-main",
+      "operationId": "op_start_001",
+      "status": "queued"
+    },
+    {
+      "type": "operation.started",
+      "timestamp": "2026-08-08T08:07:56.916Z",
+      "providerId": "minecraft",
+      "serverId": "minecraft-main",
+      "operationId": "op_start_001",
+      "status": "running"
+    },
+    {
+      "type": "operation.completed",
+      "timestamp": "2026-08-08T08:07:57.934Z",
+      "providerId": "minecraft",
+      "serverId": "minecraft-main",
+      "operationId": "op_start_001",
+      "status": "completed"
+    },
+    {
+      "type": "server.status.changed",
+      "timestamp": "2026-08-08T08:08:12.548Z",
+      "providerId": "minecraft",
+      "serverId": "minecraft-main",
+      "status": "online"
+    },
+    {
+      "type": "world.validation.completed",
+      "timestamp": "2026-08-08T08:08:12.569Z",
+      "providerId": "minecraft",
+      "serverId": "minecraft-main",
+      "worldId": "jb3-integration-test-world",
+      "operationId": "op_validate_001",
+      "status": "completed",
+      "payload": {
+        "valid": true
+      }
+    },
+    {
+      "type": "operation.created",
+      "timestamp": "2026-08-08T08:08:12.580Z",
+      "providerId": "minecraft",
+      "serverId": "minecraft-main",
+      "operationId": "op_stop_001",
+      "status": "queued"
+    },
+    {
+      "type": "operation.started",
+      "timestamp": "2026-08-08T08:08:12.580Z",
+      "providerId": "minecraft",
+      "serverId": "minecraft-main",
+      "operationId": "op_stop_001",
+      "status": "running"
+    },
+    {
+      "type": "operation.completed",
+      "timestamp": "2026-08-08T08:08:13.712Z",
+      "providerId": "minecraft",
+      "serverId": "minecraft-main",
+      "operationId": "op_stop_001",
+      "status": "completed"
+    },
+    {
+      "type": "server.status.changed",
+      "timestamp": "2026-08-08T08:08:13.730Z",
+      "providerId": "minecraft",
+      "serverId": "minecraft-main",
+      "status": "offline"
+    }
+  ]
+}

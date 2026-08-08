@@ -18,7 +18,8 @@
     "minecraft:test:stop": "tsx integration/minecraft/scripts/manage.ts stop",
     "minecraft:test:status": "tsx integration/minecraft/scripts/manage.ts status",
     "minecraft:test:clean": "tsx integration/minecraft/scripts/manage.ts clean",
-    "minecraft:test:evidence": "tsx integration/minecraft/scripts/capture-lifecycle-evidence.ts"
+    "minecraft:test:evidence": "tsx integration/minecraft/scripts/capture-lifecycle-evidence.ts",
+    "validate:lifecycle:evidence": "tsx integration/minecraft/scripts/validate-lifecycle-evidence.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

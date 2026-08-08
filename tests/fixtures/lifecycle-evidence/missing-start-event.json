@@ -1,0 +1,74 @@
+{
+  "generatedAt": "2026-08-08T08:08:13.731Z",
+  "providerId": "minecraft",
+  "serverId": "minecraft-main",
+  "startOperationId": "op_start_001",
+  "stopOperationId": "op_stop_001",
+  "statusChecks": {
+    "beforeStart": "offline",
+    "afterStart": "online",
+    "afterStop": "offline"
+  },
+  "timeline": [
+    {
+      "type": "server.status.changed",
+      "timestamp": "2026-08-08T08:07:56.894Z",
+      "providerId": "minecraft",
+      "status": "offline"
+    },
+    {
+      "type": "operation.created",
+      "timestamp": "2026-08-08T08:07:56.915Z",
+      "providerId": "minecraft",
+      "operationId": "op_start_001",
+      "status": "queued"
+    },
+    {
+      "type": "operation.completed",
+      "timestamp": "2026-08-08T08:07:57.934Z",
+      "providerId": "minecraft",
+      "operationId": "op_start_001",
+      "status": "completed"
+    },
+    {
+      "type": "server.status.changed",
+      "timestamp": "2026-08-08T08:08:12.548Z",
+      "providerId": "minecraft",
+      "status": "online"
+    },
+    {
+      "type": "world.validation.completed",
+      "timestamp": "2026-08-08T08:08:12.569Z",
+      "providerId": "minecraft",
+      "operationId": "op_validate_001",
+      "status": "completed"
+    },
+    {
+      "type": "operation.created",
+      "timestamp": "2026-08-08T08:08:12.580Z",
+      "providerId": "minecraft",
+      "operationId": "op_stop_001",
+      "status": "queued"
+    },
+    {
+      "type": "operation.started",
+      "timestamp": "2026-08-08T08:08:12.580Z",
+      "providerId": "minecraft",
+      "operationId": "op_stop_001",
+      "status": "running"
+    },
+    {
+      "type": "operation.completed",
+      "timestamp": "2026-08-08T08:08:13.712Z",
+      "providerId": "minecraft",
+      "operationId": "op_stop_001",
+      "status": "completed"
+    },
+    {
+      "type": "server.status.changed",
+      "timestamp": "2026-08-08T08:08:13.730Z",
+      "providerId": "minecraft",
+      "status": "offline"
+    }
+  ]
+}

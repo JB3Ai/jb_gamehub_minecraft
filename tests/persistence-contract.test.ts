@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
 import {
+  ConnectionEndpoint,
   GameProvider,
   InMemoryProviderManager,
   PersistenceRepository,
@@ -104,6 +105,14 @@ class FailingEventRepository implements PersistenceRepository {
   async cleanupExpired() {
     return { operationsDeleted: 0, eventsDeleted: 0, auditDeleted: 0 };
   }
+  async getHistoryStorageStats() {
+    return {
+      databaseSizeBytes: 0,
+      oldestOperationAt: undefined,
+      oldestEventAt: undefined,
+      oldestAuditAt: undefined,
+    };
+  }
 }
 
 class MinimalProvider implements GameProvider {
@@ -128,6 +137,10 @@ class MinimalProvider implements GameProvider {
 
   async getServers() {
     return [{ id: "failing-main", providerId: "failing", name: "Failing Main" }];
+  }
+
+  async getServerConnectionEndpoints(serverId: string): Promise<ConnectionEndpoint[]> {
+    return [{ id: "primary", protocol: "synthetic", transport: "virtual", display: `synthetic://${serverId}` }];
   }
 
   async getServerStatus(): Promise<ServerStatus> {

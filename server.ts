@@ -6,6 +6,7 @@ import { fileURLToPath } from "url";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import { WebSocketServer } from "ws";
+import { AnalyticsService, resolveWindow } from "./packages/core/analytics-service";
 import { bootstrapCore } from "./packages/core/index";
 import { EventQuery, InMemoryProviderManager, OperationQuery } from "./packages/provider-manager/index";
 import { loadRuntimeConfig, runtimeConfigDiagnostics, RuntimeConfig } from "./packages/core/runtime-config";
@@ -15,15 +16,19 @@ const PORT = 3000;
 let providerManager: InMemoryProviderManager;
 let wsServer: WebSocketServer | undefined;
 let activeRuntimeConfig: RuntimeConfig | undefined;
+let analyticsService: AnalyticsService;
 
 app.use(express.json());
 
 function handleApiError(res: express.Response, err: unknown) {
   const message = err instanceof Error ? err.message : "Unknown error";
-  const status = message.includes("not found") || message.includes("Unknown server") ? 404 : 500;
+  const isNotFound = message.includes("not found") || message.includes("Unknown server");
+  const isBadRequest =
+    message.startsWith("Invalid ") || message.includes("must be earlier than") || message.includes("confirmation required");
+  const status = isNotFound ? 404 : isBadRequest ? 400 : 500;
   res.status(status).json({
     error: {
-      code: status === 404 ? "NOT_FOUND" : "INTERNAL_ERROR",
+      code: status === 404 ? "NOT_FOUND" : status === 400 ? "BAD_REQUEST" : "INTERNAL_ERROR",
       message,
     },
   });
@@ -53,6 +58,26 @@ function parseOperationQuery(req: express.Request): OperationQuery {
     to: typeof req.query.to === "string" ? req.query.to : undefined,
     limit: parseLimit(req.query.limit, 100, 500),
   };
+}
+
+function parseAnalyticsWindow(req: express.Request) {
+  return resolveWindow({
+    window: typeof req.query.window === "string" ? req.query.window : undefined,
+    from: typeof req.query.from === "string" ? req.query.from : undefined,
+    to: typeof req.query.to === "string" ? req.query.to : undefined,
+    providerId: typeof req.query.providerId === "string" ? req.query.providerId : undefined,
+    serverId: typeof req.query.serverId === "string" ? req.query.serverId : undefined,
+    type: typeof req.query.type === "string" ? req.query.type : undefined,
+    state: typeof req.query.state === "string" ? req.query.state : undefined,
+    limit: typeof req.query.limit === "string" ? parseLimit(req.query.limit, 2000, 5000) : undefined,
+  });
+}
+
+function requireCleanupConfirmation(req: express.Request): void {
+  const body = req.body as { confirm?: string; actor?: string } | undefined;
+  if (body?.confirm !== "CLEANUP_HISTORY") {
+    throw new Error("Cleanup confirmation required: set body.confirm to CLEANUP_HISTORY");
+  }
 }
 
 function parseEventQuery(req: express.Request): EventQuery {
@@ -115,10 +140,10 @@ app.get("/api/servers", async (req, res) => {
         }
 
         const status = await providerManager.getServerStatus(server.id);
-        const host = activeRuntimeConfig?.minecraftHost ?? "127.0.0.1";
-        const javaPort = activeRuntimeConfig?.minecraftJavaPort ?? 25565;
-        const bedrockPort = activeRuntimeConfig?.minecraftBedrockPort ?? 19132;
-        const isMinecraftProvider = server.providerId === "minecraft";
+        const connectionEndpoints = await providerManager.getServerConnectionEndpoints(server.id);
+        const javaEndpoint =
+          connectionEndpoints.find((endpoint) => endpoint.protocol.includes("java") || endpoint.id === "java") || connectionEndpoints[0];
+        const bedrockEndpoint = connectionEndpoints.find((endpoint) => endpoint.protocol.includes("bedrock") || endpoint.id === "bedrock");
 
         return {
           ...server,
@@ -126,9 +151,10 @@ app.get("/api/servers", async (req, res) => {
           status: status.status,
           availability: status.status === "online" || status.status === "starting",
           lastStatusUpdate: new Date().toISOString(),
+          connectionEndpoints,
           endpoints: {
-            java: isMinecraftProvider ? `${host}:${javaPort}` : `synthetic://${server.id}`,
-            bedrock: isMinecraftProvider && diagnostics?.geyserDetected ? `${host}:${bedrockPort}` : undefined,
+            java: javaEndpoint?.display || "N/A",
+            bedrock: bedrockEndpoint?.display,
           },
           diagnostics,
         };
@@ -247,19 +273,135 @@ app.get("/api/servers/:providerId/:serverId/history", (req, res) => {
 
 app.post("/api/history/cleanup", (req, res) => {
   void (async () => {
-    const cleanup = await providerManager.cleanupHistory({
+    requireCleanupConfirmation(req);
+    const policy = {
       operationRetentionDays: activeRuntimeConfig?.operationRetentionDays ?? 90,
       eventRetentionDays: activeRuntimeConfig?.eventRetentionDays ?? 30,
       auditRetentionDays: activeRuntimeConfig?.auditRetentionDays ?? 365,
-    });
+    };
 
+    const actor = typeof req.body?.actor === "string" ? req.body.actor : "local-admin";
+    const result = await providerManager.cleanupHistory(policy, actor);
+
+    res.json(result);
+  })().catch((err) => handleApiError(res, err));
+});
+
+app.get("/api/history/overview", (req, res) => {
+  void (async () => {
+    const policy = {
+      operationRetentionDays: activeRuntimeConfig?.operationRetentionDays ?? 90,
+      eventRetentionDays: activeRuntimeConfig?.eventRetentionDays ?? 30,
+      auditRetentionDays: activeRuntimeConfig?.auditRetentionDays ?? 365,
+    };
+    const data = await analyticsService.persistenceOverview(policy);
     res.json({
-      cleanup,
-      policy: {
-        operationRetentionDays: activeRuntimeConfig?.operationRetentionDays ?? 90,
-        eventRetentionDays: activeRuntimeConfig?.eventRetentionDays ?? 30,
-        auditRetentionDays: activeRuntimeConfig?.auditRetentionDays ?? 365,
-      },
+      generatedAt: new Date().toISOString(),
+      data,
+    });
+  })().catch((err) => handleApiError(res, err));
+});
+
+app.get("/api/analytics/summary", (req, res) => {
+  void (async () => {
+    const window = parseAnalyticsWindow(req);
+    const data = await analyticsService.summary(window);
+    res.json({
+      generatedAt: new Date().toISOString(),
+      from: window.from,
+      to: window.to,
+      providerId: window.providerId,
+      serverId: window.serverId,
+      data,
+    });
+  })().catch((err) => handleApiError(res, err));
+});
+
+app.get("/api/analytics/providers/:providerId", (req, res) => {
+  void (async () => {
+    const window = parseAnalyticsWindow(req);
+    const data = await analyticsService.provider(req.params.providerId, window);
+    res.json({
+      generatedAt: new Date().toISOString(),
+      from: window.from,
+      to: window.to,
+      providerId: req.params.providerId,
+      data,
+    });
+  })().catch((err) => handleApiError(res, err));
+});
+
+app.get("/api/analytics/servers/:providerId/:serverId", (req, res) => {
+  void (async () => {
+    const window = parseAnalyticsWindow(req);
+    const data = await analyticsService.server(req.params.providerId, req.params.serverId, window);
+    res.json({
+      generatedAt: new Date().toISOString(),
+      from: window.from,
+      to: window.to,
+      providerId: req.params.providerId,
+      serverId: req.params.serverId,
+      data,
+    });
+  })().catch((err) => handleApiError(res, err));
+});
+
+app.get("/api/analytics/operations", (req, res) => {
+  void (async () => {
+    const window = parseAnalyticsWindow(req);
+    const data = await analyticsService.operations(window);
+    res.json({
+      generatedAt: new Date().toISOString(),
+      from: window.from,
+      to: window.to,
+      providerId: window.providerId,
+      serverId: window.serverId,
+      data,
+    });
+  })().catch((err) => handleApiError(res, err));
+});
+
+app.get("/api/analytics/events", (req, res) => {
+  void (async () => {
+    const window = parseAnalyticsWindow(req);
+    const data = await analyticsService.events(window);
+    res.json({
+      generatedAt: new Date().toISOString(),
+      from: window.from,
+      to: window.to,
+      providerId: window.providerId,
+      serverId: window.serverId,
+      data,
+    });
+  })().catch((err) => handleApiError(res, err));
+});
+
+app.get("/api/analytics/uptime", (req, res) => {
+  void (async () => {
+    const window = parseAnalyticsWindow(req);
+    const data = await analyticsService.uptime(window);
+    res.json({
+      generatedAt: new Date().toISOString(),
+      from: window.from,
+      to: window.to,
+      providerId: window.providerId,
+      serverId: window.serverId,
+      data,
+    });
+  })().catch((err) => handleApiError(res, err));
+});
+
+app.get("/api/analytics/world-validation", (req, res) => {
+  void (async () => {
+    const window = parseAnalyticsWindow(req);
+    const data = await analyticsService.worldValidation(window);
+    res.json({
+      generatedAt: new Date().toISOString(),
+      from: window.from,
+      to: window.to,
+      providerId: window.providerId,
+      serverId: window.serverId,
+      data,
     });
   })().catch((err) => handleApiError(res, err));
 });
@@ -414,6 +556,7 @@ export async function startServer(port = PORT, overrides: Partial<RuntimeConfig>
     eventRetentionDays: config.eventRetentionDays,
     auditRetentionDays: config.auditRetentionDays,
   });
+  analyticsService = new AnalyticsService(providerManager);
 
   console.log("[JB3 GameHub] Runtime configuration:");
   for (const line of runtimeConfigDiagnostics(config)) {

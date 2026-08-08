@@ -1,4 +1,5 @@
 import {
+  ConnectionEndpoint,
   CapabilityMap,
   GameProvider,
   ProviderActionResult,
@@ -85,6 +86,20 @@ export class SyntheticProvider implements GameProvider {
         id: this.serverId,
         providerId: this.providerId,
         name: this.serverName,
+      },
+    ];
+  }
+
+  async getServerConnectionEndpoints(serverId: string): Promise<ConnectionEndpoint[]> {
+    this.assertServerId(serverId);
+    return [
+      {
+        id: "control",
+        protocol: "synthetic-control",
+        transport: "virtual",
+        uri: `synthetic://${this.serverId}`,
+        display: `synthetic://${this.serverId}`,
+        capabilities: ["simulate", "lifecycle-test"],
       },
     ];
   }

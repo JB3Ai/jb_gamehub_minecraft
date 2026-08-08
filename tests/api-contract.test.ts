@@ -44,10 +44,12 @@ test("provider and server API contract with operation retrieval", async () => {
     const serversBody = (await serversRes.json()) as {
       servers: Array<{
         id: string;
+        providerId: string;
         serverType: string;
         status: string;
         availability: boolean;
         lastStatusUpdate: string;
+        connectionEndpoints?: Array<{ id: string; protocol: string; transport: string; display: string }>;
         endpoints: { java: string; bedrock?: string };
       }>;
     };
@@ -58,11 +60,14 @@ test("provider and server API contract with operation retrieval", async () => {
     assert.equal(typeof serversBody.servers[0]?.availability, "boolean");
     assert.equal(typeof serversBody.servers[0]?.lastStatusUpdate, "string");
     assert.equal(typeof serversBody.servers[0]?.endpoints?.java, "string");
+    assert.ok(Array.isArray(serversBody.servers[0]?.connectionEndpoints));
+    assert.ok((serversBody.servers[0]?.connectionEndpoints?.length || 0) > 0);
 
     const syntheticServer = serversBody.servers.find((server) => server.id === "synthetic-main");
     assert.ok(syntheticServer);
     assert.equal(syntheticServer?.serverType, "Example Test Provider");
     assert.match(String(syntheticServer?.endpoints.java), /^synthetic:\/\//);
+    assert.ok(syntheticServer?.connectionEndpoints?.every((endpoint) => endpoint.transport === "virtual"));
 
     const startRes = await fetch(`http://127.0.0.1:3310/api/servers/${serverId}/start`, { method: "POST" });
     assert.equal(startRes.status, 202);
@@ -117,6 +122,74 @@ test("provider and server API contract with operation retrieval", async () => {
     assert.equal(worldsRes.status, 200);
     const worldsBody = (await worldsRes.json()) as { worlds: Array<{ id: string }> };
     assert.ok(worldsBody.worlds.some((world) => world.id === "celestial-castle"));
+
+    const summaryRes = await fetch("http://127.0.0.1:3310/api/analytics/summary?window=24h");
+    assert.equal(summaryRes.status, 200);
+    const summaryBody = (await summaryRes.json()) as {
+      generatedAt: string;
+      from: string;
+      to: string;
+      data: { totals: { providers: number; servers: number } };
+    };
+    assert.equal(typeof summaryBody.generatedAt, "string");
+    assert.equal(typeof summaryBody.from, "string");
+    assert.equal(typeof summaryBody.to, "string");
+    assert.ok(summaryBody.data.totals.providers >= 2);
+    assert.ok(summaryBody.data.totals.servers >= 2);
+
+    const providerAnalyticsRes = await fetch("http://127.0.0.1:3310/api/analytics/providers/minecraft?window=24h");
+    assert.equal(providerAnalyticsRes.status, 200);
+    const providerAnalyticsBody = (await providerAnalyticsRes.json()) as { providerId: string; data: { providerId: string } };
+    assert.equal(providerAnalyticsBody.providerId, "minecraft");
+    assert.equal(providerAnalyticsBody.data.providerId, "minecraft");
+
+    const serverAnalyticsRes = await fetch("http://127.0.0.1:3310/api/analytics/servers/minecraft/minecraft-main?window=24h");
+    assert.equal(serverAnalyticsRes.status, 200);
+    const serverAnalyticsBody = (await serverAnalyticsRes.json()) as { providerId: string; serverId: string; data: { serverId: string } };
+    assert.equal(serverAnalyticsBody.providerId, "minecraft");
+    assert.equal(serverAnalyticsBody.serverId, "minecraft-main");
+    assert.equal(serverAnalyticsBody.data.serverId, "minecraft-main");
+
+    const operationsAnalyticsRes = await fetch("http://127.0.0.1:3310/api/analytics/operations?window=24h&providerId=minecraft");
+    assert.equal(operationsAnalyticsRes.status, 200);
+
+    const eventsAnalyticsRes = await fetch("http://127.0.0.1:3310/api/analytics/events?window=24h&providerId=minecraft");
+    assert.equal(eventsAnalyticsRes.status, 200);
+
+    const uptimeAnalyticsRes = await fetch("http://127.0.0.1:3310/api/analytics/uptime?window=24h&providerId=minecraft");
+    assert.equal(uptimeAnalyticsRes.status, 200);
+
+    const worldValidationRes = await fetch("http://127.0.0.1:3310/api/analytics/world-validation?window=24h&providerId=minecraft");
+    assert.equal(worldValidationRes.status, 200);
+
+    const historyOverviewRes = await fetch("http://127.0.0.1:3310/api/history/overview");
+    assert.equal(historyOverviewRes.status, 200);
+    const historyOverviewBody = (await historyOverviewRes.json()) as {
+      generatedAt: string;
+      data: { retention: { operationRetentionDays: number }; oldestByDomain: { operations?: string } };
+    };
+    assert.equal(typeof historyOverviewBody.generatedAt, "string");
+    assert.ok(historyOverviewBody.data.retention.operationRetentionDays > 0);
+
+    const cleanupRejectedRes = await fetch("http://127.0.0.1:3310/api/history/cleanup", { method: "POST" });
+    assert.equal(cleanupRejectedRes.status, 400);
+
+    const cleanupRes = await fetch("http://127.0.0.1:3310/api/history/cleanup", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ confirm: "CLEANUP_HISTORY", actor: "contract-test" }),
+    });
+    assert.equal(cleanupRes.status, 200);
+    const cleanupBody = (await cleanupRes.json()) as {
+      cleanup: { operationsDeleted: number; eventsDeleted: number; auditDeleted: number };
+      policy: { operationRetentionDays: number };
+      executedAt: string;
+      cutoff: { operationsBefore: string };
+    };
+    assert.equal(typeof cleanupBody.executedAt, "string");
+    assert.ok(cleanupBody.policy.operationRetentionDays > 0);
+    assert.equal(typeof cleanupBody.cleanup.operationsDeleted, "number");
+    assert.equal(typeof cleanupBody.cutoff.operationsBefore, "string");
   } finally {
     await closeServer(server);
   }

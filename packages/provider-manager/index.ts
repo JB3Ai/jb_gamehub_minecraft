@@ -44,6 +44,17 @@ export interface ProviderMetadata {
   status: "ready" | "degraded" | "offline";
 }
 
+export interface ConnectionEndpoint {
+  id: string;
+  protocol: string;
+  transport: "tcp" | "udp" | "virtual";
+  display: string;
+  host?: string;
+  port?: number;
+  uri?: string;
+  capabilities?: string[];
+}
+
 export type CapabilityMap = Record<string, boolean>;
 
 export interface ServerSummary {
@@ -147,7 +158,12 @@ export interface AuditRecord {
   id: string;
   timestamp: string;
   actor: string;
-  action: "server.start.requested" | "server.stop.requested" | "server.restart.requested" | "world.validation.requested";
+  action:
+    | "server.start.requested"
+    | "server.stop.requested"
+    | "server.restart.requested"
+    | "world.validation.requested"
+    | "history.cleanup.requested";
   providerId?: string;
   serverId?: string;
   operationId?: string;
@@ -177,6 +193,24 @@ export interface RetentionCleanupResult {
   auditDeleted: number;
 }
 
+export interface HistoryStorageStats {
+  databaseSizeBytes?: number;
+  oldestOperationAt?: string;
+  oldestEventAt?: string;
+  oldestAuditAt?: string;
+}
+
+export interface RetentionCleanupSummary {
+  cleanup: RetentionCleanupResult;
+  policy: RetentionPolicy;
+  executedAt: string;
+  cutoff: {
+    operationsBefore: string;
+    eventsBefore: string;
+    auditsBefore: string;
+  };
+}
+
 export interface PersistenceRepository {
   initialize(): Promise<void>;
   close(): Promise<void>;
@@ -191,6 +225,7 @@ export interface PersistenceRepository {
   appendAudit(record: AuditRecord): Promise<void>;
   listAudit(query?: { providerId?: string; serverId?: string; operationId?: string; limit?: number }): Promise<AuditRecord[]>;
   cleanupExpired(policy: RetentionPolicy, nowIso: string): Promise<RetentionCleanupResult>;
+  getHistoryStorageStats(): Promise<HistoryStorageStats>;
 }
 
 export interface GameProvider {
@@ -199,6 +234,7 @@ export interface GameProvider {
   getDiagnostics(): Promise<ProviderDiagnostics>;
   register(): Promise<void>;
   getServers(): Promise<ServerSummary[]>;
+  getServerConnectionEndpoints(serverId: string): Promise<ConnectionEndpoint[]>;
   getServerStatus(serverId: string): Promise<ServerStatus>;
   startServer(serverId: string): Promise<ProviderActionResult | void>;
   stopServer(serverId: string): Promise<ProviderActionResult | void>;
@@ -340,6 +376,17 @@ class InMemoryPersistenceRepository implements PersistenceRepository {
       operationsDeleted: 0,
       eventsDeleted: 0,
       auditDeleted: 0,
+    };
+  }
+
+  async getHistoryStorageStats(): Promise<HistoryStorageStats> {
+    const oldestOperationAt = [...this.operations.values()].map((item) => item.createdAt).sort()[0];
+    const oldestEventAt = this.events.map((item) => item.timestamp).sort()[0];
+    const oldestAuditAt = this.audits.map((item) => item.timestamp).sort()[0];
+    return {
+      oldestOperationAt,
+      oldestEventAt,
+      oldestAuditAt,
     };
   }
 }
@@ -562,6 +609,18 @@ export class InMemoryProviderManager {
     return this.repository.listEvents(query);
   }
 
+  async listAudits(query: { providerId?: string; serverId?: string; operationId?: string; limit?: number } = {}): Promise<AuditRecord[]> {
+    return this.repository.listAudit(query);
+  }
+
+  async listServerStates(): Promise<ServerStateSnapshot[]> {
+    return this.repository.listServerStates();
+  }
+
+  async getHistoryStorageStats(): Promise<HistoryStorageStats> {
+    return this.repository.getHistoryStorageStats();
+  }
+
   async getServerHistory(providerId: string, serverId: string, limit = 100): Promise<ProviderManagerHistory> {
     const state = (await this.repository.listServerStates()).find((item) => item.providerId === providerId && item.serverId === serverId);
     const operations = await this.repository.listOperations({ providerId, serverId, limit });
@@ -577,8 +636,38 @@ export class InMemoryProviderManager {
     };
   }
 
-  async cleanupHistory(policy: RetentionPolicy): Promise<RetentionCleanupResult> {
-    return this.repository.cleanupExpired(policy, new Date().toISOString());
+  async cleanupHistory(policy: RetentionPolicy, actor = this.defaultActor): Promise<RetentionCleanupSummary> {
+    const executedAt = new Date().toISOString();
+    const operationsBefore = new Date(Date.parse(executedAt) - policy.operationRetentionDays * 24 * 60 * 60 * 1000).toISOString();
+    const eventsBefore = new Date(Date.parse(executedAt) - policy.eventRetentionDays * 24 * 60 * 60 * 1000).toISOString();
+    const auditsBefore = new Date(Date.parse(executedAt) - policy.auditRetentionDays * 24 * 60 * 60 * 1000).toISOString();
+
+    const cleanup = await this.repository.cleanupExpired(policy, executedAt);
+    await this.service.writeAudit({
+      actor,
+      action: "history.cleanup.requested",
+      result: "completed",
+      metadata: {
+        policy,
+        cleanup,
+        cutoff: {
+          operationsBefore,
+          eventsBefore,
+          auditsBefore,
+        },
+      },
+    });
+
+    return {
+      cleanup,
+      policy,
+      executedAt,
+      cutoff: {
+        operationsBefore,
+        eventsBefore,
+        auditsBefore,
+      },
+    };
   }
 
   listProviders(): ProviderMetadata[] {
@@ -609,6 +698,11 @@ export class InMemoryProviderManager {
   async getServer(serverId: string): Promise<ServerSummary | undefined> {
     const servers = await this.listServers();
     return servers.find((server) => server.id === serverId);
+  }
+
+  async getServerConnectionEndpoints(serverId: string): Promise<ConnectionEndpoint[]> {
+    const server = await this.requireServer(serverId);
+    return this.getProvider(server.providerId).getServerConnectionEndpoints(serverId);
   }
 
   async startServer(serverId: string): Promise<OperationRef> {

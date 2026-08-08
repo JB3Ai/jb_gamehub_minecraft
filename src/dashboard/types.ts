@@ -27,10 +27,21 @@ export interface ServerInventoryItem {
     java: string;
     bedrock?: string;
   };
+  connectionEndpoints?: ConnectionEndpoint[];
   diagnostics?: {
     paperDetected: boolean;
     geyserDetected: boolean;
   };
+}
+
+export interface ConnectionEndpoint {
+  id: string;
+  protocol: string;
+  transport: "tcp" | "udp" | "virtual";
+  host?: string;
+  port?: number;
+  display: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface ServerInventoryResponse {
@@ -135,4 +146,67 @@ export interface DashboardState {
   worldsByServer: Record<string, WorldRuntime[]>;
   events: ProviderEvent[];
   wsConnection: WebSocketConnectionState;
+  analyticsSummary?: AnalyticsSummary;
+  persistenceOverview?: HistoryOverview;
+  cleanupState?: "idle" | "running" | "completed" | "failed";
+  cleanupMessage?: string;
+}
+
+export interface AnalyticsSummary {
+  totals: {
+    providers: number;
+    servers: number;
+    currentlyOnline: number;
+    currentlyOffline: number;
+    operationsCompleted: number;
+    operationsFailed: number;
+    averageOperationDurationMs: number | null;
+    validationSuccesses: number;
+    validationFailures: number;
+  };
+  recordLimitApplied: number;
+  incompleteHistory: boolean;
+}
+
+export interface ApiEnvelope<T> {
+  generatedAt: string;
+  from?: string;
+  to?: string;
+  providerId?: string;
+  serverId?: string;
+  data: T;
+}
+
+export interface HistoryOverview {
+  retention: {
+    operationRetentionDays: number;
+    eventRetentionDays: number;
+    auditRetentionDays: number;
+  };
+  databaseSizeBytes?: number;
+  oldestRetainedRecordAt?: string;
+  oldestByDomain: {
+    operations?: string;
+    events?: string;
+    audits?: string;
+  };
+}
+
+export interface HistoryCleanupSummary {
+  cleanup: {
+    operationsDeleted: number;
+    eventsDeleted: number;
+    auditDeleted: number;
+  };
+  policy: {
+    operationRetentionDays: number;
+    eventRetentionDays: number;
+    auditRetentionDays: number;
+  };
+  executedAt: string;
+  cutoff: {
+    operationsBefore: string;
+    eventsBefore: string;
+    auditsBefore: string;
+  };
 }

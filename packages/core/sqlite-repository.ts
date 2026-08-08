@@ -5,6 +5,7 @@ import {
   AuditRecord,
   EventQuery,
   EventRecord,
+  HistoryStorageStats,
   OperationQuery,
   OperationRecord,
   PersistenceRepository,
@@ -23,7 +24,7 @@ interface Migration {
   up: string;
 }
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 const migrations: Migration[] = [
   {
@@ -88,6 +89,16 @@ const migrations: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp DESC);
       CREATE INDEX IF NOT EXISTS idx_audit_identity ON audit_log(provider_id, server_id, timestamp DESC);
       CREATE INDEX IF NOT EXISTS idx_audit_operation_id ON audit_log(operation_id, timestamp DESC);
+    `,
+  },
+  {
+    version: 2,
+    name: "analytics_indexes",
+    up: `
+      CREATE INDEX IF NOT EXISTS idx_operations_type ON operations(type, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_operations_provider_state ON operations(provider_id, server_id, state, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_events_type_time ON events(type, timestamp DESC);
+      CREATE INDEX IF NOT EXISTS idx_events_provider_type ON events(provider_id, server_id, type, timestamp DESC);
     `,
   },
 ];
@@ -239,7 +250,7 @@ export class SqlitePersistenceRepository implements PersistenceRepository {
       params.push(toUtcIso(query.to));
     }
 
-    const limit = query.limit && query.limit > 0 ? Math.min(query.limit, 500) : 100;
+    const limit = query.limit && query.limit > 0 ? Math.min(query.limit, 5000) : 100;
     const sql = `
       SELECT id, provider_id, server_id, type, state, created_at, started_at, completed_at, error, metadata
       FROM operations
@@ -298,7 +309,7 @@ export class SqlitePersistenceRepository implements PersistenceRepository {
       params.push(toUtcIso(query.to));
     }
 
-    const limit = query.limit && query.limit > 0 ? Math.min(query.limit, 1000) : 200;
+    const limit = query.limit && query.limit > 0 ? Math.min(query.limit, 5000) : 200;
     const sql = `
       SELECT id, provider_id, server_id, operation_id, type, timestamp, payload
       FROM events
@@ -395,7 +406,7 @@ export class SqlitePersistenceRepository implements PersistenceRepository {
       params.push(query.operationId);
     }
 
-    const limit = query.limit && query.limit > 0 ? Math.min(query.limit, 1000) : 200;
+    const limit = query.limit && query.limit > 0 ? Math.min(query.limit, 5000) : 200;
     const sql = `
       SELECT id, timestamp, actor, action, provider_id, server_id, operation_id, result, metadata
       FROM audit_log
@@ -433,6 +444,22 @@ export class SqlitePersistenceRepository implements PersistenceRepository {
       operationsDeleted: Number(operationsResult.changes ?? 0),
       eventsDeleted: Number(eventsResult.changes ?? 0),
       auditDeleted: Number(auditResult.changes ?? 0),
+    };
+  }
+
+  async getHistoryStorageStats(): Promise<HistoryStorageStats> {
+    const db = this.requireDb();
+    const sizeBytes = fs.existsSync(this.filePath) ? fs.statSync(this.filePath).size : undefined;
+
+    const oldestOperationAt = db.prepare("SELECT MIN(created_at) AS value FROM operations").get() as { value?: string };
+    const oldestEventAt = db.prepare("SELECT MIN(timestamp) AS value FROM events").get() as { value?: string };
+    const oldestAuditAt = db.prepare("SELECT MIN(timestamp) AS value FROM audit_log").get() as { value?: string };
+
+    return {
+      databaseSizeBytes: sizeBytes,
+      oldestOperationAt: oldestOperationAt.value,
+      oldestEventAt: oldestEventAt.value,
+      oldestAuditAt: oldestAuditAt.value,
     };
   }
 

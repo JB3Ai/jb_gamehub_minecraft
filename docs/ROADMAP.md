@@ -8,6 +8,7 @@
 - [x] JBGH-013: Minimal Operational Dashboard
 - [x] JBGH-014: Multi-Server / Provider Registry
 - [x] JBGH-015: Persistent Operations, Events, and Audit Trail
+- [x] JBGH-016: Provider-Neutral Analytics and Operational Intelligence
 
 ## 🚀 Sprint Roadmap
 
@@ -32,9 +33,12 @@
 - [ ] Live WebSocket streaming for telemetry metrics
 
 ### Sprint 3: Server Execution & Storage Engine
-- [ ] Power engine triggers (`start`, `stop`, `restart`) for background server processes
+- [x] Power engine triggers (`start`, `stop`, `restart`) for background server processes
 - [ ] Interactive live RCON console stream viewer with command history
 - [ ] World browser, `.mcworld` / ZIP importer, and 1-click snapshot backups
+- [x] Provider-neutral endpoint metadata contract and API inventory exposure
+- [x] Read-only analytics endpoints over persisted lifecycle history
+- [x] Persistence retention overview and explicit cleanup controls
 
 ### Sprint 4: Crossplay & Ecosystem Marketplace
 - [ ] Built-in Geyser & Floodgate Bedrock crossplay bridge installer

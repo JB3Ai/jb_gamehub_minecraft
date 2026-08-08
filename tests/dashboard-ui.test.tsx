@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
+  AnalyticsPanel,
   LiveEventsPanel,
   OperationsPanel,
   SectionNavigation,
@@ -174,4 +175,47 @@ test("live events panel renders expected event types", () => {
   );
 
   assert.match(html, /operation.created/);
+});
+
+test("analytics panel renders summary and retention data", () => {
+  const base = createInitialDashboardState();
+  const html = renderToStaticMarkup(
+    <AnalyticsPanel
+      state={{
+        ...base,
+        analyticsSummary: {
+          totals: {
+            providers: 2,
+            servers: 3,
+            currentlyOnline: 1,
+            currentlyOffline: 2,
+            operationsCompleted: 10,
+            operationsFailed: 1,
+            averageOperationDurationMs: 900,
+            validationSuccesses: 6,
+            validationFailures: 1,
+          },
+          recordLimitApplied: 2000,
+          incompleteHistory: false,
+        },
+        persistenceOverview: {
+          retention: {
+            operationRetentionDays: 90,
+            eventRetentionDays: 30,
+            auditRetentionDays: 365,
+          },
+          databaseSizeBytes: 1024,
+          oldestRetainedRecordAt: "2026-08-08T08:00:00.000Z",
+          oldestByDomain: {},
+        },
+        cleanupState: "idle",
+      }}
+      onCleanupHistory={() => undefined}
+    />,
+  );
+
+  assert.match(html, /24h Analytics Snapshot/);
+  assert.match(html, /Providers: 2/);
+  assert.match(html, /History Retention/);
+  assert.match(html, /Cleanup Expired History/);
 });

@@ -1,7 +1,7 @@
 import React from "react";
 import { DashboardState, OperationRecord, ServerInventoryItem, WorldRuntime } from "../dashboard/types";
 
-const PANEL_ORDER = ["servers", "status", "operations", "worlds", "events"] as const;
+const PANEL_ORDER = ["servers", "status", "operations", "worlds", "events", "analytics"] as const;
 
 type PanelId = (typeof PANEL_ORDER)[number];
 
@@ -26,6 +26,21 @@ function formatTimestamp(value?: string): string {
     return value;
   }
   return new Date(timestamp).toLocaleString();
+}
+
+function formatDuration(value: number | null | undefined): string {
+  if (value === null || value === undefined) {
+    return "-";
+  }
+  if (value < 1000) {
+    return `${value} ms`;
+  }
+  const seconds = value / 1000;
+  if (seconds < 60) {
+    return `${seconds.toFixed(1)} s`;
+  }
+  const minutes = seconds / 60;
+  return `${minutes.toFixed(1)} min`;
 }
 
 function summarizeEvent(event: DashboardState["events"][number]): string {
@@ -347,6 +362,78 @@ export function LiveEventsPanel({ events }: { events: DashboardState["events"] }
   );
 }
 
+export function AnalyticsPanel({
+  state,
+  onCleanupHistory,
+}: {
+  state: DashboardState;
+  onCleanupHistory: () => void;
+}) {
+  const summary = state.analyticsSummary;
+  const persistence = state.persistenceOverview;
+
+  return (
+    <div className="analytics-grid" aria-label="Analytics and persistence panel">
+      <article className="world-card">
+        <header>
+          <h3>24h Analytics Snapshot</h3>
+          <span className={`chip ${summary?.incompleteHistory ? "is-warn" : "is-good"}`}>
+            {summary?.incompleteHistory ? "PARTIAL" : "COMPLETE"}
+          </span>
+        </header>
+        {summary ? (
+          <ul>
+            <li>Providers: {summary.totals.providers}</li>
+            <li>Servers: {summary.totals.servers}</li>
+            <li>Online: {summary.totals.currentlyOnline}</li>
+            <li>Offline: {summary.totals.currentlyOffline}</li>
+            <li>Completed Ops: {summary.totals.operationsCompleted}</li>
+            <li>Failed Ops: {summary.totals.operationsFailed}</li>
+            <li>Avg Operation Duration: {formatDuration(summary.totals.averageOperationDurationMs)}</li>
+            <li>Validation Passes: {summary.totals.validationSuccesses}</li>
+            <li>Validation Failures: {summary.totals.validationFailures}</li>
+          </ul>
+        ) : (
+          <p>No analytics data loaded yet.</p>
+        )}
+      </article>
+
+      <article className="world-card">
+        <header>
+          <h3>History Retention</h3>
+          <span className={`chip ${statusClass(state.cleanupState || "neutral")}`}>
+            {(state.cleanupState || "idle").toUpperCase()}
+          </span>
+        </header>
+        {persistence ? (
+          <ul>
+            <li>Database Size: {persistence.databaseSizeBytes ? `${persistence.databaseSizeBytes} bytes` : "Unknown"}</li>
+            <li>Operations Retention: {persistence.retention.operationRetentionDays} days</li>
+            <li>Events Retention: {persistence.retention.eventRetentionDays} days</li>
+            <li>Audit Retention: {persistence.retention.auditRetentionDays} days</li>
+            <li>Oldest Record: {formatTimestamp(persistence.oldestRetainedRecordAt)}</li>
+          </ul>
+        ) : (
+          <p>No persistence data loaded yet.</p>
+        )}
+        <button
+          type="button"
+          className="cmd-btn"
+          disabled={state.cleanupState === "running"}
+          onClick={() => {
+            if (window.confirm("Delete expired history records now? This action is irreversible.")) {
+              onCleanupHistory();
+            }
+          }}
+        >
+          Cleanup Expired History
+        </button>
+        {state.cleanupMessage ? <p>{state.cleanupMessage}</p> : null}
+      </article>
+    </div>
+  );
+}
+
 function SectionCard({ id, title, activePanel, children }: { id: PanelId; title: string; activePanel: PanelId; children: React.ReactNode }) {
   return (
     <section className={`dash-card ${activePanel === id ? "is-active" : ""}`} id={`panel-${id}`}>
@@ -364,6 +451,7 @@ export function OperationalDashboard({
   onCommand,
   onValidateWorld,
   onRefresh,
+  onCleanupHistory,
 }: {
   state: DashboardState;
   selectedServer?: ServerInventoryItem;
@@ -372,6 +460,7 @@ export function OperationalDashboard({
   onCommand: (command: "start" | "stop" | "restart") => void;
   onValidateWorld: (worldId: string) => void;
   onRefresh: () => void;
+  onCleanupHistory: () => void;
 }) {
   const [activePanel, setActivePanel] = React.useState<PanelId>("servers");
 
@@ -412,6 +501,10 @@ export function OperationalDashboard({
 
         <SectionCard id="events" title="LIVE EVENTS" activePanel={activePanel}>
           <LiveEventsPanel events={state.events} />
+        </SectionCard>
+
+        <SectionCard id="analytics" title="ANALYTICS & RETENTION" activePanel={activePanel}>
+          <AnalyticsPanel state={state} onCleanupHistory={onCleanupHistory} />
         </SectionCard>
       </div>
     </main>

@@ -1,5 +1,9 @@
 import {
+  AnalyticsSummary,
+  ApiEnvelope,
   EventListResponse,
+  HistoryCleanupSummary,
+  HistoryOverview,
   OperationListResponse,
   OperationRecord,
   OperationRef,
@@ -68,6 +72,37 @@ export async function runServerCommand(serverId: string, command: "start" | "sto
   return parseResponse<OperationRef>(
     await fetch(`/api/servers/${serverId}/${command}`, {
       method: "POST",
+    }),
+  );
+}
+
+export async function getAnalyticsSummary(params: { window?: "24h" | "7d" | "30d"; providerId?: string; serverId?: string } = {}) {
+  const search = new URLSearchParams();
+  search.set("window", params.window || "24h");
+  if (params.providerId) {
+    search.set("providerId", params.providerId);
+  }
+  if (params.serverId) {
+    search.set("serverId", params.serverId);
+  }
+  return parseResponse<ApiEnvelope<AnalyticsSummary>>(await fetch(`/api/analytics/summary?${search.toString()}`));
+}
+
+export async function getHistoryOverview() {
+  return parseResponse<ApiEnvelope<HistoryOverview>>(await fetch("/api/history/overview"));
+}
+
+export async function requestHistoryCleanup(actor = "dashboard-user") {
+  return parseResponse<HistoryCleanupSummary>(
+    await fetch("/api/history/cleanup", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        confirm: "CLEANUP_HISTORY",
+        actor,
+      }),
     }),
   );
 }

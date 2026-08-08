@@ -3,6 +3,7 @@ import path from "path";
 import net from "net";
 import { spawn } from "child_process";
 import {
+  ConnectionEndpoint,
   CapabilityMap,
   GameProvider,
   ProviderActionResult,
@@ -158,6 +159,36 @@ export class MinecraftProvider implements GameProvider {
         name: this.config.serverName,
       },
     ];
+  }
+
+  async getServerConnectionEndpoints(serverId: string): Promise<ConnectionEndpoint[]> {
+    this.assertServerId(serverId);
+    const geyserDetected = await this.detectGeyser();
+    const endpoints: ConnectionEndpoint[] = [
+      {
+        id: "java",
+        protocol: "minecraft-java",
+        transport: "tcp",
+        host: this.config.host,
+        port: this.config.javaPort,
+        display: `${this.config.host}:${this.config.javaPort}`,
+        capabilities: ["play", "status", "admin"],
+      },
+    ];
+
+    if (geyserDetected) {
+      endpoints.push({
+        id: "bedrock",
+        protocol: "minecraft-bedrock",
+        transport: "udp",
+        host: this.config.host,
+        port: this.config.bedrockPort,
+        display: `${this.config.host}:${this.config.bedrockPort}`,
+        capabilities: ["play"],
+      });
+    }
+
+    return endpoints;
   }
 
   async getServerStatus(serverId: string): Promise<ServerStatus> {

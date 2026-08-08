@@ -23,6 +23,7 @@ Response fields include:
 - `status`
 - `availability`
 - `lastStatusUpdate`
+- `connectionEndpoints[]`
 - `endpoints.java`
 - `endpoints.bedrock` (when available)
 - `diagnostics.paperDetected`
@@ -89,7 +90,64 @@ Returns provider-scoped and server-scoped historical bundle:
 
 ### `POST /api/history/cleanup`
 Runs explicit retention cleanup for persisted history.
-Returns deleted row counts and active retention policy.
+Requires confirmation body:
+
+```json
+{
+	"confirm": "CLEANUP_HISTORY",
+	"actor": "optional-operator-id"
+}
+```
+
+Returns deleted row counts, active retention policy, execution timestamp, and applied cutoffs.
+
+### `GET /api/history/overview`
+Returns persisted history storage and retention overview:
+
+- configured retention values
+- current database size in bytes (when available)
+- oldest retained timestamps by domain
+
+### `GET /api/analytics/summary`
+Returns cross-provider summary metrics for a time window.
+
+### `GET /api/analytics/providers/:providerId`
+Returns provider-scoped metrics for a time window.
+
+### `GET /api/analytics/servers/:providerId/:serverId`
+Returns server-scoped operational and uptime metrics for a time window.
+
+### `GET /api/analytics/operations`
+Returns aggregated operation metrics for a time window.
+
+### `GET /api/analytics/events`
+Returns aggregated event metrics for a time window.
+
+### `GET /api/analytics/uptime`
+Returns uptime/offline durations and percentages per server for a time window.
+
+### `GET /api/analytics/world-validation`
+Returns world validation outcomes and recent failed validation operations for a time window.
+
+Analytics query params:
+
+- `window` (`24h`, `7d`, `30d`)
+- `from`
+- `to`
+- `providerId`
+- `serverId`
+- `type` (operations endpoint)
+- `state` (operations endpoint)
+- `limit`
+
+Analytics response envelope shape:
+
+- `generatedAt`
+- `from`
+- `to`
+- optional `providerId`
+- optional `serverId`
+- `data`
 
 ### `POST /api/ai/copilot`
 Sends natural language admin commands to Gemini for copilot-driven actions.

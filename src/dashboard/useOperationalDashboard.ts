@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  getAnalyticsSummary,
   getEvents,
+  getHistoryOverview,
   getOperation,
   getOperations,
   getProvider,
@@ -8,6 +10,7 @@ import {
   getServerStatus,
   getServers,
   getWorlds,
+  requestHistoryCleanup,
   runServerCommand,
   validateWorld,
 } from "./apiClient";
@@ -75,6 +78,8 @@ export function useOperationalDashboard() {
       const serversResponse = await getServers();
       const operationsResponse = await getOperations(100);
       const eventsResponse = await getEvents(200);
+      const analyticsResponse = await getAnalyticsSummary({ window: "24h" });
+      const historyOverviewResponse = await getHistoryOverview();
       const normalizedServers = serversResponse.servers.map((server) => ({
         ...server,
         status: normalizeLifecycleState(server.status),
@@ -98,6 +103,10 @@ export function useOperationalDashboard() {
         selectedServerId,
         operations: operationsResponse.operations,
         events: persistedEvents,
+        analyticsSummary: analyticsResponse.data,
+        persistenceOverview: historyOverviewResponse.data,
+        cleanupState: current.cleanupState === "running" ? "running" : "idle",
+        cleanupMessage: current.cleanupState === "running" ? current.cleanupMessage : undefined,
       }));
 
       if (selectedServerId) {
@@ -281,6 +290,35 @@ export function useOperationalDashboard() {
     }
   }, [refreshData, state.selectedServerId]);
 
+  const cleanupHistory = useCallback(async () => {
+    setState((current) => ({
+      ...current,
+      cleanupState: "running",
+      cleanupMessage: "Cleaning historical records...",
+    }));
+
+    try {
+      const cleanup = await requestHistoryCleanup("dashboard-user");
+      const historyOverviewResponse = await getHistoryOverview();
+      const analyticsResponse = await getAnalyticsSummary({ window: "24h" });
+
+      setState((current) => ({
+        ...current,
+        persistenceOverview: historyOverviewResponse.data,
+        analyticsSummary: analyticsResponse.data,
+        cleanupState: "completed",
+        cleanupMessage:
+          `Cleanup completed: operations=${cleanup.cleanup.operationsDeleted}, events=${cleanup.cleanup.eventsDeleted}, audit=${cleanup.cleanup.auditDeleted}`,
+      }));
+    } catch (error) {
+      setState((current) => ({
+        ...current,
+        cleanupState: "failed",
+        cleanupMessage: error instanceof Error ? error.message : String(error),
+      }));
+    }
+  }, []);
+
   return {
     state,
     selectedServer,
@@ -288,5 +326,6 @@ export function useOperationalDashboard() {
     refreshData: applyManualRefresh,
     runCommand,
     runWorldValidation,
+    cleanupHistory,
   };
 }

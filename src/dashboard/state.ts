@@ -28,6 +28,7 @@ export function createInitialDashboardState(): DashboardState {
     worldsByServer: {},
     events: [],
     wsConnection: "connecting",
+    cleanupState: "idle",
   };
 }
 

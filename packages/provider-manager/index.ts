@@ -61,17 +61,30 @@ export interface ValidationIssue {
   message: string;
 }
 
+export interface PackReference {
+  uuid: string;
+  version: string;
+  source: string;
+}
+
 export interface ValidationResult {
   valid: boolean;
   missingPacks: ValidationIssue[];
   invalidPacks: ValidationIssue[];
   errors: ValidationIssue[];
+  behaviorPackRefs?: PackReference[];
+  resourcePackRefs?: PackReference[];
 }
 
 export type ProviderActionResult = {
   simulated?: boolean;
   message?: string;
 };
+
+export interface ProviderDiagnostics {
+  paperDetected: boolean;
+  geyserDetected: boolean;
+}
 
 export interface ProviderEvent<T = unknown> {
   type:
@@ -93,6 +106,7 @@ export interface ProviderEvent<T = unknown> {
 export interface GameProvider {
   metadata(): ProviderMetadata;
   getCapabilities(): CapabilityMap;
+  getDiagnostics(): Promise<ProviderDiagnostics>;
   register(): Promise<void>;
   getServers(): Promise<ServerSummary[]>;
   getServerStatus(serverId: string): Promise<ServerStatus>;
@@ -346,6 +360,7 @@ export class InMemoryProviderManager {
         serverId,
         worldId,
         operationId: completed.operationId,
+        status: completed.status,
         payload: result,
       });
       return result;

@@ -8,7 +8,7 @@ import { GoogleGenAI } from "@google/genai";
 import { WebSocketServer } from "ws";
 import { bootstrapCore } from "./packages/core/index";
 import { InMemoryProviderManager } from "./packages/provider-manager/index";
-import { loadRuntimeConfig, runtimeConfigDiagnostics } from "./packages/core/runtime-config";
+import { loadRuntimeConfig, runtimeConfigDiagnostics, RuntimeConfig } from "./packages/core/runtime-config";
 
 const app = express();
 const PORT = 3000;
@@ -273,8 +273,11 @@ function wireWebSocket(httpServer: http.Server) {
   });
 }
 
-export async function startServer(port = PORT) {
-  const config = loadRuntimeConfig(process.env);
+export async function startServer(port = PORT, overrides: Partial<RuntimeConfig> = {}) {
+  const config = {
+    ...loadRuntimeConfig(process.env),
+    ...overrides,
+  };
   providerManager = await bootstrapCore({
     minecraftServerDir: config.minecraftServerDir,
     minecraftHost: config.minecraftHost,

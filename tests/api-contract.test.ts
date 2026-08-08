@@ -20,11 +20,12 @@ async function closeServer(server: http.Server): Promise<void> {
 
 test("provider and server API contract with operation retrieval", async () => {
   process.env.NODE_ENV = "production";
-  process.env.MINECRAFT_SERVER_DIR = fixtureDir;
-  process.env.MINECRAFT_START_COMMAND = "node -e \"process.exit(0)\"";
-  process.env.MINECRAFT_STOP_COMMAND = "node -e \"process.exit(0)\"";
 
-  const server = await startServer(3310);
+  const server = await startServer(3310, {
+    minecraftServerDir: fixtureDir,
+    minecraftStartCommand: "node -e \"process.exit(0)\"",
+    minecraftStopCommand: "node -e \"process.exit(0)\"",
+  });
 
   try {
     const providersRes = await fetch("http://127.0.0.1:3310/api/providers");

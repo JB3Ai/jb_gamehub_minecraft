@@ -6,11 +6,13 @@ import {
   CapabilityMap,
   GameProvider,
   ProviderActionResult,
+  ProviderDiagnostics,
   ProviderMetadata,
   ServerStatus,
   ServerSummary,
   ValidationIssue,
   ValidationResult,
+  PackReference,
   WorldSummary,
 } from "../provider-manager/index";
 
@@ -135,6 +137,13 @@ export class MinecraftProvider implements GameProvider {
     };
   }
 
+  async getDiagnostics(): Promise<ProviderDiagnostics> {
+    return {
+      paperDetected: await this.detectPaper(),
+      geyserDetected: await this.detectGeyser(),
+    };
+  }
+
   async register(): Promise<void> {
     const paperDetected = await this.detectPaper();
     const geyserDetected = await this.detectGeyser();
@@ -240,9 +249,11 @@ export class MinecraftProvider implements GameProvider {
 
     const behaviorRefPath = path.join(world.path, "world_behavior_packs.json");
     const resourceRefPath = path.join(world.path, "world_resource_packs.json");
+    const behaviorPackRefs = await this.readRefs(behaviorRefPath, "world_behavior_packs.json");
+    const resourcePackRefs = await this.readRefs(resourceRefPath, "world_resource_packs.json");
     const refs = [
-      ...(await this.readRefs(behaviorRefPath, "world_behavior_packs.json")),
-      ...(await this.readRefs(resourceRefPath, "world_resource_packs.json")),
+      ...behaviorPackRefs,
+      ...resourcePackRefs,
     ];
 
     const manifestIndex = await this.buildManifestIndex(world.path);
@@ -278,6 +289,8 @@ export class MinecraftProvider implements GameProvider {
       missingPacks,
       invalidPacks,
       errors: [],
+      behaviorPackRefs,
+      resourcePackRefs,
     };
   }
 
@@ -316,7 +329,7 @@ export class MinecraftProvider implements GameProvider {
     return false;
   }
 
-  private async readRefs(filePath: string, source: string): Promise<Array<{ uuid: string; version: string; source: string }>> {
+  private async readRefs(filePath: string, source: string): Promise<PackReference[]> {
     if (!(await exists(filePath))) {
       return [];
     }

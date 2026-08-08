@@ -7,7 +7,7 @@ import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import { WebSocketServer } from "ws";
 import { bootstrapCore } from "./packages/core/index";
-import { InMemoryProviderManager } from "./packages/provider-manager/index";
+import { EventQuery, InMemoryProviderManager, OperationQuery } from "./packages/provider-manager/index";
 import { loadRuntimeConfig, runtimeConfigDiagnostics, RuntimeConfig } from "./packages/core/runtime-config";
 
 const app = express();
@@ -27,6 +27,44 @@ function handleApiError(res: express.Response, err: unknown) {
       message,
     },
   });
+}
+
+function parseLimit(raw: unknown, fallback: number, max: number): number {
+  if (typeof raw !== "string" || raw.trim() === "") {
+    return fallback;
+  }
+
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new Error(`Invalid limit: ${raw}`);
+  }
+
+  return Math.min(parsed, max);
+}
+
+function parseOperationQuery(req: express.Request): OperationQuery {
+  return {
+    providerId: typeof req.query.providerId === "string" ? req.query.providerId : undefined,
+    serverId: typeof req.query.serverId === "string" ? req.query.serverId : undefined,
+    operationId: typeof req.query.operationId === "string" ? req.query.operationId : undefined,
+    type: typeof req.query.type === "string" ? (req.query.type as OperationQuery["type"]) : undefined,
+    state: typeof req.query.state === "string" ? (req.query.state as OperationQuery["state"]) : undefined,
+    from: typeof req.query.from === "string" ? req.query.from : undefined,
+    to: typeof req.query.to === "string" ? req.query.to : undefined,
+    limit: parseLimit(req.query.limit, 100, 500),
+  };
+}
+
+function parseEventQuery(req: express.Request): EventQuery {
+  return {
+    providerId: typeof req.query.providerId === "string" ? req.query.providerId : undefined,
+    serverId: typeof req.query.serverId === "string" ? req.query.serverId : undefined,
+    operationId: typeof req.query.operationId === "string" ? req.query.operationId : undefined,
+    type: typeof req.query.type === "string" ? (req.query.type as EventQuery["type"]) : undefined,
+    from: typeof req.query.from === "string" ? req.query.from : undefined,
+    to: typeof req.query.to === "string" ? req.query.to : undefined,
+    limit: parseLimit(req.query.limit, 200, 1000),
+  };
 }
 
 // Initialize Gemini Client
@@ -171,16 +209,59 @@ app.post("/api/servers/:id/worlds/:worldId/validate", async (req, res) => {
 });
 
 app.get("/api/operations/:id", (req, res) => {
-  const operation = providerManager.getOperation(req.params.id);
-  if (!operation) {
-    return res.status(404).json({
-      error: {
-        code: "NOT_FOUND",
-        message: `Operation not found: ${req.params.id}`,
+  void (async () => {
+    const operation = await providerManager.getOperation(req.params.id);
+    if (!operation) {
+      return res.status(404).json({
+        error: {
+          code: "NOT_FOUND",
+          message: `Operation not found: ${req.params.id}`,
+        },
+      });
+    }
+    return res.json(operation);
+  })().catch((err) => handleApiError(res, err));
+});
+
+app.get("/api/operations", (req, res) => {
+  void (async () => {
+    const operations = await providerManager.listOperations(parseOperationQuery(req));
+    res.json({ operations });
+  })().catch((err) => handleApiError(res, err));
+});
+
+app.get("/api/events", (req, res) => {
+  void (async () => {
+    const events = await providerManager.listEvents(parseEventQuery(req));
+    res.json({ events });
+  })().catch((err) => handleApiError(res, err));
+});
+
+app.get("/api/servers/:providerId/:serverId/history", (req, res) => {
+  void (async () => {
+    const limit = parseLimit(req.query.limit, 100, 500);
+    const history = await providerManager.getServerHistory(req.params.providerId, req.params.serverId, limit);
+    res.json(history);
+  })().catch((err) => handleApiError(res, err));
+});
+
+app.post("/api/history/cleanup", (req, res) => {
+  void (async () => {
+    const cleanup = await providerManager.cleanupHistory({
+      operationRetentionDays: activeRuntimeConfig?.operationRetentionDays ?? 90,
+      eventRetentionDays: activeRuntimeConfig?.eventRetentionDays ?? 30,
+      auditRetentionDays: activeRuntimeConfig?.auditRetentionDays ?? 365,
+    });
+
+    res.json({
+      cleanup,
+      policy: {
+        operationRetentionDays: activeRuntimeConfig?.operationRetentionDays ?? 90,
+        eventRetentionDays: activeRuntimeConfig?.eventRetentionDays ?? 30,
+        auditRetentionDays: activeRuntimeConfig?.auditRetentionDays ?? 365,
       },
     });
-  }
-  return res.json(operation);
+  })().catch((err) => handleApiError(res, err));
 });
 
 // AI Copilot Endpoint ("Hey JB...")
@@ -328,6 +409,10 @@ export async function startServer(port = PORT, overrides: Partial<RuntimeConfig>
     minecraftBedrockPort: config.minecraftBedrockPort,
     minecraftStartCommand: config.minecraftStartCommand,
     minecraftStopCommand: config.minecraftStopCommand,
+    persistenceDbPath: config.persistenceDbPath,
+    operationRetentionDays: config.operationRetentionDays,
+    eventRetentionDays: config.eventRetentionDays,
+    auditRetentionDays: config.auditRetentionDays,
   });
 
   console.log("[JB3 GameHub] Runtime configuration:");
@@ -351,6 +436,12 @@ export async function startServer(port = PORT, overrides: Partial<RuntimeConfig>
 
   const httpServer = http.createServer(app);
   wireWebSocket(httpServer);
+
+  httpServer.on("close", () => {
+    void providerManager.shutdown();
+    wsServer?.close();
+    wsServer = undefined;
+  });
 
   httpServer.listen(port, "0.0.0.0", () => {
     console.log(`[JB3 GameHub] Server running on http://localhost:${port}`);

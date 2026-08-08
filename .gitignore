@@ -11,3 +11,7 @@ coverage/
 # Managed integration test server runtime artifacts
 integration/minecraft/server/**
 !integration/minecraft/server/.gitkeep
+
+# Local persistence artifacts
+data/
+tests/tmp/

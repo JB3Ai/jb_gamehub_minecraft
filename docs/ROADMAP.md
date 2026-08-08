@@ -7,6 +7,7 @@
 - [x] JBGH-012A: Lifecycle Evidence Assertion
 - [x] JBGH-013: Minimal Operational Dashboard
 - [x] JBGH-014: Multi-Server / Provider Registry
+- [x] JBGH-015: Persistent Operations, Events, and Audit Trail
 
 ## 🚀 Sprint Roadmap
 

@@ -10,6 +10,10 @@ process.env.NODE_ENV = "production";
 
 const fixtureDir = path.resolve(process.cwd(), "tests/fixtures/minecraft-server");
 
+function testDbPath(name: string): string {
+  return path.resolve(process.cwd(), "tests", "tmp", `${name}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}.sqlite`);
+}
+
 async function closeServer(server: http.Server): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     server.close((err) => {
@@ -74,6 +78,7 @@ test("WebSocket receives operation lifecycle and server status events", async ()
     minecraftBedrockPort: 19132,
     minecraftStartCommand: "node -e \"process.exit(0)\"",
     minecraftStopCommand: "node -e \"process.exit(0)\"",
+    persistenceDbPath: testDbPath("ws-lifecycle"),
   });
 
   const socket = new WebSocket(`ws://127.0.0.1:${port}/ws`);
@@ -104,13 +109,16 @@ test("WebSocket receives operation lifecycle and server status events", async ()
       assert.match(String(event.timestamp), /^\d{4}-\d{2}-\d{2}T/);
     }
 
-    const statusResponse = await fetch(`http://127.0.0.1:${port}/api/servers/minecraft-main/status`);
+    const syntheticStartResponse = await fetch(`http://127.0.0.1:${port}/api/servers/synthetic-main/start`, { method: "POST" });
+    assert.equal(syntheticStartResponse.status, 202);
+
+    const statusResponse = await fetch(`http://127.0.0.1:${port}/api/servers/synthetic-main/status`);
     assert.equal(statusResponse.status, 200);
 
     const statusEvent = await collector.waitForType("server.status.changed");
-    assert.equal(statusEvent.providerId, "minecraft");
-    assert.equal(statusEvent.serverId, "minecraft-main");
-    assert.equal(statusEvent.status, "offline");
+    assert.equal(statusEvent.providerId, "synthetic");
+    assert.equal(statusEvent.serverId, "synthetic-main");
+    assert.equal(statusEvent.status, "online");
     assert.equal(typeof statusEvent.timestamp, "string");
   } finally {
     socket.close();
@@ -127,6 +135,7 @@ test("WebSocket receives failure lifecycle events", async () => {
     minecraftBedrockPort: 19132,
     minecraftStartCommand: "node -e \"process.exit(1)\"",
     minecraftStopCommand: "node -e \"process.exit(0)\"",
+    persistenceDbPath: testDbPath("ws-failure"),
   });
 
   const socket = new WebSocket(`ws://127.0.0.1:${port}/ws`);
@@ -164,6 +173,7 @@ test("WebSocket receives world validation completion events", async () => {
     minecraftHost: "127.0.0.1",
     minecraftJavaPort: 45680,
     minecraftBedrockPort: 19132,
+    persistenceDbPath: testDbPath("ws-world-validation"),
   });
 
   const socket = new WebSocket(`ws://127.0.0.1:${port}/ws`);
@@ -210,6 +220,7 @@ test("WebSocket synthetic provider events include independent provider and serve
     minecraftBedrockPort: 19132,
     minecraftStartCommand: "node -e \"process.exit(0)\"",
     minecraftStopCommand: "node -e \"process.exit(0)\"",
+    persistenceDbPath: testDbPath("ws-synthetic-isolation"),
   });
 
   const socket = new WebSocket(`ws://127.0.0.1:${port}/ws`);

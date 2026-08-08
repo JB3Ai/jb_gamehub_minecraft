@@ -5,11 +5,16 @@ import { bootstrapCore } from "../packages/core/index";
 
 const fixtureDir = path.resolve(process.cwd(), "tests/fixtures/minecraft-server");
 
+function testDbPath(name: string): string {
+  return path.resolve(process.cwd(), "tests", "tmp", `${name}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}.sqlite`);
+}
+
 test("provider discovery and capability reporting", async () => {
   const manager = await bootstrapCore({
     minecraftServerDir: fixtureDir,
     minecraftStartCommand: "node -e \"process.exit(0)\"",
     minecraftStopCommand: "node -e \"process.exit(0)\"",
+    persistenceDbPath: testDbPath("provider-discovery"),
   });
 
   const providers = manager.listProviders();
@@ -24,11 +29,13 @@ test("provider discovery and capability reporting", async () => {
   const syntheticCapabilities = manager.getCapabilities("synthetic");
   assert.equal(syntheticCapabilities["server.start"], true);
   assert.equal(syntheticCapabilities["world.list"], true);
+  await manager.shutdown();
 });
 
 test("multi-provider server discovery and synthetic operation lifecycle", async () => {
   const manager = await bootstrapCore({
     minecraftServerDir: fixtureDir,
+    persistenceDbPath: testDbPath("multi-provider"),
   });
 
   const servers = await manager.listServers();
@@ -39,7 +46,7 @@ test("multi-provider server discovery and synthetic operation lifecycle", async 
   assert.equal(syntheticBefore.status, "offline");
 
   const syntheticStart = await manager.startServer("synthetic-main");
-  const syntheticStartRecord = manager.getOperation(syntheticStart.operationId);
+  const syntheticStartRecord = await manager.getOperation(syntheticStart.operationId);
   assert.equal(syntheticStartRecord?.providerId, "synthetic");
   assert.equal(syntheticStartRecord?.type, "server.start");
 
@@ -47,12 +54,13 @@ test("multi-provider server discovery and synthetic operation lifecycle", async 
   assert.equal(syntheticAfter.status, "online");
 
   const syntheticStop = await manager.stopServer("synthetic-main");
-  const syntheticStopRecord = manager.getOperation(syntheticStop.operationId);
+  const syntheticStopRecord = await manager.getOperation(syntheticStop.operationId);
   assert.equal(syntheticStopRecord?.providerId, "synthetic");
   assert.equal(syntheticStopRecord?.type, "server.stop");
 
   const syntheticFinal = await manager.getServerStatus("synthetic-main");
   assert.equal(syntheticFinal.status, "offline");
+  await manager.shutdown();
 });
 
 test("server status, start/stop operation tracking, and operation retrieval", async () => {
@@ -60,6 +68,7 @@ test("server status, start/stop operation tracking, and operation retrieval", as
     minecraftServerDir: fixtureDir,
     minecraftStartCommand: "node -e \"process.exit(0)\"",
     minecraftStopCommand: "node -e \"process.exit(0)\"",
+    persistenceDbPath: testDbPath("status-operation"),
   });
 
   const status = await manager.getServerStatus("minecraft-main");
@@ -68,19 +77,21 @@ test("server status, start/stop operation tracking, and operation retrieval", as
   const startOp = await manager.startServer("minecraft-main");
   assert.ok(startOp.operationId.startsWith("op_"));
 
-  const startRecord = manager.getOperation(startOp.operationId);
+  const startRecord = await manager.getOperation(startOp.operationId);
   assert.equal(startRecord?.status, "completed");
   assert.equal(startRecord?.type, "server.start");
 
   const stopOp = await manager.stopServer("minecraft-main");
-  const stopRecord = manager.getOperation(stopOp.operationId);
+  const stopRecord = await manager.getOperation(stopOp.operationId);
   assert.equal(stopRecord?.status, "completed");
   assert.equal(stopRecord?.type, "server.stop");
+  await manager.shutdown();
 });
 
 test("world listing and pack validation mismatch fixture", async () => {
   const manager = await bootstrapCore({
     minecraftServerDir: fixtureDir,
+    persistenceDbPath: testDbPath("world-validation"),
   });
 
   const worlds = await manager.getWorlds("minecraft-main");
@@ -92,4 +103,5 @@ test("world listing and pack validation mismatch fixture", async () => {
   const validation = await manager.validateWorld("minecraft-main", "celestial-castle");
   assert.equal(validation.valid, false);
   assert.ok(validation.invalidPacks.some((issue) => issue.type === "version_mismatch"));
+  await manager.shutdown();
 });

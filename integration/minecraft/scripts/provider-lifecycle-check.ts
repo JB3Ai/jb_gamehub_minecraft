@@ -43,14 +43,14 @@ async function main() {
   console.log(`Status before start: ${before.status}`);
 
   const startRef = await manager.startServer(server.id);
-  const startRecord = manager.getOperation(startRef.operationId);
+  const startRecord = await manager.getOperation(startRef.operationId);
   console.log(`Start operation: ${startRef.operationId} (${startRecord?.status})`);
 
   const afterStart = await manager.getServerStatus(server.id);
   console.log(`Status after start: ${afterStart.status}`);
 
   const stopRef = await manager.stopServer(server.id);
-  const stopRecord = manager.getOperation(stopRef.operationId);
+  const stopRecord = await manager.getOperation(stopRef.operationId);
   console.log(`Stop operation: ${stopRef.operationId} (${stopRecord?.status})`);
 
   const afterStop = await waitForOffline(manager, server.id);

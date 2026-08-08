@@ -6,6 +6,10 @@ import { startServer } from "../server";
 
 const fixtureDir = path.resolve(process.cwd(), "tests/fixtures/minecraft-server");
 
+function testDbPath(name: string): string {
+  return path.resolve(process.cwd(), "tests", "tmp", `${name}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}.sqlite`);
+}
+
 async function closeServer(server: http.Server): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     server.close((err) => {
@@ -25,6 +29,7 @@ test("provider and server API contract with operation retrieval", async () => {
     minecraftServerDir: fixtureDir,
     minecraftStartCommand: "node -e \"process.exit(0)\"",
     minecraftStopCommand: "node -e \"process.exit(0)\"",
+    persistenceDbPath: testDbPath("api-contract"),
   });
 
   try {
@@ -68,6 +73,36 @@ test("provider and server API contract with operation retrieval", async () => {
     const opBody = (await opRes.json()) as { type: string; status: string };
     assert.equal(opBody.type, "server.start");
     assert.equal(opBody.status, "completed");
+
+    const operationsRes = await fetch("http://127.0.0.1:3310/api/operations?providerId=minecraft&limit=10");
+    assert.equal(operationsRes.status, 200);
+    const operationsBody = (await operationsRes.json()) as {
+      operations: Array<{ operationId: string; providerId: string; serverId?: string; type: string }>;
+    };
+    assert.ok(operationsBody.operations.some((operation) => operation.operationId === startBody.operationId));
+    assert.ok(operationsBody.operations.every((operation) => operation.providerId === "minecraft"));
+
+    const eventsRes = await fetch("http://127.0.0.1:3310/api/events?providerId=minecraft&limit=20");
+    assert.equal(eventsRes.status, 200);
+    const eventsBody = (await eventsRes.json()) as {
+      events: Array<{ type: string; providerId?: string; serverId?: string; operationId?: string }>;
+    };
+    assert.ok(eventsBody.events.some((event) => event.type === "operation.created" && event.providerId === "minecraft"));
+
+    const historyRes = await fetch("http://127.0.0.1:3310/api/servers/minecraft/minecraft-main/history?limit=20");
+    assert.equal(historyRes.status, 200);
+    const historyBody = (await historyRes.json()) as {
+      providerId: string;
+      serverId: string;
+      operations: Array<{ providerId: string; serverId?: string }>;
+      events: Array<{ providerId?: string; serverId?: string }>;
+      audits: Array<{ action: string; result: string }>;
+    };
+    assert.equal(historyBody.providerId, "minecraft");
+    assert.equal(historyBody.serverId, "minecraft-main");
+    assert.ok(historyBody.operations.every((operation) => operation.providerId === "minecraft"));
+    assert.ok(historyBody.events.every((event) => event.providerId === "minecraft" || event.providerId === undefined));
+    assert.ok(historyBody.audits.some((audit) => audit.action === "server.start.requested"));
 
     const restartRes = await fetch(`http://127.0.0.1:3310/api/servers/${serverId}/restart`, { method: "POST" });
     assert.equal(restartRes.status, 202);

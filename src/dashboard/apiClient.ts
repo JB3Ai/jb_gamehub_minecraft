@@ -1,4 +1,6 @@
 import {
+  EventListResponse,
+  OperationListResponse,
   OperationRecord,
   OperationRef,
   ProviderCapabilitiesResponse,
@@ -52,6 +54,14 @@ export async function validateWorld(serverId: string, worldId: string): Promise<
 
 export async function getOperation(operationId: string): Promise<OperationRecord> {
   return parseResponse<OperationRecord>(await fetch(`/api/operations/${operationId}`));
+}
+
+export async function getOperations(limit = 100): Promise<OperationListResponse> {
+  return parseResponse<OperationListResponse>(await fetch(`/api/operations?limit=${limit}`));
+}
+
+export async function getEvents(limit = 200): Promise<EventListResponse> {
+  return parseResponse<EventListResponse>(await fetch(`/api/events?limit=${limit}`));
 }
 
 export async function runServerCommand(serverId: string, command: "start" | "stop" | "restart"): Promise<OperationRef> {

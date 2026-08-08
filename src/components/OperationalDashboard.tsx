@@ -42,7 +42,9 @@ function summarizeEvent(event: DashboardState["events"][number]): string {
   }
 
   if (event.type === "server.status.changed") {
-    return `Status changed to ${String(event.status || "unknown").toUpperCase()}`;
+    const payloadStatus =
+      event.payload && typeof event.payload === "object" ? (event.payload as { status?: string }).status : undefined;
+    return `Status changed to ${String(event.status || payloadStatus || "unknown").toUpperCase()}`;
   }
 
   return event.type;
@@ -318,6 +320,7 @@ export function LiveEventsPanel({ events }: { events: DashboardState["events"] }
       <table className="ops-table" aria-label="Live event stream">
         <thead>
           <tr>
+            <th>Source</th>
             <th>Event Type</th>
             <th>Timestamp</th>
             <th>Provider</th>
@@ -329,6 +332,7 @@ export function LiveEventsPanel({ events }: { events: DashboardState["events"] }
         <tbody>
           {events.map((event, index) => (
             <tr key={`${event.timestamp}-${event.type}-${index}`}>
+              <td>{event.source === "persisted" ? "HISTORY" : "LIVE"}</td>
               <td>{event.type}</td>
               <td>{formatTimestamp(event.timestamp)}</td>
               <td>{event.providerId || "-"}</td>

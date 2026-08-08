@@ -89,6 +89,10 @@ export interface OperationRecord {
   result?: unknown;
 }
 
+export interface OperationListResponse {
+  operations: OperationRecord[];
+}
+
 export interface ProviderEvent {
   type:
     | "connection.ready"
@@ -105,6 +109,11 @@ export interface ProviderEvent {
   status?: string;
   operationId?: string;
   payload?: unknown;
+  source?: "live" | "persisted";
+}
+
+export interface EventListResponse {
+  events: ProviderEvent[];
 }
 
 export interface WorldRuntime {

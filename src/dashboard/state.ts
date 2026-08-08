@@ -126,7 +126,11 @@ export function reduceConnectionState(
 }
 
 export function applyProviderEvent(state: DashboardState, incoming: ProviderEvent): DashboardState {
-  const nextEvents = [incoming, ...state.events].slice(0, MAX_EVENTS);
+  const normalizedIncoming: ProviderEvent = {
+    ...incoming,
+    source: incoming.source || "live",
+  };
+  const nextEvents = [normalizedIncoming, ...state.events].slice(0, MAX_EVENTS);
   let nextState: DashboardState = {
     ...state,
     events: nextEvents,

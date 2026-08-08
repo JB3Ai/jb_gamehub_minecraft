@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  getEvents,
   getOperation,
+  getOperations,
   getProvider,
   getProviders,
   getServerStatus,
@@ -71,9 +73,15 @@ export function useOperationalDashboard() {
       const providerMap = Object.fromEntries(providerList.providers.map((provider) => [provider.id, provider]));
 
       const serversResponse = await getServers();
+      const operationsResponse = await getOperations(100);
+      const eventsResponse = await getEvents(200);
       const normalizedServers = serversResponse.servers.map((server) => ({
         ...server,
         status: normalizeLifecycleState(server.status),
+      }));
+      const persistedEvents = eventsResponse.events.map((event) => ({
+        ...event,
+        source: "persisted" as const,
       }));
 
       const selectedServerId =
@@ -88,6 +96,8 @@ export function useOperationalDashboard() {
         providers: providerMap,
         servers: normalizedServers,
         selectedServerId,
+        operations: operationsResponse.operations,
+        events: persistedEvents,
       }));
 
       if (selectedServerId) {

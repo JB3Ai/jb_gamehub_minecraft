@@ -52,6 +52,45 @@ Runs provider-owned world/pack validation.
 ### `GET /api/operations/:id`
 Returns operation details by ID.
 
+### `GET /api/operations`
+Returns persisted operation history with optional filters.
+
+Supported query params:
+
+- `providerId`
+- `serverId`
+- `operationId`
+- `type`
+- `state`
+- `from`
+- `to`
+- `limit`
+
+### `GET /api/events`
+Returns persisted durable event history.
+
+Supported query params:
+
+- `providerId`
+- `serverId`
+- `operationId`
+- `type`
+- `from`
+- `to`
+- `limit`
+
+### `GET /api/servers/:providerId/:serverId/history`
+Returns provider-scoped and server-scoped historical bundle:
+
+- latest known `server_state`
+- recent operations
+- recent durable events
+- recent audit records
+
+### `POST /api/history/cleanup`
+Runs explicit retention cleanup for persisted history.
+Returns deleted row counts and active retention policy.
+
 ### `POST /api/ai/copilot`
 Sends natural language admin commands to Gemini for copilot-driven actions.
 
@@ -68,3 +107,8 @@ Current event types:
 - `operation.failed`
 - `server.status.changed`
 - `world.validation.completed`
+
+Durability notes:
+
+- Durable/persisted: `operation.created`, `operation.started`, `operation.completed`, `operation.failed`, `server.status.changed`, `world.validation.completed`
+- Transient only: `connection.ready`

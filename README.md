@@ -7,7 +7,7 @@
 [![Minecraft](https://img.shields.io/badge/Minecraft-1.21.4%20Ready-3b82f6.svg)]()
 [![AI Powered](https://img.shields.io/badge/AI-Gemini%203.6%20Flash-a855f7.svg)]()
 
-**JB³ GameHub** is an open-source Minecraft management platform designed to make game hosting accessible to everyone — from parents and educators to content creators and seasoned server administrators.
+**JB³ GameHub** is an open-source Minecraft management platform designed to make game hosting accessible to everyone, from parents and educators to content creators and experienced server administrators.
 
 ---
 
@@ -19,27 +19,33 @@
 - 📊 **Real-Time Telemetry & RCON**: Instant TPS, CPU, RAM graphs and live interactive console output.
 - 🌐 **Geyser & Bedrock Crossplay**: Native bridge configuration allowing mobile, console, and PC players to play together seamlessly.
 - 🧩 **1-Click Plugin & World Marketplace**: Integrated store for EssentialsX, WorldEdit, LuckPerms, and community maps.
+- 🧭 **Provider-Neutral Operations**: Manage Minecraft and synthetic providers through one lifecycle and persistence contract.
+- 📈 **Operational Intelligence**: Query provider-scoped uptime, operation, event, validation, and retention analytics.
 
 ---
 
 ## 🛠️ Repository Architecture
 
-This repository is organized as a modular monorepo:
+The current implementation is a TypeScript application with a Vite React dashboard, an Express/WebSocket API, and provider/core packages:
 
 ```text
 jb_gamehub_minecraft/
-├── apps/
-│   ├── web/            # Primary React + Vite + Tailwind Control Panel
-│   ├── api/            # Express.js RCON & AI Copilot Proxy Backend
-│   └── desktop/        # Desktop companion & launcher wrapper
+├── server.ts           # Express REST API and WebSocket event adapter
+├── src/                # React dashboard and browser-side state/API clients
 ├── packages/
-│   ├── ui/             # Reusable UI component library (shadcn/ui based)
-│   ├── minecraft/      # Minecraft engine, RCON, & server.properties parser
-│   ├── ai/             # Gemini AI Copilot agent & command synthesis
-│   └── shared/         # Common TypeScript interfaces and data models
-├── docs/               # Architecture, API, Database, Product, & Security specs
-├── docker/             # Dockerfile & compose manifests
-└── scripts/            # Development, deployment, and setup utilities
+│   ├── core/           # SQLite persistence, migrations, and analytics service
+│   ├── minecraft-provider/ # Minecraft lifecycle and world provider
+│   ├── synthetic-provider/ # Provider abstraction test implementation
+│   ├── provider-manager/   # Provider contracts and orchestration
+│   ├── minecraft/      # Shared Minecraft package surface
+│   ├── ai/             # AI package surface
+│   ├── ui/             # Shared UI package surface
+│   └── shared/         # Shared package surface
+├── tests/              # Provider, API, persistence, WebSocket, and dashboard tests
+├── docs/               # Architecture, API, database, product, and feature specs
+├── design/             # Design system and interaction specifications
+├── docker/             # Container build assets
+└── scripts/            # Setup and operational utilities
 ```
 
 ---
@@ -59,7 +65,7 @@ cd jb_gamehub_minecraft
 # Install dependencies
 npm install
 
-# Start the dev server
+# Start the API and Vite dashboard in development
 npm run dev
 ```
 
@@ -75,6 +81,7 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 - [ARCHITECTURE.md](./docs/ARCHITECTURE.md) - System Architecture & Tech Stack
 - [DATABASE.md](./docs/DATABASE.md) - Data Schemas & Models
 - [API.md](./docs/API.md) - REST API Reference
+- [JBGH-016-analytics.md](./docs/JBGH-016-analytics.md) - Provider-Neutral Analytics and History Management
 - [UI.md](./docs/UI.md) - Design System & Component Guidelines
 - [IDEAS.md](./IDEAS.md) - Innovation Sandbox & Backlog
 

@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "test": "tsx --test tests/**/*.test.ts",
+    "test": "tsx --test tests/**/*.test.ts tests/**/*.test.tsx",
     "test:contracts": "tsx --test tests/provider-contract.test.ts tests/api-contract.test.ts",
     "diagnose:minecraft": "tsx scripts/diagnose-minecraft.ts",
     "minecraft:test:setup": "tsx integration/minecraft/scripts/manage.ts setup",

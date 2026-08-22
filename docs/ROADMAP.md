@@ -9,6 +9,7 @@
 - [x] JBGH-014: Multi-Server / Provider Registry
 - [x] JBGH-015: Persistent Operations, Events, and Audit Trail
 - [x] JBGH-016: Provider-Neutral Analytics and Operational Intelligence
+- [x] JBGH-017: AI Studio Read-Only Intelligence Layer
 
 ## 🚀 Sprint Roadmap
 
@@ -49,3 +50,7 @@
 - [ ] Natural language RCON command synthesis powered by Gemini 3.6 Flash
 - [ ] Automated server crash log analyzer and lag troubleshooter
 - [ ] Conversational configuration modifier for `server.properties` and plugin files
+- [x] Provider-neutral AI abstraction (Gemini / OpenAI / offline fallback)
+- [x] Bounded, read-only context assembly over providers, operations, events, and analytics
+- [x] Read-only AI Studio API and dashboard panel with privacy-safe query audit trail
+- [ ] AI Action + Approval Layer (future milestone; no AI-triggered mutations exist yet)

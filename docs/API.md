@@ -149,6 +149,39 @@ Analytics response envelope shape:
 - optional `serverId`
 - `data`
 
+### `GET /api/ai/providers`
+Returns the active AI Studio provider (`gemini`, `openai`, or `fallback`), configured model, and which
+provider API keys are configured. Never returns secret values. Response always includes `readOnly: true`.
+
+### `POST /api/ai/ask`
+Asks the read-only AI Studio assistant a natural-language question about GameHub operational history.
+
+Request body:
+
+- `question` (required, 3-2000 characters)
+- `providerId` (optional scope)
+- `serverId` (optional scope)
+- `window` (optional, `24h` | `7d` | `30d`, default `24h`)
+
+Response:
+
+- `requestId`
+- `question`
+- `answer`
+- `providerId` (AI provider used)
+- `model`
+- `contextSources[]`
+- `contextWindow.from` / `contextWindow.to`
+- `generatedAt`
+
+AI Studio is strictly read-only: it cannot start, stop, restart, delete, or modify any GameHub resource.
+It can only observe and explain data already recorded by providers, operations, events, and analytics.
+
+### `GET /api/ai/audit`
+Returns the AI Studio query audit trail (`action=ai.query.requested`), bounded by `limit`.
+Each entry records requestId, actor, provider/model, context sources used, timestamps, and response
+metadata (question/answer lengths only). Raw prompt and response text are never persisted.
+
 ### `POST /api/ai/copilot`
 Sends natural language admin commands to Gemini for copilot-driven actions.
 

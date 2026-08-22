@@ -163,7 +163,8 @@ export interface AuditRecord {
     | "server.stop.requested"
     | "server.restart.requested"
     | "world.validation.requested"
-    | "history.cleanup.requested";
+    | "history.cleanup.requested"
+    | "ai.query.requested";
   providerId?: string;
   serverId?: string;
   operationId?: string;
@@ -223,7 +224,7 @@ export interface PersistenceRepository {
   upsertServerState(snapshot: ServerStateSnapshot): Promise<void>;
   listServerStates(): Promise<ServerStateSnapshot[]>;
   appendAudit(record: AuditRecord): Promise<void>;
-  listAudit(query?: { providerId?: string; serverId?: string; operationId?: string; limit?: number }): Promise<AuditRecord[]>;
+  listAudit(query?: { providerId?: string; serverId?: string; operationId?: string; action?: AuditRecord["action"]; limit?: number }): Promise<AuditRecord[]>;
   cleanupExpired(policy: RetentionPolicy, nowIso: string): Promise<RetentionCleanupResult>;
   getHistoryStorageStats(): Promise<HistoryStorageStats>;
 }
@@ -357,7 +358,7 @@ class InMemoryPersistenceRepository implements PersistenceRepository {
     this.audits.unshift({ ...record });
   }
 
-  async listAudit(query?: { providerId?: string; serverId?: string; operationId?: string; limit?: number }): Promise<AuditRecord[]> {
+  async listAudit(query?: { providerId?: string; serverId?: string; operationId?: string; action?: AuditRecord["action"]; limit?: number }): Promise<AuditRecord[]> {
     let list = [...this.audits];
     if (query?.providerId) {
       list = list.filter((item) => item.providerId === query.providerId);
@@ -367,6 +368,9 @@ class InMemoryPersistenceRepository implements PersistenceRepository {
     }
     if (query?.operationId) {
       list = list.filter((item) => item.operationId === query.operationId);
+    }
+    if (query?.action) {
+      list = list.filter((item) => item.action === query.action);
     }
     return query?.limit ? list.slice(0, query.limit) : list;
   }
@@ -609,8 +613,14 @@ export class InMemoryProviderManager {
     return this.repository.listEvents(query);
   }
 
-  async listAudits(query: { providerId?: string; serverId?: string; operationId?: string; limit?: number } = {}): Promise<AuditRecord[]> {
+  async listAudits(
+    query: { providerId?: string; serverId?: string; operationId?: string; action?: AuditRecord["action"]; limit?: number } = {},
+  ): Promise<AuditRecord[]> {
     return this.repository.listAudit(query);
+  }
+
+  async writeAudit(input: AuditWriteInput): Promise<void> {
+    await this.service.writeAudit(input);
   }
 
   async listServerStates(): Promise<ServerStateSnapshot[]> {

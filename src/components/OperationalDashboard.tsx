@@ -1,7 +1,8 @@
 import React from "react";
-import { DashboardState, OperationRecord, ServerInventoryItem, WorldRuntime } from "../dashboard/types";
+import { askAiStudio, getAiAuditTrail, getAiProvidersInfo } from "../dashboard/apiClient";
+import { AiAskResponse, AiAuditEntry, AiProvidersInfo, DashboardState, OperationRecord, ServerInventoryItem, WorldRuntime } from "../dashboard/types";
 
-const PANEL_ORDER = ["servers", "status", "operations", "worlds", "events", "analytics"] as const;
+const PANEL_ORDER = ["servers", "status", "operations", "worlds", "events", "analytics", "ai-studio"] as const;
 
 type PanelId = (typeof PANEL_ORDER)[number];
 
@@ -434,6 +435,158 @@ export function AnalyticsPanel({
   );
 }
 
+const AI_PRESET_QUESTIONS = [
+  "Why did this server go offline?",
+  "Show me a summary of the last 24 hours.",
+  "Why did world validation fail?",
+  "Which provider has the most failures?",
+  "Explain the most recent operation failure.",
+];
+
+export function AiStudioPanel({ providerId, serverId }: { providerId?: string; serverId?: string }) {
+  const [question, setQuestion] = React.useState("");
+  const [loading, setLoading] = React.useState(false);
+  const [error, setError] = React.useState<string>();
+  const [history, setHistory] = React.useState<AiAskResponse[]>([]);
+  const [providersInfo, setProvidersInfo] = React.useState<AiProvidersInfo>();
+  const [auditTrail, setAuditTrail] = React.useState<AiAuditEntry[]>([]);
+
+  const loadProvidersInfo = React.useCallback(() => {
+    getAiProvidersInfo()
+      .then(setProvidersInfo)
+      .catch(() => undefined);
+  }, []);
+
+  const loadAuditTrail = React.useCallback(() => {
+    getAiAuditTrail(20)
+      .then((response) => setAuditTrail(response.audits))
+      .catch(() => undefined);
+  }, []);
+
+  React.useEffect(() => {
+    loadProvidersInfo();
+    loadAuditTrail();
+  }, [loadProvidersInfo, loadAuditTrail]);
+
+  const ask = React.useCallback(
+    async (prompt: string) => {
+      const trimmed = prompt.trim();
+      if (!trimmed || loading) {
+        return;
+      }
+      setLoading(true);
+      setError(undefined);
+      try {
+        const response = await askAiStudio({ question: trimmed, providerId, serverId, window: "24h" });
+        setHistory((current) => [response, ...current]);
+        setQuestion("");
+        loadAuditTrail();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setLoading(false);
+      }
+    },
+    [loading, providerId, serverId, loadAuditTrail],
+  );
+
+  return (
+    <div className="ai-studio-grid" aria-label="AI Studio read-only intelligence panel">
+      <div className="ai-studio-banner">
+        <span className="chip is-neutral">READ ONLY</span>
+        <p>AI Studio can explain GameHub activity. It cannot start, stop, restart, delete, or modify anything.</p>
+      </div>
+
+      <div className="ai-studio-presets">
+        {AI_PRESET_QUESTIONS.map((preset) => (
+          <button key={preset} type="button" className="cmd-btn" disabled={loading} onClick={() => void ask(preset)}>
+            {preset}
+          </button>
+        ))}
+      </div>
+
+      <form
+        className="ai-studio-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void ask(question);
+        }}
+      >
+        <input
+          type="text"
+          value={question}
+          onChange={(event) => setQuestion(event.target.value)}
+          placeholder="Ask AI Studio about GameHub activity..."
+          disabled={loading}
+          aria-label="Ask AI Studio a question"
+        />
+        <button type="submit" className="cmd-btn" disabled={loading || question.trim().length === 0}>
+          {loading ? "Thinking..." : "Ask"}
+        </button>
+      </form>
+
+      {error ? <div className="error-banner">AI Studio error: {error}</div> : null}
+
+      <div className="ai-studio-history">
+        {history.length === 0 ? (
+          <div className="empty-state">Ask a question to see AI Studio's read-only explanation here.</div>
+        ) : (
+          history.map((entry) => (
+            <article key={entry.requestId} className="world-card">
+              <header>
+                <h3>{entry.question}</h3>
+                <span className="chip is-neutral">{entry.providerId.toUpperCase()}</span>
+              </header>
+              <p>{entry.answer}</p>
+              <p className="ai-studio-meta">
+                Sources: {entry.contextSources.join(", ")} · Model: {entry.model} · {formatTimestamp(entry.generatedAt)}
+              </p>
+            </article>
+          ))
+        )}
+      </div>
+
+      <details className="ai-studio-audit">
+        <summary>
+          AI Query Audit Trail ({providersInfo ? `active provider: ${providersInfo.active}` : "loading provider info"})
+        </summary>
+        {auditTrail.length === 0 ? (
+          <div className="empty-state">No AI Studio queries recorded yet.</div>
+        ) : (
+          <div className="table-wrap">
+            <table className="ops-table" aria-label="AI query audit trail">
+              <thead>
+                <tr>
+                  <th>Timestamp</th>
+                  <th>Actor</th>
+                  <th>Provider/Model</th>
+                  <th>Context Sources</th>
+                  <th>Result</th>
+                </tr>
+              </thead>
+              <tbody>
+                {auditTrail.map((entry) => (
+                  <tr key={entry.metadata?.requestId || entry.id}>
+                    <td>{formatTimestamp(entry.timestamp)}</td>
+                    <td>{entry.actor}</td>
+                    <td>
+                      {entry.metadata?.aiProviderId || "-"}/{entry.metadata?.model || "-"}
+                    </td>
+                    <td>{entry.metadata?.contextSources?.join(", ") || "-"}</td>
+                    <td>
+                      <span className={`chip ${statusClass(entry.result)}`}>{entry.result.toUpperCase()}</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </details>
+    </div>
+  );
+}
+
 function SectionCard({ id, title, activePanel, children }: { id: PanelId; title: string; activePanel: PanelId; children: React.ReactNode }) {
   return (
     <section className={`dash-card ${activePanel === id ? "is-active" : ""}`} id={`panel-${id}`}>
@@ -505,6 +658,10 @@ export function OperationalDashboard({
 
         <SectionCard id="analytics" title="ANALYTICS & RETENTION" activePanel={activePanel}>
           <AnalyticsPanel state={state} onCleanupHistory={onCleanupHistory} />
+        </SectionCard>
+
+        <SectionCard id="ai-studio" title="AI STUDIO" activePanel={activePanel}>
+          <AiStudioPanel providerId={selectedServer?.providerId} serverId={selectedServer?.id} />
         </SectionCard>
       </div>
     </main>

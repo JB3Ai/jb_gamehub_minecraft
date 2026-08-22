@@ -388,7 +388,9 @@ export class SqlitePersistenceRepository implements PersistenceRepository {
     );
   }
 
-  async listAudit(query: { providerId?: string; serverId?: string; operationId?: string; limit?: number } = {}): Promise<AuditRecord[]> {
+  async listAudit(
+    query: { providerId?: string; serverId?: string; operationId?: string; action?: AuditRecord["action"]; limit?: number } = {},
+  ): Promise<AuditRecord[]> {
     const db = this.requireDb();
     const where: string[] = [];
     const params: Array<string | number | null> = [];
@@ -404,6 +406,10 @@ export class SqlitePersistenceRepository implements PersistenceRepository {
     if (query.operationId) {
       where.push("operation_id = ?");
       params.push(query.operationId);
+    }
+    if (query.action) {
+      where.push("action = ?");
+      params.push(query.action);
     }
 
     const limit = query.limit && query.limit > 0 ? Math.min(query.limit, 5000) : 200;

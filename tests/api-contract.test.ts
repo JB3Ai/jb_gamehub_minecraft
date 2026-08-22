@@ -30,6 +30,7 @@ test("provider and server API contract with operation retrieval", async () => {
     minecraftStartCommand: "node -e \"process.exit(0)\"",
     minecraftStopCommand: "node -e \"process.exit(0)\"",
     persistenceDbPath: testDbPath("api-contract"),
+    aiProvider: "fallback",
   });
 
   try {
@@ -190,6 +191,62 @@ test("provider and server API contract with operation retrieval", async () => {
     assert.ok(cleanupBody.policy.operationRetentionDays > 0);
     assert.equal(typeof cleanupBody.cleanup.operationsDeleted, "number");
     assert.equal(typeof cleanupBody.cutoff.operationsBefore, "string");
+
+    const aiProvidersRes = await fetch("http://127.0.0.1:3310/api/ai/providers");
+    assert.equal(aiProvidersRes.status, 200);
+    const aiProvidersBody = (await aiProvidersRes.json()) as {
+      active: string;
+      readOnly: boolean;
+      configured: { gemini: boolean; openai: boolean };
+    };
+    assert.equal(aiProvidersBody.active, "fallback");
+    assert.equal(aiProvidersBody.readOnly, true);
+
+    const aiRejectedRes = await fetch("http://127.0.0.1:3310/api/ai/ask", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ question: "a" }),
+    });
+    assert.equal(aiRejectedRes.status, 400);
+
+    const aiAskRes = await fetch("http://127.0.0.1:3310/api/ai/ask", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ question: "Why did Minecraft go offline?", providerId: "minecraft", window: "24h" }),
+    });
+    assert.equal(aiAskRes.status, 200);
+    const aiAskBody = (await aiAskRes.json()) as {
+      requestId: string;
+      question: string;
+      answer: string;
+      providerId: string;
+      model: string;
+      contextSources: string[];
+      contextWindow: { from: string; to: string };
+      generatedAt: string;
+    };
+    assert.equal(typeof aiAskBody.requestId, "string");
+    assert.equal(aiAskBody.providerId, "fallback");
+    assert.ok(aiAskBody.contextSources.length > 0);
+    assert.equal(typeof aiAskBody.answer, "string");
+
+    const aiAuditRes = await fetch("http://127.0.0.1:3310/api/ai/audit?limit=10");
+    assert.equal(aiAuditRes.status, 200);
+    const aiAuditBody = (await aiAuditRes.json()) as {
+      audits: Array<{
+        action: string;
+        result: string;
+        metadata?: { requestId?: string; questionLength?: number; answerLength?: number };
+      }>;
+    };
+    const matchingAudit = aiAuditBody.audits.find((entry) => entry.metadata?.requestId === aiAskBody.requestId);
+    assert.ok(matchingAudit);
+    assert.equal(matchingAudit?.action, "ai.query.requested");
+    assert.equal(matchingAudit?.result, "completed");
+    assert.equal(typeof matchingAudit?.metadata?.questionLength, "number");
+    assert.equal(typeof matchingAudit?.metadata?.answerLength, "number");
+    assert.ok(matchingAudit && !("question" in matchingAudit.metadata!));
+    assert.ok(matchingAudit && !("answer" in matchingAudit.metadata!));
   } finally {
     await closeServer(server);
   }

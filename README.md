@@ -21,6 +21,7 @@
 - 🧩 **1-Click Plugin & World Marketplace**: Integrated store for EssentialsX, WorldEdit, LuckPerms, and community maps.
 - 🧭 **Provider-Neutral Operations**: Manage Minecraft and synthetic providers through one lifecycle and persistence contract.
 - 📈 **Operational Intelligence**: Query provider-scoped uptime, operation, event, validation, and retention analytics.
+- 🧠 **AI Studio (Read-Only)**: Ask natural-language questions about GameHub activity; AI Studio can observe and explain but never mutate GameHub.
 
 ---
 
@@ -82,6 +83,7 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 - [DATABASE.md](./docs/DATABASE.md) - Data Schemas & Models
 - [API.md](./docs/API.md) - REST API Reference
 - [JBGH-016-analytics.md](./docs/JBGH-016-analytics.md) - Provider-Neutral Analytics and History Management
+- [JBGH-017-ai-studio.md](./docs/JBGH-017-ai-studio.md) - AI Studio Read-Only Intelligence Layer
 - [UI.md](./docs/UI.md) - Design System & Component Guidelines
 - [IDEAS.md](./IDEAS.md) - Innovation Sandbox & Backlog
 

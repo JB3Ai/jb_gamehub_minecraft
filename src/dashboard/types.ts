@@ -210,3 +210,50 @@ export interface HistoryCleanupSummary {
     auditsBefore: string;
   };
 }
+
+export interface AiAskRequest {
+  question: string;
+  providerId?: string;
+  serverId?: string;
+  window?: "24h" | "7d" | "30d";
+}
+
+export interface AiAskResponse {
+  requestId: string;
+  question: string;
+  answer: string;
+  providerId: string;
+  model: string;
+  contextSources: string[];
+  contextWindow: { from: string; to: string };
+  generatedAt: string;
+}
+
+export interface AiProvidersInfo {
+  active: string;
+  model?: string;
+  configured: {
+    gemini: boolean;
+    openai: boolean;
+  };
+  readOnly: boolean;
+}
+
+export interface AiAuditEntry {
+  id: string;
+  timestamp: string;
+  actor: string;
+  action: string;
+  providerId?: string;
+  serverId?: string;
+  result: "completed" | "failed";
+  metadata?: {
+    requestId?: string;
+    aiProviderId?: string;
+    model?: string;
+    contextSources?: string[];
+    questionLength?: number;
+    answerLength?: number;
+    failureReason?: string;
+  };
+}

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
+  AiStudioPanel,
   AnalyticsPanel,
   LiveEventsPanel,
   OperationsPanel,
@@ -156,7 +157,7 @@ test("responsive navigation renders section controls", () => {
   const html = renderToStaticMarkup(<SectionNavigation activePanel="servers" onSelect={() => undefined} />);
   assert.match(html, /aria-label="Toggle sections"/);
   assert.match(html, /SERVERS/);
-  assert.match(html, /LIVE EVENTS/);
+  assert.match(html, /EVENTS/);
 });
 
 test("live events panel renders expected event types", () => {
@@ -218,4 +219,14 @@ test("analytics panel renders summary and retention data", () => {
   assert.match(html, /Providers: 2/);
   assert.match(html, /History Retention/);
   assert.match(html, /Cleanup Expired History/);
+});
+
+test("AI Studio panel renders the read-only boundary and preset questions", () => {
+  const html = renderToStaticMarkup(<AiStudioPanel providerId="minecraft" serverId="minecraft-main" />);
+
+  assert.match(html, /READ ONLY/);
+  assert.match(html, /cannot start, stop, restart, delete, or modify anything/);
+  assert.match(html, /Why did this server go offline\?/);
+  assert.match(html, /Ask AI Studio about GameHub activity/);
+  assert.match(html, /read-only explanation here/);
 });

@@ -8,6 +8,8 @@ import { GoogleGenAI } from "@google/genai";
 import { WebSocketServer } from "ws";
 import { AnalyticsService, resolveWindow } from "./packages/core/analytics-service";
 import { bootstrapCore } from "./packages/core/index";
+import { AiStudioService } from "./packages/core/ai-studio-service";
+import { createAiProvider } from "./packages/ai-provider/index";
 import { EventQuery, InMemoryProviderManager, OperationQuery } from "./packages/provider-manager/index";
 import { loadRuntimeConfig, runtimeConfigDiagnostics, RuntimeConfig } from "./packages/core/runtime-config";
 
@@ -17,6 +19,7 @@ let providerManager: InMemoryProviderManager;
 let wsServer: WebSocketServer | undefined;
 let activeRuntimeConfig: RuntimeConfig | undefined;
 let analyticsService: AnalyticsService;
+let aiStudioService: AiStudioService;
 
 app.use(express.json());
 
@@ -406,6 +409,50 @@ app.get("/api/analytics/world-validation", (req, res) => {
   })().catch((err) => handleApiError(res, err));
 });
 
+// AI Studio: read-only intelligence layer (JBGH-017). No AI-driven mutations exist here.
+app.get("/api/ai/providers", (_req, res) => {
+  const config = activeRuntimeConfig;
+  res.json({
+    active: config?.aiProvider || "fallback",
+    model: config?.aiModel || undefined,
+    configured: {
+      gemini: Boolean(config?.geminiApiKey),
+      openai: Boolean(config?.openAiApiKey),
+    },
+    readOnly: true,
+  });
+});
+
+app.post("/api/ai/ask", (req, res) => {
+  void (async () => {
+    const body = req.body as {
+      question?: string;
+      providerId?: string;
+      serverId?: string;
+      window?: "24h" | "7d" | "30d";
+      actor?: string;
+    };
+
+    const answer = await aiStudioService.ask({
+      question: body?.question ?? "",
+      providerId: body?.providerId,
+      serverId: body?.serverId,
+      window: body?.window,
+      actor: body?.actor,
+    });
+
+    res.json(answer);
+  })().catch((err) => handleApiError(res, err));
+});
+
+app.get("/api/ai/audit", (req, res) => {
+  void (async () => {
+    const limit = typeof req.query.limit === "string" ? parseLimit(req.query.limit, 100, 1000) : undefined;
+    const audits = await aiStudioService.listAuditTrail({ limit });
+    res.json({ audits });
+  })().catch((err) => handleApiError(res, err));
+});
+
 // AI Copilot Endpoint ("Hey JB...")
 app.post("/api/ai/copilot", async (req, res) => {
   try {
@@ -557,6 +604,12 @@ export async function startServer(port = PORT, overrides: Partial<RuntimeConfig>
     auditRetentionDays: config.auditRetentionDays,
   });
   analyticsService = new AnalyticsService(providerManager);
+  const aiProvider = createAiProvider({
+    provider: config.aiProvider,
+    model: config.aiModel,
+    apiKey: config.aiProvider === "openai" ? config.openAiApiKey : config.geminiApiKey,
+  });
+  aiStudioService = new AiStudioService(providerManager, analyticsService, aiProvider);
 
   console.log("[JB3 GameHub] Runtime configuration:");
   for (const line of runtimeConfigDiagnostics(config)) {

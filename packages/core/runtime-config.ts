@@ -9,6 +9,10 @@ export interface RuntimeConfig {
   operationRetentionDays: number;
   eventRetentionDays: number;
   auditRetentionDays: number;
+  aiProvider: "gemini" | "openai" | "fallback";
+  aiModel?: string;
+  geminiApiKey?: string;
+  openAiApiKey?: string;
 }
 
 function parsePort(raw: string | undefined, fallback: number, label: string): number {
@@ -27,6 +31,13 @@ function parsePositiveInt(raw: string | undefined, fallback: number, label: stri
   return value;
 }
 
+function parseAiProvider(raw: string | undefined): "gemini" | "openai" | "fallback" {
+  if (raw === "gemini" || raw === "openai" || raw === "fallback") {
+    return raw;
+  }
+  return "fallback";
+}
+
 export function loadRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeConfig {
   return {
     minecraftServerDir: env.MINECRAFT_SERVER_DIR || process.cwd(),
@@ -39,6 +50,10 @@ export function loadRuntimeConfig(env: NodeJS.ProcessEnv = process.env): Runtime
     operationRetentionDays: parsePositiveInt(env.OPERATION_RETENTION_DAYS, 90, "OPERATION_RETENTION_DAYS"),
     eventRetentionDays: parsePositiveInt(env.EVENT_RETENTION_DAYS, 30, "EVENT_RETENTION_DAYS"),
     auditRetentionDays: parsePositiveInt(env.AUDIT_RETENTION_DAYS, 365, "AUDIT_RETENTION_DAYS"),
+    aiProvider: parseAiProvider(env.AI_PROVIDER),
+    aiModel: env.AI_MODEL || undefined,
+    geminiApiKey: env.GEMINI_API_KEY && env.GEMINI_API_KEY !== "MY_GEMINI_API_KEY" ? env.GEMINI_API_KEY : undefined,
+    openAiApiKey: env.OPENAI_API_KEY || undefined,
   };
 }
 
@@ -54,5 +69,9 @@ export function runtimeConfigDiagnostics(config: RuntimeConfig): string[] {
     `OPERATION_RETENTION_DAYS=${config.operationRetentionDays}`,
     `EVENT_RETENTION_DAYS=${config.eventRetentionDays}`,
     `AUDIT_RETENTION_DAYS=${config.auditRetentionDays}`,
+    `AI_PROVIDER=${config.aiProvider}`,
+    `AI_MODEL=${config.aiModel || "provider_default"}`,
+    `GEMINI_API_KEY=${config.geminiApiKey ? "configured" : "not_configured"}`,
+    `OPENAI_API_KEY=${config.openAiApiKey ? "configured" : "not_configured"}`,
   ];
 }

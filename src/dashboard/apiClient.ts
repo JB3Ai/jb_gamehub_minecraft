@@ -1,4 +1,8 @@
 import {
+  AiAskRequest,
+  AiAskResponse,
+  AiAuditEntry,
+  AiProvidersInfo,
   AnalyticsSummary,
   ApiEnvelope,
   EventListResponse,
@@ -106,3 +110,24 @@ export async function requestHistoryCleanup(actor = "dashboard-user") {
     }),
   );
 }
+
+export async function getAiProvidersInfo(): Promise<AiProvidersInfo> {
+  return parseResponse<AiProvidersInfo>(await fetch("/api/ai/providers"));
+}
+
+export async function askAiStudio(request: AiAskRequest): Promise<AiAskResponse> {
+  return parseResponse<AiAskResponse>(
+    await fetch("/api/ai/ask", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(request),
+    }),
+  );
+}
+
+export async function getAiAuditTrail(limit = 50): Promise<{ audits: AiAuditEntry[] }> {
+  return parseResponse<{ audits: AiAuditEntry[] }>(await fetch(`/api/ai/audit?limit=${limit}`));
+}
+

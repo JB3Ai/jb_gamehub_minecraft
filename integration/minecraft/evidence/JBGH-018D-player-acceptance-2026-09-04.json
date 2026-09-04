@@ -1,0 +1,33 @@
+{
+  "milestone": "JBGH-018D",
+  "providerId": "minecraft",
+  "serverId": "minecraft-main",
+  "javaRuntime": "C:\\Program Files\\Microsoft\\jdk-21.0.12.8-hotspot\\bin\\java.exe",
+  "paperVersion": "1.21.4",
+  "player": "GameHubTest",
+  "lifecycle": {
+    "join": true,
+    "sessionStarted": true,
+    "disconnect": true,
+    "sessionEnded": true,
+    "reconnect": true,
+    "usagePreserved": true
+  },
+  "policyExpiry": {
+    "decision": "DENY",
+    "reason": "DAILY_LIMIT_REACHED",
+    "activeSessionSeconds": 66
+  },
+  "enforcement": {
+    "channel": "paper-rcon",
+    "kickIssued": true,
+    "playerAbsentFromRconList": true
+  },
+  "audit": {
+    "action": "policy.denied",
+    "providerId": "minecraft",
+    "serverId": "minecraft-main",
+    "result": "completed"
+  },
+  "dashboard": "Family panel reads the persisted session, playtime, access decision, and activity APIs."
+}

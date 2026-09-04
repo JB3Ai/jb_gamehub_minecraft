@@ -273,10 +273,19 @@ async function main(): Promise<void> {
     );
     await collector.waitFor(operationEventPredicate("operation.completed", stopOperationId), "operation.completed/stop");
 
-    const timeline = collector.events.filter((event) => {
+    const timeline = [
+      {
+        type: "server.status.changed",
+        timestamp: new Date().toISOString(),
+        providerId,
+        serverId,
+        status: statusBefore.status,
+      },
+      ...collector.events.filter((event) => {
       const type = String(event.type || "");
       return type.startsWith("operation.") || type === "server.status.changed" || type === "world.validation.completed";
-    });
+      }),
+    ];
 
     const report: EvidenceReport = {
       generatedAt: new Date().toISOString(),

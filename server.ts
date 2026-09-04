@@ -9,6 +9,7 @@ import { WebSocketServer } from "ws";
 import { AnalyticsService, resolveWindow } from "./packages/core/analytics-service";
 import { bootstrapCore } from "./packages/core/index";
 import { AiStudioService } from "./packages/core/ai-studio-service";
+import { FamilyService } from "./packages/core/family-service";
 import { createAiProvider } from "./packages/ai-provider/index";
 import { EventQuery, InMemoryProviderManager, OperationQuery } from "./packages/provider-manager/index";
 import { loadRuntimeConfig, runtimeConfigDiagnostics, RuntimeConfig } from "./packages/core/runtime-config";
@@ -19,7 +20,9 @@ let providerManager: InMemoryProviderManager;
 let wsServer: WebSocketServer | undefined;
 let activeRuntimeConfig: RuntimeConfig | undefined;
 let analyticsService: AnalyticsService;
+let familyService: FamilyService;
 let aiStudioService: AiStudioService;
+let unbindFamilyLifecycle: (() => void) | undefined;
 
 app.use(express.json());
 
@@ -305,6 +308,20 @@ app.get("/api/history/overview", (req, res) => {
   })().catch((err) => handleApiError(res, err));
 });
 
+app.get("/api/history/audit", async (req, res) => {
+  try {
+    const audits = await providerManager.listAudits({
+      providerId: typeof req.query.providerId === "string" ? req.query.providerId : undefined,
+      serverId: typeof req.query.serverId === "string" ? req.query.serverId : undefined,
+      action: typeof req.query.action === "string" ? req.query.action as never : undefined,
+      limit: parseLimit(req.query.limit, 200, 1000),
+    });
+    res.json({ audits });
+  } catch (err) {
+    handleApiError(res, err);
+  }
+});
+
 app.get("/api/analytics/summary", (req, res) => {
   void (async () => {
     const window = parseAnalyticsWindow(req);
@@ -407,6 +424,271 @@ app.get("/api/analytics/world-validation", (req, res) => {
       data,
     });
   })().catch((err) => handleApiError(res, err));
+});
+
+app.get("/api/families", async (_req, res) => {
+  try {
+    const families = await familyService.listFamilies();
+    res.json({ families });
+  } catch (err) {
+    handleApiError(res, err);
+  }
+});
+
+app.post("/api/families", async (req, res) => {
+  try {
+    const body = (req.body ?? {}) as { name?: string; timezone?: string; actor?: string; metadata?: Record<string, unknown> };
+    const family = await familyService.createFamily({
+      name: body.name || "New Family",
+      timezone: body.timezone || "UTC",
+      actor: body.actor,
+      metadata: body.metadata,
+    });
+    res.status(201).json(family);
+  } catch (err) {
+    handleApiError(res, err);
+  }
+});
+
+app.get("/api/families/:familyId", async (req, res) => {
+  try {
+    const family = await familyService.getFamily(req.params.familyId);
+    if (!family) {
+      return res.status(404).json({ error: { code: "NOT_FOUND", message: "Family not found" } });
+    }
+    return res.json(family);
+  } catch (err) {
+    return handleApiError(res, err);
+  }
+});
+
+app.get("/api/families/:familyId/children", async (req, res) => {
+  try {
+    const children = await familyService.listChildren(req.params.familyId);
+    res.json({ children });
+  } catch (err) {
+    handleApiError(res, err);
+  }
+});
+
+app.post("/api/families/:familyId/children", async (req, res) => {
+  try {
+    const body = (req.body ?? {}) as { name?: string; timezone?: string; actor?: string; metadata?: Record<string, unknown> };
+    const child = await familyService.createChild({
+      familyId: req.params.familyId,
+      name: body.name || "New Child",
+      timezone: body.timezone,
+      actor: body.actor,
+      metadata: body.metadata,
+    });
+    res.status(201).json(child);
+  } catch (err) {
+    handleApiError(res, err);
+  }
+});
+
+app.get("/api/children/:childId", async (req, res) => {
+  try {
+    const child = await familyService.getChild(req.params.childId);
+    if (!child) {
+      return res.status(404).json({ error: { code: "NOT_FOUND", message: "Child not found" } });
+    }
+    return res.json(child);
+  } catch (err) {
+    return handleApiError(res, err);
+  }
+});
+
+app.patch("/api/children/:childId", async (req, res) => {
+  try {
+    const child = await familyService.updateChild(req.params.childId, req.body ?? {});
+    res.json(child);
+  } catch (err) {
+    handleApiError(res, err);
+  }
+});
+
+app.get("/api/children/:childId/identities", async (req, res) => {
+  try {
+    const identities = await familyService.listIdentities(req.params.childId);
+    res.json({ identities });
+  } catch (err) {
+    handleApiError(res, err);
+  }
+});
+
+app.post("/api/children/:childId/identities", async (req, res) => {
+  try {
+    const body = (req.body ?? {}) as {
+      providerId?: string;
+      externalPlayerId?: string;
+      displayName?: string;
+      identityType?: string;
+      verified?: boolean;
+      metadata?: Record<string, unknown>;
+      actor?: string;
+    };
+    const identity = await familyService.linkIdentity({
+      childId: req.params.childId,
+      providerId: body.providerId || "synthetic",
+      externalPlayerId: body.externalPlayerId || "unlinked",
+      displayName: body.displayName || body.externalPlayerId || "Unlinked",
+      identityType: body.identityType || "generic",
+      verified: body.verified,
+      metadata: body.metadata,
+      actor: body.actor,
+    });
+    res.status(201).json(identity);
+  } catch (err) {
+    handleApiError(res, err);
+  }
+});
+
+app.get("/api/children/:childId/rules", async (req, res) => {
+  try {
+    const rules = await familyService.listRules(req.params.childId);
+    res.json({ rules });
+  } catch (err) {
+    handleApiError(res, err);
+  }
+});
+
+app.post("/api/children/:childId/rules", async (req, res) => {
+  try {
+    const body = (req.body ?? {}) as { type?: string; enabled?: boolean; config?: Record<string, unknown>; actor?: string };
+    const rule = await familyService.createRule({
+      familyId: (await familyService.getChild(req.params.childId))?.familyId || "",
+      childId: req.params.childId,
+      type: (body.type as any) || "DAILY_PLAY_LIMIT",
+      enabled: body.enabled ?? true,
+      config: body.config || {},
+      actor: body.actor,
+    });
+    res.status(201).json(rule);
+  } catch (err) {
+    handleApiError(res, err);
+  }
+});
+
+app.patch("/api/rules/:ruleId", async (req, res) => {
+  try {
+    const rule = await familyService.updateRule(req.params.ruleId, req.body ?? {});
+    res.json(rule);
+  } catch (err) {
+    handleApiError(res, err);
+  }
+});
+
+app.get("/api/children/:childId/sessions", async (req, res) => {
+  try {
+    const limit = parseLimit(req.query.limit, 200, 1000);
+    const sessions = await familyService.listSessions(req.params.childId, limit);
+    res.json({ sessions });
+  } catch (err) {
+    handleApiError(res, err);
+  }
+});
+
+app.get("/api/children/:childId/playtime", async (req, res) => {
+  try {
+    const at = typeof req.query.at === "string" ? req.query.at : new Date().toISOString();
+    const usage = await familyService.getPlaytime(req.params.childId, at);
+    res.json({ generatedAt: new Date().toISOString(), at, usage });
+  } catch (err) {
+    handleApiError(res, err);
+  }
+});
+
+app.post("/api/children/:childId/sessions/:sessionId/end", async (req, res) => {
+  try {
+    const body = (req.body ?? {}) as { reason?: string; actor?: string; at?: string };
+    const existing = await familyService.getSession(req.params.sessionId);
+    if (!existing || existing.childId !== req.params.childId) {
+      return res.status(404).json({ error: { code: "NOT_FOUND", message: "Session not found" } });
+    }
+    const session = await familyService.endSession(
+      req.params.sessionId,
+      body.reason || "client_disconnected",
+      body.actor || "system/provider-event",
+      body.at || new Date().toISOString(),
+    );
+    return res.json(session);
+  } catch (err) {
+    return handleApiError(res, err);
+  }
+});
+
+app.post("/api/children/:childId/evaluate-access", async (req, res) => {
+  try {
+    const body = (req.body ?? {}) as {
+      providerId?: string;
+      serverId?: string;
+      externalPlayerId?: string;
+      displayName?: string;
+      identityType?: string;
+      timestamp?: string;
+      actor?: string;
+    };
+    const result = await familyService.evaluateAccess({
+      childId: req.params.childId,
+      providerId: body.providerId || "synthetic",
+      serverId: body.serverId || "synthetic-main",
+      externalPlayerId: body.externalPlayerId || "player",
+      displayName: body.displayName,
+      identityType: body.identityType,
+      timestamp: body.timestamp,
+      actor: body.actor,
+    });
+    res.json(result);
+  } catch (err) {
+    handleApiError(res, err);
+  }
+});
+
+app.post("/api/children/:childId/overrides", async (req, res) => {
+  try {
+    const body = (req.body ?? {}) as {
+      createdBy?: string;
+      scope?: Record<string, unknown>;
+      reason?: string;
+      startsAt?: string;
+      expiresAt?: string;
+      metadata?: Record<string, unknown>;
+    };
+    const override = await familyService.createOverride({
+      childId: req.params.childId,
+      createdBy: body.createdBy || "parent-admin",
+      scope: body.scope || {},
+      reason: body.reason || "Temporary override",
+      startsAt: body.startsAt || new Date().toISOString(),
+      expiresAt: body.expiresAt || new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+      metadata: body.metadata,
+    });
+    res.status(201).json(override);
+  } catch (err) {
+    handleApiError(res, err);
+  }
+});
+
+app.get("/api/children/:childId/overrides", async (req, res) => {
+  try {
+    const overrides = await providerManager.listParentOverrides({
+      childId: req.params.childId,
+      limit: parseLimit(req.query.limit, 100, 500),
+    });
+    res.json({ overrides });
+  } catch (err) {
+    handleApiError(res, err);
+  }
+});
+
+app.delete("/api/overrides/:overrideId", async (req, res) => {
+  try {
+    const override = await familyService.revokeOverride(req.params.overrideId);
+    res.json(override);
+  } catch (err) {
+    handleApiError(res, err);
+  }
 });
 
 // AI Studio: read-only intelligence layer (JBGH-017). No AI-driven mutations exist here.
@@ -598,12 +880,16 @@ export async function startServer(port = PORT, overrides: Partial<RuntimeConfig>
     minecraftBedrockPort: config.minecraftBedrockPort,
     minecraftStartCommand: config.minecraftStartCommand,
     minecraftStopCommand: config.minecraftStopCommand,
+    minecraftRconPort: config.minecraftRconPort,
+    minecraftRconPassword: config.minecraftRconPassword,
     persistenceDbPath: config.persistenceDbPath,
     operationRetentionDays: config.operationRetentionDays,
     eventRetentionDays: config.eventRetentionDays,
     auditRetentionDays: config.auditRetentionDays,
   });
   analyticsService = new AnalyticsService(providerManager);
+  familyService = new FamilyService(providerManager);
+  unbindFamilyLifecycle = familyService.bindPlayerLifecycle();
   const aiProvider = createAiProvider({
     provider: config.aiProvider,
     model: config.aiModel,
@@ -616,8 +902,9 @@ export async function startServer(port = PORT, overrides: Partial<RuntimeConfig>
     console.log(`[JB3 GameHub] - ${line}`);
   }
 
+  let vite: Awaited<ReturnType<typeof createViteServer>> | undefined;
   if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
+    vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
     });
@@ -634,6 +921,9 @@ export async function startServer(port = PORT, overrides: Partial<RuntimeConfig>
   wireWebSocket(httpServer);
 
   httpServer.on("close", () => {
+    void vite?.close();
+    unbindFamilyLifecycle?.();
+    unbindFamilyLifecycle = undefined;
     void providerManager.shutdown();
     wsServer?.close();
     wsServer = undefined;

@@ -1,8 +1,12 @@
 import { MinecraftProvider } from "../minecraft-provider/index";
 import { InMemoryProviderManager } from "../provider-manager/index";
 import { SyntheticProvider } from "../synthetic-provider/index";
+import { FamilyService } from "./family-service";
+import { evaluateParentalPolicy } from "./family-policy";
 import { loadRuntimeConfig, RuntimeConfig } from "./runtime-config";
 import { SqlitePersistenceRepository } from "./sqlite-repository";
+
+export { FamilyService, evaluateParentalPolicy };
 
 export interface CoreBootstrapConfig {
   minecraftServerDir?: string;
@@ -11,6 +15,8 @@ export interface CoreBootstrapConfig {
   minecraftBedrockPort?: number;
   minecraftStartCommand?: string;
   minecraftStopCommand?: string;
+  minecraftRconPort?: number;
+  minecraftRconPassword?: string;
   persistenceDbPath?: string;
   operationRetentionDays?: number;
   eventRetentionDays?: number;
@@ -26,6 +32,8 @@ export async function bootstrapCore(config: CoreBootstrapConfig = {}): Promise<I
     ...(typeof config.minecraftBedrockPort === "number" ? { minecraftBedrockPort: config.minecraftBedrockPort } : {}),
     ...(config.minecraftStartCommand ? { minecraftStartCommand: config.minecraftStartCommand } : {}),
     ...(config.minecraftStopCommand ? { minecraftStopCommand: config.minecraftStopCommand } : {}),
+    ...(typeof config.minecraftRconPort === "number" ? { minecraftRconPort: config.minecraftRconPort } : {}),
+    ...(config.minecraftRconPassword ? { minecraftRconPassword: config.minecraftRconPassword } : {}),
     ...(config.persistenceDbPath ? { persistenceDbPath: config.persistenceDbPath } : {}),
     ...(typeof config.operationRetentionDays === "number" ? { operationRetentionDays: config.operationRetentionDays } : {}),
     ...(typeof config.eventRetentionDays === "number" ? { eventRetentionDays: config.eventRetentionDays } : {}),
@@ -49,6 +57,8 @@ export async function bootstrapCore(config: CoreBootstrapConfig = {}): Promise<I
     bedrockPort: runtime.minecraftBedrockPort,
     startCommand: runtime.minecraftStartCommand,
     stopCommand: runtime.minecraftStopCommand,
+    rconPort: runtime.minecraftRconPort,
+    rconPassword: runtime.minecraftRconPassword,
   });
 
   await providerManager.register(minecraftProvider);

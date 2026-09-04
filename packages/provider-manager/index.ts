@@ -1,3 +1,35 @@
+import type {
+  ChildProfile,
+  Family,
+  FamilyPlaytimeSummary,
+  ParentMembership,
+  ParentOverride,
+  ParentalRule,
+  PlaySession,
+  PlayerIdentity,
+  PolicyDecision,
+  ProviderAccessEnforcementInput,
+  ProviderOnlinePlayer,
+  ProviderResolvedPlayerIdentity,
+  ProviderPlayerLifecycleEvent,
+} from "./family-types";
+
+export type {
+  ChildProfile,
+  Family,
+  FamilyPlaytimeSummary,
+  ParentMembership,
+  ParentOverride,
+  ParentalRule,
+  PlaySession,
+  PlayerIdentity,
+  PolicyDecision,
+  ProviderAccessEnforcementInput,
+  ProviderOnlinePlayer,
+  ProviderResolvedPlayerIdentity,
+  ProviderPlayerLifecycleEvent,
+} from "./family-types";
+
 export type OperationStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
 
 export interface OperationRef {
@@ -164,7 +196,21 @@ export interface AuditRecord {
     | "server.restart.requested"
     | "world.validation.requested"
     | "history.cleanup.requested"
-    | "ai.query.requested";
+    | "ai.query.requested"
+    | "family.created"
+    | "parent.membership.created"
+    | "child.created"
+    | "identity.linked"
+    | "rule.created"
+    | "rule.updated"
+    | "rule.disabled"
+    | "policy.allowed"
+    | "policy.denied"
+    | "session.started"
+    | "session.ended"
+    | "override.created"
+    | "override.expired"
+    | "override.revoked";
   providerId?: string;
   serverId?: string;
   operationId?: string;
@@ -227,6 +273,46 @@ export interface PersistenceRepository {
   listAudit(query?: { providerId?: string; serverId?: string; operationId?: string; action?: AuditRecord["action"]; limit?: number }): Promise<AuditRecord[]>;
   cleanupExpired(policy: RetentionPolicy, nowIso: string): Promise<RetentionCleanupResult>;
   getHistoryStorageStats(): Promise<HistoryStorageStats>;
+
+  createFamily(family: Family): Promise<void>;
+  listFamilies(): Promise<Family[]>;
+  getFamily(familyId: string): Promise<Family | undefined>;
+
+  createParentMembership(parent: ParentMembership): Promise<void>;
+  listParentMemberships(familyId: string): Promise<ParentMembership[]>;
+
+  createChildProfile(child: ChildProfile): Promise<void>;
+  upsertChildProfile(child: ChildProfile): Promise<void>;
+  listChildProfiles(familyId: string): Promise<ChildProfile[]>;
+  getChildProfile(childId: string): Promise<ChildProfile | undefined>;
+
+  createPlayerIdentity(identity: PlayerIdentity): Promise<void>;
+  listPlayerIdentitiesByChild(childId: string): Promise<PlayerIdentity[]>;
+
+  createParentalRule(rule: ParentalRule): Promise<void>;
+  upsertParentalRule(rule: ParentalRule): Promise<void>;
+  getParentalRule(ruleId: string): Promise<ParentalRule | undefined>;
+  listParentalRulesByChild(childId: string): Promise<ParentalRule[]>;
+
+  createPlaySession(session: PlaySession): Promise<void>;
+  upsertPlaySession(session: PlaySession): Promise<void>;
+  getPlaySession(sessionId: string): Promise<PlaySession | undefined>;
+  listPlaySessions(query?: {
+    childId?: string;
+    providerId?: string;
+    serverId?: string;
+    from?: string;
+    to?: string;
+    status?: PlaySession["status"];
+    includeActive?: boolean;
+    limit?: number;
+  }): Promise<PlaySession[]>;
+  findActivePlaySession(childId: string, providerId: string, serverId: string, playerIdentityId?: string): Promise<PlaySession | undefined>;
+
+  createParentOverride(override: ParentOverride): Promise<void>;
+  upsertParentOverride(override: ParentOverride): Promise<void>;
+  getParentOverride(overrideId: string): Promise<ParentOverride | undefined>;
+  listParentOverrides(query?: { childId?: string; activeAt?: string; limit?: number }): Promise<ParentOverride[]>;
 }
 
 export interface GameProvider {
@@ -237,6 +323,11 @@ export interface GameProvider {
   getServers(): Promise<ServerSummary[]>;
   getServerConnectionEndpoints(serverId: string): Promise<ConnectionEndpoint[]>;
   getServerStatus(serverId: string): Promise<ServerStatus>;
+  resolvePlayerIdentity?(serverId: string, hint: { externalPlayerId?: string; displayName?: string }): Promise<ProviderResolvedPlayerIdentity | undefined>;
+  getOnlinePlayers?(serverId: string): Promise<ProviderOnlinePlayer[]>;
+  enforcePlayerAccess?(input: ProviderAccessEnforcementInput): Promise<void>;
+  disconnectPlayer?(serverId: string, externalPlayerId: string, reason: string): Promise<void>;
+  subscribePlayerEvents?(listener: (event: ProviderPlayerLifecycleEvent) => void): () => void;
   startServer(serverId: string): Promise<ProviderActionResult | void>;
   stopServer(serverId: string): Promise<ProviderActionResult | void>;
   restartServer(serverId: string): Promise<ProviderActionResult | void>;
@@ -270,6 +361,13 @@ class InMemoryPersistenceRepository implements PersistenceRepository {
   private readonly events: EventRecord[] = [];
   private readonly states = new Map<string, ServerStateSnapshot>();
   private readonly audits: AuditRecord[] = [];
+  private readonly families = new Map<string, Family>();
+  private readonly parents = new Map<string, ParentMembership>();
+  private readonly children = new Map<string, ChildProfile>();
+  private readonly identities = new Map<string, PlayerIdentity>();
+  private readonly rules = new Map<string, ParentalRule>();
+  private readonly sessions = new Map<string, PlaySession>();
+  private readonly overrides = new Map<string, ParentOverride>();
 
   async initialize(): Promise<void> {
     // No-op.
@@ -392,6 +490,163 @@ class InMemoryPersistenceRepository implements PersistenceRepository {
       oldestEventAt,
       oldestAuditAt,
     };
+  }
+
+  async createFamily(family: Family): Promise<void> {
+    this.families.set(family.id, { ...family });
+  }
+
+  async listFamilies(): Promise<Family[]> {
+    return [...this.families.values()].map((item) => ({ ...item }));
+  }
+
+  async getFamily(familyId: string): Promise<Family | undefined> {
+    const family = this.families.get(familyId);
+    return family ? { ...family } : undefined;
+  }
+
+  async createParentMembership(parent: ParentMembership): Promise<void> {
+    this.parents.set(parent.id, { ...parent });
+  }
+
+  async listParentMemberships(familyId: string): Promise<ParentMembership[]> {
+    return [...this.parents.values()].filter((item) => item.familyId === familyId).map((item) => ({ ...item }));
+  }
+
+  async createChildProfile(child: ChildProfile): Promise<void> {
+    this.children.set(child.id, { ...child });
+  }
+
+  async upsertChildProfile(child: ChildProfile): Promise<void> {
+    this.children.set(child.id, { ...child });
+  }
+
+  async listChildProfiles(familyId: string): Promise<ChildProfile[]> {
+    return [...this.children.values()].filter((item) => item.familyId === familyId).map((item) => ({ ...item }));
+  }
+
+  async getChildProfile(childId: string): Promise<ChildProfile | undefined> {
+    const child = this.children.get(childId);
+    return child ? { ...child } : undefined;
+  }
+
+  async createPlayerIdentity(identity: PlayerIdentity): Promise<void> {
+    this.identities.set(identity.id, { ...identity });
+  }
+
+  async listPlayerIdentitiesByChild(childId: string): Promise<PlayerIdentity[]> {
+    return [...this.identities.values()].filter((item) => item.childId === childId).map((item) => ({ ...item }));
+  }
+
+  async createParentalRule(rule: ParentalRule): Promise<void> {
+    this.rules.set(rule.id, { ...rule });
+  }
+
+  async upsertParentalRule(rule: ParentalRule): Promise<void> {
+    this.rules.set(rule.id, { ...rule });
+  }
+
+  async getParentalRule(ruleId: string): Promise<ParentalRule | undefined> {
+    const rule = this.rules.get(ruleId);
+    return rule ? { ...rule } : undefined;
+  }
+
+  async listParentalRulesByChild(childId: string): Promise<ParentalRule[]> {
+    return [...this.rules.values()].filter((item) => item.childId === childId).map((item) => ({ ...item }));
+  }
+
+  async createPlaySession(session: PlaySession): Promise<void> {
+    this.sessions.set(session.id, { ...session });
+  }
+
+  async upsertPlaySession(session: PlaySession): Promise<void> {
+    this.sessions.set(session.id, { ...session });
+  }
+
+  async getPlaySession(sessionId: string): Promise<PlaySession | undefined> {
+    const session = this.sessions.get(sessionId);
+    return session ? { ...session } : undefined;
+  }
+
+  async listPlaySessions(
+    query: {
+      childId?: string;
+      providerId?: string;
+      serverId?: string;
+      from?: string;
+      to?: string;
+      status?: PlaySession["status"];
+      includeActive?: boolean;
+      limit?: number;
+    } = {},
+  ): Promise<PlaySession[]> {
+    let list = [...this.sessions.values()];
+    if (query.childId) {
+      list = list.filter((item) => item.childId === query.childId);
+    }
+    if (query.providerId) {
+      list = list.filter((item) => item.providerId === query.providerId);
+    }
+    if (query.serverId) {
+      list = list.filter((item) => item.serverId === query.serverId);
+    }
+    if (query.status) {
+      list = list.filter((item) => item.status === query.status);
+    }
+    if (!query.includeActive) {
+      list = list.filter((item) => item.status !== "active");
+    }
+    if (query.from) {
+      list = list.filter((item) => item.startedAt >= query.from!);
+    }
+    if (query.to) {
+      list = list.filter((item) => item.startedAt <= query.to!);
+    }
+    list.sort((a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt));
+    return (query.limit ? list.slice(0, query.limit) : list).map((item) => ({ ...item }));
+  }
+
+  async findActivePlaySession(
+    childId: string,
+    providerId: string,
+    serverId: string,
+    playerIdentityId?: string,
+  ): Promise<PlaySession | undefined> {
+    const session = [...this.sessions.values()].find(
+      (item) =>
+        item.childId === childId &&
+        item.providerId === providerId &&
+        item.serverId === serverId &&
+        item.status === "active" &&
+        (!playerIdentityId || item.playerIdentityId === playerIdentityId),
+    );
+    return session ? { ...session } : undefined;
+  }
+
+  async createParentOverride(override: ParentOverride): Promise<void> {
+    this.overrides.set(override.id, { ...override });
+  }
+
+  async upsertParentOverride(override: ParentOverride): Promise<void> {
+    this.overrides.set(override.id, { ...override });
+  }
+
+  async getParentOverride(overrideId: string): Promise<ParentOverride | undefined> {
+    const value = this.overrides.get(overrideId);
+    return value ? { ...value } : undefined;
+  }
+
+  async listParentOverrides(query: { childId?: string; activeAt?: string; limit?: number } = {}): Promise<ParentOverride[]> {
+    let list = [...this.overrides.values()];
+    if (query.childId) {
+      list = list.filter((item) => item.childId === query.childId);
+    }
+    if (query.activeAt) {
+      const at = Date.parse(query.activeAt);
+      list = list.filter((item) => !item.revokedAt && Date.parse(item.startsAt) <= at && Date.parse(item.expiresAt) >= at);
+    }
+    list.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+    return (query.limit ? list.slice(0, query.limit) : list).map((item) => ({ ...item }));
   }
 }
 
@@ -568,6 +823,8 @@ export class InMemoryProviderManager {
   private readonly repository: PersistenceRepository;
   private readonly service: OperationEventService;
   private readonly defaultActor: string;
+  private readonly playerEventListeners = new Set<(event: ProviderPlayerLifecycleEvent) => void>();
+  private readonly providerPlayerUnsubscribers = new Map<string, () => void>();
 
   constructor(options: ProviderManagerOptions = {}) {
     this.repository = options.repository ?? new InMemoryPersistenceRepository();
@@ -585,16 +842,37 @@ export class InMemoryProviderManager {
   }
 
   async shutdown(): Promise<void> {
+    for (const unsubscribe of this.providerPlayerUnsubscribers.values()) {
+      unsubscribe();
+    }
+    this.providerPlayerUnsubscribers.clear();
     await this.repository.close();
   }
 
   async register(provider: GameProvider): Promise<void> {
     await provider.register();
     this.providers.set(provider.metadata().id, provider);
+    if (provider.subscribePlayerEvents) {
+      this.providerPlayerUnsubscribers.set(
+        provider.metadata().id,
+        provider.subscribePlayerEvents((event) => {
+          for (const listener of this.playerEventListeners) {
+            listener(event);
+          }
+        }),
+      );
+    }
   }
 
   onEvent(listener: (event: ProviderEvent) => void): () => void {
     return this.eventBus.subscribe(listener);
+  }
+
+  onPlayerEvent(listener: (event: ProviderPlayerLifecycleEvent) => void): () => void {
+    this.playerEventListeners.add(listener);
+    return () => {
+      this.playerEventListeners.delete(listener);
+    };
   }
 
   async getOperation(operationId: string): Promise<OperationRecord | undefined> {
@@ -629,6 +907,116 @@ export class InMemoryProviderManager {
 
   async getHistoryStorageStats(): Promise<HistoryStorageStats> {
     return this.repository.getHistoryStorageStats();
+  }
+
+  async createFamily(family: Family): Promise<void> {
+    await this.repository.createFamily(family);
+  }
+
+  async listFamilies(): Promise<Family[]> {
+    return this.repository.listFamilies();
+  }
+
+  async getFamily(familyId: string): Promise<Family | undefined> {
+    return this.repository.getFamily(familyId);
+  }
+
+  async createParentMembership(parent: ParentMembership): Promise<void> {
+    await this.repository.createParentMembership(parent);
+  }
+
+  async listParentMemberships(familyId: string): Promise<ParentMembership[]> {
+    return this.repository.listParentMemberships(familyId);
+  }
+
+  async createChildProfile(child: ChildProfile): Promise<void> {
+    await this.repository.createChildProfile(child);
+  }
+
+  async upsertChildProfile(child: ChildProfile): Promise<void> {
+    await this.repository.upsertChildProfile(child);
+  }
+
+  async listChildProfiles(familyId: string): Promise<ChildProfile[]> {
+    return this.repository.listChildProfiles(familyId);
+  }
+
+  async getChildProfile(childId: string): Promise<ChildProfile | undefined> {
+    return this.repository.getChildProfile(childId);
+  }
+
+  async createPlayerIdentity(identity: PlayerIdentity): Promise<void> {
+    await this.repository.createPlayerIdentity(identity);
+  }
+
+  async listPlayerIdentitiesByChild(childId: string): Promise<PlayerIdentity[]> {
+    return this.repository.listPlayerIdentitiesByChild(childId);
+  }
+
+  async createParentalRule(rule: ParentalRule): Promise<void> {
+    await this.repository.createParentalRule(rule);
+  }
+
+  async upsertParentalRule(rule: ParentalRule): Promise<void> {
+    await this.repository.upsertParentalRule(rule);
+  }
+
+  async getParentalRule(ruleId: string): Promise<ParentalRule | undefined> {
+    return this.repository.getParentalRule(ruleId);
+  }
+
+  async listParentalRulesByChild(childId: string): Promise<ParentalRule[]> {
+    return this.repository.listParentalRulesByChild(childId);
+  }
+
+  async createPlaySession(session: PlaySession): Promise<void> {
+    await this.repository.createPlaySession(session);
+  }
+
+  async upsertPlaySession(session: PlaySession): Promise<void> {
+    await this.repository.upsertPlaySession(session);
+  }
+
+  async getPlaySession(sessionId: string): Promise<PlaySession | undefined> {
+    return this.repository.getPlaySession(sessionId);
+  }
+
+  async listPlaySessions(query: {
+    childId?: string;
+    providerId?: string;
+    serverId?: string;
+    from?: string;
+    to?: string;
+    status?: PlaySession["status"];
+    includeActive?: boolean;
+    limit?: number;
+  } = {}): Promise<PlaySession[]> {
+    return this.repository.listPlaySessions(query);
+  }
+
+  async findActivePlaySession(
+    childId: string,
+    providerId: string,
+    serverId: string,
+    playerIdentityId?: string,
+  ): Promise<PlaySession | undefined> {
+    return this.repository.findActivePlaySession(childId, providerId, serverId, playerIdentityId);
+  }
+
+  async createParentOverride(override: ParentOverride): Promise<void> {
+    await this.repository.createParentOverride(override);
+  }
+
+  async upsertParentOverride(override: ParentOverride): Promise<void> {
+    await this.repository.upsertParentOverride(override);
+  }
+
+  async getParentOverride(overrideId: string): Promise<ParentOverride | undefined> {
+    return this.repository.getParentOverride(overrideId);
+  }
+
+  async listParentOverrides(query: { childId?: string; activeAt?: string; limit?: number } = {}): Promise<ParentOverride[]> {
+    return this.repository.listParentOverrides(query);
   }
 
   async getServerHistory(providerId: string, serverId: string, limit = 100): Promise<ProviderManagerHistory> {

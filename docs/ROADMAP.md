@@ -10,6 +10,7 @@
 - [x] JBGH-015: Persistent Operations, Events, and Audit Trail
 - [x] JBGH-016: Provider-Neutral Analytics and Operational Intelligence
 - [x] JBGH-017: AI Studio Read-Only Intelligence Layer
+- [x] JBGH-018: Family Management and Parental Controls
 
 ## 🚀 Sprint Roadmap
 

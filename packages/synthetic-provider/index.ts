@@ -5,6 +5,10 @@ import {
   ProviderActionResult,
   ProviderDiagnostics,
   ProviderMetadata,
+  ProviderAccessEnforcementInput,
+  ProviderOnlinePlayer,
+  ProviderResolvedPlayerIdentity,
+  ProviderPlayerLifecycleEvent,
   ServerStatus,
   ServerSummary,
   ValidationResult,
@@ -27,6 +31,9 @@ export class SyntheticProvider implements GameProvider {
   private readonly serverName: string;
   private lifecycleState: ServerStatus["status"] = "offline";
   private readonly worlds: WorldSummary[];
+  private readonly enforcementLog: ProviderAccessEnforcementInput[] = [];
+  private readonly playerListeners = new Set<(event: ProviderPlayerLifecycleEvent) => void>();
+  private readonly onlinePlayers = new Map<string, string>();
 
   constructor(config: SyntheticProviderConfig = {}) {
     this.providerId = config.providerId || "synthetic";
@@ -64,8 +71,9 @@ export class SyntheticProvider implements GameProvider {
       "content.validate": true,
       "backup.create": false,
       "backup.restore": false,
-      "player.list": false,
-      "player.manage": false,
+      "player.list": true,
+      "player.manage": true,
+      "player.access.enforce": true,
     };
   }
 
@@ -109,8 +117,69 @@ export class SyntheticProvider implements GameProvider {
     return {
       status: this.lifecycleState,
       uptimeSeconds: this.lifecycleState === "online" ? 120 : 0,
-      players: 0,
+      players: this.onlinePlayers.size,
     };
+  }
+
+  async resolvePlayerIdentity(
+    serverId: string,
+    hint: { externalPlayerId?: string; displayName?: string },
+  ): Promise<ProviderResolvedPlayerIdentity | undefined> {
+    this.assertServerId(serverId);
+    if (!hint.externalPlayerId) {
+      return undefined;
+    }
+    return {
+      providerId: this.providerId,
+      externalPlayerId: hint.externalPlayerId,
+      displayName: hint.displayName || hint.externalPlayerId,
+      identityType: "synthetic",
+    };
+  }
+
+  async getOnlinePlayers(serverId: string): Promise<ProviderOnlinePlayer[]> {
+    this.assertServerId(serverId);
+    return [...this.onlinePlayers.entries()].map(([externalPlayerId, displayName]) => ({
+      providerId: this.providerId,
+      serverId,
+      externalPlayerId,
+      displayName,
+      identityType: "synthetic",
+    }));
+  }
+
+  async enforcePlayerAccess(input: ProviderAccessEnforcementInput): Promise<void> {
+    this.assertServerId(input.serverId);
+    this.enforcementLog.push({ ...input });
+  }
+
+  async disconnectPlayer(serverId: string, externalPlayerId: string, reason: string): Promise<void> {
+    this.assertServerId(serverId);
+    this.onlinePlayers.delete(externalPlayerId);
+    this.emitPlayerEvent("player.left", externalPlayerId, externalPlayerId, reason);
+  }
+
+  subscribePlayerEvents(listener: (event: ProviderPlayerLifecycleEvent) => void): () => void {
+    this.playerListeners.add(listener);
+    return () => this.playerListeners.delete(listener);
+  }
+
+  simulatePlayerJoin(
+    externalPlayerId: string,
+    displayName = externalPlayerId,
+    serverId = this.serverId,
+    timestamp = new Date().toISOString(),
+  ): void {
+    this.assertServerId(serverId);
+    this.onlinePlayers.set(externalPlayerId, displayName);
+    this.emitPlayerEvent("player.joined", externalPlayerId, displayName, undefined, timestamp);
+  }
+
+  simulatePlayerLeave(externalPlayerId: string, serverId = this.serverId, timestamp = new Date().toISOString()): void {
+    this.assertServerId(serverId);
+    const displayName = this.onlinePlayers.get(externalPlayerId) || externalPlayerId;
+    this.onlinePlayers.delete(externalPlayerId);
+    this.emitPlayerEvent("player.left", externalPlayerId, displayName, undefined, timestamp);
   }
 
   async startServer(serverId: string): Promise<ProviderActionResult> {
@@ -187,6 +256,28 @@ export class SyntheticProvider implements GameProvider {
   private assertServerId(serverId: string): void {
     if (serverId !== this.serverId) {
       throw new Error(`Unknown server: ${serverId}`);
+    }
+  }
+
+  private emitPlayerEvent(
+      type: ProviderPlayerLifecycleEvent["type"],
+      externalPlayerId: string,
+      displayName: string,
+      reason?: string,
+      timestamp = new Date().toISOString(),
+    ): void {
+      const event: ProviderPlayerLifecycleEvent = {
+        type,
+        providerId: this.providerId,
+        serverId: this.serverId,
+        externalPlayerId,
+        displayName,
+        identityType: "synthetic",
+        timestamp,
+        metadata: reason ? { reason } : undefined,
+      };
+      for (const listener of this.playerListeners) {
+        listener(event);
     }
   }
 }

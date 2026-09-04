@@ -149,6 +149,57 @@ Analytics response envelope shape:
 - optional `serverId`
 - `data`
 
+### `GET /api/families`
+Returns all configured family records.
+
+### `POST /api/families`
+Creates a family with a timezone and optional metadata.
+
+### `GET /api/families/:familyId`
+Returns a single family record.
+
+### `GET /api/families/:familyId/children`
+Lists child profiles for a family.
+
+### `POST /api/families/:familyId/children`
+Creates a child profile.
+
+### `GET /api/children/:childId`
+Returns a child profile.
+
+### `PATCH /api/children/:childId`
+Updates child profile metadata, timezone, or active status.
+
+### `GET /api/children/:childId/identities`
+Lists provider-linked player identities.
+
+### `POST /api/children/:childId/identities`
+Links a child to a provider identity.
+
+### `GET /api/children/:childId/rules`
+Lists parental rules for the child.
+
+### `POST /api/children/:childId/rules`
+Creates a parental rule.
+
+### `PATCH /api/rules/:ruleId`
+Updates a parental rule.
+
+### `GET /api/children/:childId/sessions`
+Lists play sessions for a child.
+
+### `GET /api/children/:childId/playtime`
+Returns daily/weekly usage totals and remaining allowance.
+
+### `POST /api/children/:childId/evaluate-access`
+Evaluates player access against the deterministic rules engine.
+
+### `POST /api/children/:childId/overrides`
+Creates a time-bounded parent override.
+
+### `DELETE /api/overrides/:overrideId`
+Revokes a parent override.
+
 ### `GET /api/ai/providers`
 Returns the active AI Studio provider (`gemini`, `openai`, or `fallback`), configured model, and which
 provider API keys are configured. Never returns secret values. Response always includes `readOnly: true`.

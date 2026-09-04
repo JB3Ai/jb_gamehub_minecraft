@@ -5,6 +5,8 @@ export interface RuntimeConfig {
   minecraftBedrockPort: number;
   minecraftStartCommand?: string;
   minecraftStopCommand?: string;
+  minecraftRconPort: number;
+  minecraftRconPassword?: string;
   persistenceDbPath: string;
   operationRetentionDays: number;
   eventRetentionDays: number;
@@ -46,6 +48,8 @@ export function loadRuntimeConfig(env: NodeJS.ProcessEnv = process.env): Runtime
     minecraftBedrockPort: parsePort(env.MINECRAFT_BEDROCK_PORT, 19132, "MINECRAFT_BEDROCK_PORT"),
     minecraftStartCommand: env.MINECRAFT_START_COMMAND || undefined,
     minecraftStopCommand: env.MINECRAFT_STOP_COMMAND || undefined,
+    minecraftRconPort: parsePort(env.MINECRAFT_RCON_PORT, 25575, "MINECRAFT_RCON_PORT"),
+    minecraftRconPassword: env.MINECRAFT_RCON_PASSWORD || undefined,
     persistenceDbPath: env.GAMEHUB_DB_PATH || "./data/gamehub.sqlite",
     operationRetentionDays: parsePositiveInt(env.OPERATION_RETENTION_DAYS, 90, "OPERATION_RETENTION_DAYS"),
     eventRetentionDays: parsePositiveInt(env.EVENT_RETENTION_DAYS, 30, "EVENT_RETENTION_DAYS"),

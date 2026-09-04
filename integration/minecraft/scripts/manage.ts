@@ -24,6 +24,7 @@ const DISPLAY_NAME = "JB³ GAMEHUB INTEGRATION TEST SERVER";
 const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_JAVA_PORT = 25565;
 const DEFAULT_BEDROCK_PORT = 19132;
+const DEFAULT_RCON_PORT = 25575;
 const DEFAULT_PAPER_VERSION = "1.21.4";
 const DEFAULT_GEYSER_URL = "https://download.geysermc.org/v2/projects/geyser/versions/latest/builds/latest/downloads/spigot";
 
@@ -32,6 +33,7 @@ interface ManagedState {
   host: string;
   javaPort: number;
   bedrockPort: number;
+  javaPath: string;
   paperVersion: string;
   paperBuild: number;
   paperJar: string;
@@ -78,6 +80,10 @@ function resolveJavaPort(): number {
 
 function resolveBedrockPort(): number {
   return resolvePort(process.env.MINECRAFT_BEDROCK_PORT, DEFAULT_BEDROCK_PORT, "MINECRAFT_BEDROCK_PORT");
+}
+
+function resolveRconPort(): number {
+  return resolvePort(process.env.MINECRAFT_RCON_PORT, DEFAULT_RCON_PORT, "MINECRAFT_RCON_PORT");
 }
 
 function parseArgs(argv: string[]): ParsedArgs {
@@ -184,11 +190,23 @@ async function ensureSafeServerDir(serverDir: string): Promise<void> {
   }
 }
 
-function ensureJava21(): void {
-  const result = spawnSync("java", ["-version"], { encoding: "utf8" });
+function resolveJavaPath(): string {
+  const configured = process.env.MINECRAFT_JAVA_PATH?.trim();
+  if (configured) {
+    return path.resolve(configured);
+  }
+  const javaHome = process.env.JAVA_HOME?.trim();
+  if (javaHome) {
+    return path.join(path.resolve(javaHome), "bin", process.platform === "win32" ? "java.exe" : "java");
+  }
+  throw new Error("Java 21 is required. Set MINECRAFT_JAVA_PATH or JAVA_HOME to a Java 21 installation.");
+}
+
+function ensureJava21(javaPath: string): void {
+  const result = spawnSync(javaPath, ["-version"], { encoding: "utf8" });
   const output = `${result.stdout || ""}${result.stderr || ""}`.trim();
   if (result.error || result.status !== 0) {
-    throw new Error("Java 21 is required but java -version failed. Install Java 21 and try again.");
+    throw new Error(`Java 21 is required but ${javaPath} -version failed. Install Java 21 and try again.`);
   }
 
   const match = output.match(/version\s+"(\d+)(?:\.(\d+))?/i);
@@ -278,17 +296,29 @@ async function downloadFile(url: string, targetPath: string): Promise<void> {
   await fs.writeFile(targetPath, bytes);
 }
 
-async function writeTemplates(serverDir: string, host: string, javaPort: number, bedrockPort: number, acceptEula: boolean): Promise<void> {
+async function writeTemplates(serverDir: string, host: string, javaPort: number, bedrockPort: number, rconPort: number, rconPassword: string, acceptEula: boolean): Promise<void> {
   const serverPropertiesTemplate = await fs.readFile(path.join(CONFIG_DIR, "server.properties.template"), "utf8");
   const eulaTemplate = await fs.readFile(path.join(CONFIG_DIR, "eula.txt.template"), "utf8");
   const geyserConfig = await fs.readFile(path.join(CONFIG_DIR, "geyser-config.yml"), "utf8");
 
+  const serverPropertiesPath = path.join(serverDir, "server.properties");
   await writeIfMissing(
-    path.join(serverDir, "server.properties"),
+    serverPropertiesPath,
     serverPropertiesTemplate
       .replaceAll("{{MINECRAFT_HOST}}", host)
-      .replaceAll("{{MINECRAFT_JAVA_PORT}}", String(javaPort)),
+      .replaceAll("{{MINECRAFT_JAVA_PORT}}", String(javaPort))
+      .replaceAll("{{MINECRAFT_RCON_ENABLED}}", rconPassword ? "true" : "false")
+      .replaceAll("{{MINECRAFT_RCON_PORT}}", String(rconPort))
+      .replaceAll("{{MINECRAFT_RCON_PASSWORD}}", rconPassword),
   );
+  const currentProperties = await fs.readFile(serverPropertiesPath, "utf8");
+  const updatedProperties = currentProperties
+    .replace(/^enable-rcon=.*$/m, `enable-rcon=${rconPassword ? "true" : "false"}`)
+    .replace(/^rcon\.port=.*$/m, `rcon.port=${rconPort}`)
+    .replace(/^rcon\.password=.*$/m, `rcon.password=${rconPassword}`);
+  if (updatedProperties !== currentProperties) {
+    await fs.writeFile(serverPropertiesPath, updatedProperties, "utf8");
+  }
 
   await writeIfMissing(path.join(serverDir, "eula.txt"), eulaTemplate.replaceAll("{{EULA_VALUE}}", acceptEula ? "true" : "false"));
   await writeIfMissing(
@@ -302,7 +332,8 @@ async function writeTemplates(serverDir: string, host: string, javaPort: number,
 }
 
 async function setupEnvironment(options: { acceptEula: boolean; paperVersion?: string; paperBuild?: string }): Promise<void> {
-  ensureJava21();
+  const javaPath = resolveJavaPath();
+  ensureJava21(javaPath);
   const serverDir = resolveServerDir();
   await ensureSafeServerDir(serverDir);
   await ensureDirectoryTree(serverDir);
@@ -310,13 +341,15 @@ async function setupEnvironment(options: { acceptEula: boolean; paperVersion?: s
   const host = resolveHost();
   const javaPort = resolveJavaPort();
   const bedrockPort = resolveBedrockPort();
+  const rconPort = resolveRconPort();
+  const rconPassword = process.env.MINECRAFT_RCON_PASSWORD?.trim() || "";
   const paperVersion = options.paperVersion || process.env.MINECRAFT_TEST_PAPER_VERSION || DEFAULT_PAPER_VERSION;
   const paperBuild = await resolvePaperBuild(paperVersion, options.paperBuild || process.env.MINECRAFT_TEST_PAPER_BUILD);
   const paperJarPath = path.join(serverDir, paperBuild.jarName);
   const geyserJarPath = path.join(serverDir, "plugins", "Geyser-Spigot.jar");
   const geyserJarUrl = process.env.MINECRAFT_TEST_GEYSER_JAR_URL?.trim() || DEFAULT_GEYSER_URL;
 
-  await writeTemplates(serverDir, host, javaPort, bedrockPort, options.acceptEula);
+  await writeTemplates(serverDir, host, javaPort, bedrockPort, rconPort, rconPassword, options.acceptEula);
   await copyFixtureTree(WORLD_FIXTURE_DIR, path.join(serverDir, "worlds", LEVEL_NAME));
   await copyFixtureTree(BEHAVIOR_PACK_FIXTURE_DIR, path.join(serverDir, "behavior_packs", "integration-behavior-pack"));
   await copyFixtureTree(RESOURCE_PACK_FIXTURE_DIR, path.join(serverDir, "resource_packs", "integration-resource-pack"));
@@ -340,6 +373,7 @@ async function setupEnvironment(options: { acceptEula: boolean; paperVersion?: s
     host,
     javaPort,
     bedrockPort,
+    javaPath,
     paperVersion,
     paperBuild: paperBuild.build,
     paperJar: paperJarPath,
@@ -350,6 +384,7 @@ async function setupEnvironment(options: { acceptEula: boolean; paperVersion?: s
   console.log(`Server directory: ${serverDir}`);
   console.log(`Paper version: ${paperVersion} (build ${paperBuild.build})`);
   console.log(`Java port: ${javaPort}`);
+  console.log(`Java runtime: ${javaPath}`);
   console.log(`Bedrock port: ${bedrockPort}`);
   console.log(`EULA accepted: ${options.acceptEula ? "yes" : "no"}`);
 }
@@ -358,6 +393,9 @@ async function loadState(serverDir: string): Promise<ManagedState> {
   const state = await readJson<ManagedState>(path.join(serverDir, STATE_FILE));
   if (!state) {
     throw new Error(`Integration state not found. Run npm run minecraft:test:setup first.`);
+  }
+  if (!state.javaPath) {
+    return { ...state, javaPath: resolveJavaPath() };
   }
   return state;
 }
@@ -422,7 +460,8 @@ async function startServerProcess(): Promise<void> {
   await ensureParent(logPath);
   const logHandle = await fs.open(logPath, "a");
 
-  const child = spawn("java", ["-Xms1G", "-Xmx1G", "-jar", state.paperJar, "nogui"], {
+  ensureJava21(state.javaPath);
+  const child = spawn(state.javaPath, ["-Xms1G", "-Xmx1G", "-jar", state.paperJar, "nogui"], {
     cwd: serverDir,
     detached: true,
     stdio: ["ignore", logHandle.fd, logHandle.fd],

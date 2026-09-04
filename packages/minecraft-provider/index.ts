@@ -9,6 +9,10 @@ import {
   ProviderActionResult,
   ProviderDiagnostics,
   ProviderMetadata,
+  ProviderPlayerLifecycleEvent,
+  ProviderAccessEnforcementInput,
+  ProviderOnlinePlayer,
+  ProviderResolvedPlayerIdentity,
   ServerStatus,
   ServerSummary,
   ValidationIssue,
@@ -16,6 +20,7 @@ import {
   PackReference,
   WorldSummary,
 } from "../provider-manager/index";
+import { PaperRconAdapter } from "./paper-rcon";
 
 interface MinecraftProviderConfig {
   providerId?: string;
@@ -29,6 +34,8 @@ interface MinecraftProviderConfig {
   bedrockPort?: number;
   startCommand?: string;
   stopCommand?: string;
+  rconPort?: number;
+  rconPassword?: string;
 }
 
 async function exists(targetPath: string): Promise<boolean> {
@@ -97,6 +104,11 @@ export class MinecraftProvider implements GameProvider {
 
   private ready = false;
   private startedAt = Date.now();
+  private readonly playerListeners = new Set<(event: ProviderPlayerLifecycleEvent) => void>();
+  private readonly onlinePlayers = new Map<string, string>();
+  private playerLogTimer?: ReturnType<typeof setInterval>;
+  private playerLogOffset = 0;
+  private readonly paperRcon?: PaperRconAdapter;
 
   constructor(config: MinecraftProviderConfig) {
     this.config = {
@@ -110,6 +122,13 @@ export class MinecraftProvider implements GameProvider {
       bedrockPort: config.bedrockPort ?? 19132,
       ...config,
     };
+    if (this.config.rconPassword) {
+      this.paperRcon = new PaperRconAdapter({
+        host: this.config.host,
+        port: this.config.rconPort ?? 25575,
+        password: this.config.rconPassword,
+      });
+    }
   }
 
   metadata(): ProviderMetadata {
@@ -133,8 +152,11 @@ export class MinecraftProvider implements GameProvider {
       "content.validate": true,
       "backup.create": false,
       "backup.restore": false,
-      "player.list": false,
-      "player.manage": false,
+      "player.list": true,
+      "player.manage": true,
+      "player.identity": true,
+      "player.sessions": true,
+      "player.enforcement": true,
     };
   }
 
@@ -198,6 +220,67 @@ export class MinecraftProvider implements GameProvider {
     return {
       status: online ? "online" : "offline",
       uptimeSeconds: Math.floor((Date.now() - this.startedAt) / 1000),
+      players: this.onlinePlayers.size,
+    };
+  }
+
+  async resolvePlayerIdentity(
+    serverId: string,
+    hint: { externalPlayerId?: string; displayName?: string },
+  ): Promise<ProviderResolvedPlayerIdentity | undefined> {
+    this.assertServerId(serverId);
+    if (!hint.externalPlayerId) {
+      return undefined;
+    }
+    return {
+      providerId: this.config.providerId,
+      externalPlayerId: hint.externalPlayerId,
+      displayName: hint.displayName || this.onlinePlayers.get(hint.externalPlayerId) || hint.externalPlayerId,
+      identityType: "minecraft",
+    };
+  }
+
+  async getOnlinePlayers(serverId: string): Promise<ProviderOnlinePlayer[]> {
+    this.assertServerId(serverId);
+    const playerNames = this.paperRcon ? await this.paperRcon.listPlayers() : [...this.onlinePlayers.keys()];
+    return playerNames.map((externalPlayerId) => ({
+      providerId: this.config.providerId,
+      serverId,
+      externalPlayerId,
+      displayName: this.onlinePlayers.get(externalPlayerId) || externalPlayerId,
+      identityType: "minecraft",
+    }));
+  }
+
+  async enforcePlayerAccess(input: ProviderAccessEnforcementInput): Promise<void> {
+    this.assertServerId(input.serverId);
+    if (input.decision === "DENY") {
+      await this.disconnectPlayer(input.serverId, input.externalPlayerId, input.reason);
+    }
+  }
+
+  async disconnectPlayer(serverId: string, externalPlayerId: string, reason: string): Promise<void> {
+    this.assertServerId(serverId);
+    if (!this.paperRcon) {
+      throw new Error("Minecraft player enforcement requires Paper RCON configuration.");
+    }
+    await this.paperRcon.kickPlayer(externalPlayerId, reason);
+    this.onlinePlayers.delete(externalPlayerId);
+  }
+
+  subscribePlayerEvents(listener: (event: ProviderPlayerLifecycleEvent) => void): () => void {
+    this.playerListeners.add(listener);
+    if (!this.playerLogTimer) {
+      this.playerLogTimer = setInterval(() => {
+        void this.readPlayerLog();
+      }, 1000);
+    }
+    return () => {
+      this.playerListeners.delete(listener);
+      if (this.playerListeners.size === 0 && this.playerLogTimer) {
+        clearInterval(this.playerLogTimer);
+        this.playerLogTimer = undefined;
+      }
     };
   }
 
@@ -423,6 +506,42 @@ export class MinecraftProvider implements GameProvider {
         reject(new Error(`Command failed with exit code ${code}: ${command}`));
       });
     });
+  }
+
+  private async readPlayerLog(): Promise<void> {
+    const logPath = path.join(this.config.serverDir, "logs", "latest.log");
+    try {
+      const raw = await fs.readFile(logPath, "utf8");
+      const appended = raw.slice(this.playerLogOffset);
+      this.playerLogOffset = raw.length;
+      for (const line of appended.split(/\r?\n/)) {
+        const match = line.match(/\]: ([^:]+) (joined the game|left the game)$/);
+        if (!match) {
+          continue;
+        }
+        const displayName = match[1].trim();
+        const type = match[2] === "joined the game" ? "player.joined" : "player.left";
+        if (type === "player.joined") {
+          this.onlinePlayers.set(displayName, displayName);
+        } else {
+          this.onlinePlayers.delete(displayName);
+        }
+        const event: ProviderPlayerLifecycleEvent = {
+          type,
+          providerId: this.config.providerId,
+          serverId: this.config.serverId,
+          externalPlayerId: displayName,
+          displayName,
+          identityType: "minecraft",
+          timestamp: new Date().toISOString(),
+        };
+        for (const listener of this.playerListeners) {
+          listener(event);
+        }
+      }
+    } catch {
+      // The log may not exist until Paper starts; the next poll will retry.
+    }
   }
 
   private assertServerId(serverId: string): void {

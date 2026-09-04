@@ -1,8 +1,34 @@
 import React from "react";
-import { askAiStudio, getAiAuditTrail, getAiProvidersInfo } from "../dashboard/apiClient";
-import { AiAskResponse, AiAuditEntry, AiProvidersInfo, DashboardState, OperationRecord, ServerInventoryItem, WorldRuntime } from "../dashboard/types";
+import {
+  askAiStudio,
+  evaluateChildAccess,
+  getAiAuditTrail,
+  getAiProvidersInfo,
+  getChildIdentities,
+  getChildOverrides,
+  getChildPlaytime,
+  getChildRules,
+  getChildSessions,
+  getFamilies,
+  getFamilyChildren,
+} from "../dashboard/apiClient";
+import {
+  AiAskResponse,
+  AiAuditEntry,
+  AiProvidersInfo,
+  ChildProfile,
+  DashboardState,
+  FamilyOverride,
+  FamilyPlaytime,
+  FamilyRule,
+  FamilySession,
+  FamilySummary,
+  OperationRecord,
+  ServerInventoryItem,
+  WorldRuntime,
+} from "../dashboard/types";
 
-const PANEL_ORDER = ["servers", "status", "operations", "worlds", "events", "analytics", "ai-studio"] as const;
+const PANEL_ORDER = ["servers", "status", "operations", "worlds", "events", "analytics", "family", "ai-studio"] as const;
 
 type PanelId = (typeof PANEL_ORDER)[number];
 
@@ -587,6 +613,127 @@ export function AiStudioPanel({ providerId, serverId }: { providerId?: string; s
   );
 }
 
+function formatPlaytime(seconds: number): string {
+  const minutes = Math.floor(seconds / 60);
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+}
+
+interface FamilyChildSnapshot {
+  child: ChildProfile;
+  playtime?: FamilyPlaytime;
+  rules: FamilyRule[];
+  sessions: FamilySession[];
+  overrides: FamilyOverride[];
+  access?: { decision: string; reason: string; remainingMinutes?: number };
+  error?: string;
+}
+
+export function FamilyPanel({ selectedServer }: { selectedServer?: ServerInventoryItem }) {
+  const [family, setFamily] = React.useState<FamilySummary>();
+  const [children, setChildren] = React.useState<FamilyChildSnapshot[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState<string>();
+
+  const load = React.useCallback(async () => {
+    setLoading(true);
+    setError(undefined);
+    try {
+      const familyResponse = await getFamilies();
+      const nextFamily = familyResponse.families[0];
+      setFamily(nextFamily);
+      if (!nextFamily) {
+        setChildren([]);
+        return;
+      }
+      const childResponse = await getFamilyChildren(nextFamily.id);
+      const snapshots = await Promise.all(
+        childResponse.children.map(async (child) => {
+          try {
+            const [playtime, rules, sessions, overrides, identities] = await Promise.all([
+              getChildPlaytime(child.id),
+              getChildRules(child.id),
+              getChildSessions(child.id),
+              getChildOverrides(child.id),
+              getChildIdentities(child.id),
+            ]);
+            const identity = identities.identities[0];
+            let access;
+            if (identity && selectedServer) {
+              access = (await evaluateChildAccess(child.id, {
+                providerId: identity.providerId,
+                serverId: selectedServer.id,
+                externalPlayerId: identity.externalPlayerId,
+              })).decision;
+            }
+            return { child, playtime: playtime.usage, rules: rules.rules, sessions: sessions.sessions, overrides: overrides.overrides, access };
+          } catch (childError) {
+            return { child, rules: [], sessions: [], overrides: [], error: childError instanceof Error ? childError.message : String(childError) };
+          }
+        }),
+      );
+      setChildren(snapshots);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : String(loadError));
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedServer]);
+
+  React.useEffect(() => {
+    void load();
+  }, [load]);
+
+  if (loading) {
+    return <div className="empty-state">Loading family controls...</div>;
+  }
+  if (error) {
+    return <div className="error-banner">Family controls unavailable: {error}</div>;
+  }
+  if (!family) {
+    return <div className="empty-state">No family configured yet.</div>;
+  }
+
+  return (
+    <div className="analytics-grid" aria-label="Family parental controls panel">
+      <div className="status-meta">
+        <strong>{family.name}</strong> · timezone {family.timezone} · {children.length} children
+      </div>
+      {children.length === 0 ? <div className="empty-state">Add a child to begin managing play access.</div> : null}
+      {children.map((snapshot) => {
+        const activeSession = snapshot.sessions.find((session) => session.status === "active");
+        const remaining = snapshot.access?.remainingMinutes ?? snapshot.playtime?.remainingDailyMinutes;
+        return (
+          <article key={snapshot.child.id} className="world-card">
+            <header>
+              <h3>{snapshot.child.name}</h3>
+              <span className={`chip ${statusClass(snapshot.access?.decision === "DENY" ? "failed" : snapshot.child.active ? "online" : "offline")}`}>
+                {snapshot.access?.decision || (snapshot.child.active ? "ACTIVE" : "INACTIVE")}
+              </span>
+            </header>
+            {snapshot.error ? <p className="error-banner">{snapshot.error}</p> : null}
+            <ul>
+              <li>Play time today: {snapshot.playtime ? formatPlaytime(snapshot.playtime.dailySeconds) : "-"}</li>
+              <li>Play time this week: {snapshot.playtime ? formatPlaytime(snapshot.playtime.weeklySeconds) : "-"}</li>
+              <li>Remaining today: {remaining === undefined ? "unlimited" : `${remaining} min`}</li>
+              <li>Active session: {activeSession ? `${activeSession.providerId}/${activeSession.serverId} since ${formatTimestamp(activeSession.startedAt)}` : "none"}</li>
+              <li>Rules: {snapshot.rules.filter((rule) => rule.enabled).map((rule) => rule.type).join(", ") || "none"}</li>
+              <li>Overrides: {snapshot.overrides.filter((override) => !override.revokedAt).length}</li>
+            </ul>
+            <details>
+              <summary>Recent activity ({snapshot.sessions.length})</summary>
+              <ul>
+                {snapshot.sessions.slice(0, 5).map((session) => (
+                  <li key={session.id}>{formatTimestamp(session.startedAt)} · {formatPlaytime(session.durationSeconds)} · {session.status}</li>
+                ))}
+              </ul>
+            </details>
+          </article>
+        );
+      })}
+    </div>
+  );
+}
+
 function SectionCard({ id, title, activePanel, children }: { id: PanelId; title: string; activePanel: PanelId; children: React.ReactNode }) {
   return (
     <section className={`dash-card ${activePanel === id ? "is-active" : ""}`} id={`panel-${id}`}>
@@ -658,6 +805,10 @@ export function OperationalDashboard({
 
         <SectionCard id="analytics" title="ANALYTICS & RETENTION" activePanel={activePanel}>
           <AnalyticsPanel state={state} onCleanupHistory={onCleanupHistory} />
+        </SectionCard>
+
+        <SectionCard id="family" title="FAMILY CONTROLS" activePanel={activePanel}>
+          <FamilyPanel selectedServer={selectedServer} />
         </SectionCard>
 
         <SectionCard id="ai-studio" title="AI STUDIO" activePanel={activePanel}>

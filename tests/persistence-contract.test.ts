@@ -82,37 +82,40 @@ class FailingEventRepository implements PersistenceRepository {
   async close(): Promise<void> {}
   async createOperation(): Promise<void> {}
   async updateOperation(): Promise<void> {}
-  async getOperation() {
-    return undefined;
-  }
-  async listOperations() {
-    return [];
-  }
-  async appendEvent(): Promise<void> {
-    throw new Error("Persistence appendEvent failed");
-  }
-  async listEvents() {
-    return [];
-  }
+  async getOperation() { return undefined; }
+  async listOperations() { return []; }
+  async appendEvent(): Promise<void> { throw new Error("Persistence appendEvent failed"); }
+  async listEvents() { return []; }
   async upsertServerState(): Promise<void> {}
-  async listServerStates() {
-    return [];
-  }
+  async listServerStates() { return []; }
   async appendAudit(): Promise<void> {}
-  async listAudit() {
-    return [];
-  }
-  async cleanupExpired() {
-    return { operationsDeleted: 0, eventsDeleted: 0, auditDeleted: 0 };
-  }
-  async getHistoryStorageStats() {
-    return {
-      databaseSizeBytes: 0,
-      oldestOperationAt: undefined,
-      oldestEventAt: undefined,
-      oldestAuditAt: undefined,
-    };
-  }
+  async listAudit() { return []; }
+  async cleanupExpired() { return { operationsDeleted: 0, eventsDeleted: 0, auditDeleted: 0 }; }
+  async getHistoryStorageStats() { return { databaseSizeBytes: 0, oldestOperationAt: undefined, oldestEventAt: undefined, oldestAuditAt: undefined }; }
+  async createFamily(): Promise<void> {}
+  async listFamilies() { return []; }
+  async getFamily() { return undefined; }
+  async createParentMembership(): Promise<void> {}
+  async listParentMemberships() { return []; }
+  async createChildProfile(): Promise<void> {}
+  async upsertChildProfile(): Promise<void> {}
+  async listChildProfiles() { return []; }
+  async getChildProfile() { return undefined; }
+  async createPlayerIdentity(): Promise<void> {}
+  async listPlayerIdentitiesByChild() { return []; }
+  async createParentalRule(): Promise<void> {}
+  async upsertParentalRule(): Promise<void> {}
+  async getParentalRule() { return undefined; }
+  async listParentalRulesByChild() { return []; }
+  async createPlaySession(): Promise<void> {}
+  async upsertPlaySession(): Promise<void> {}
+  async getPlaySession() { return undefined; }
+  async listPlaySessions() { return []; }
+  async findActivePlaySession() { return undefined; }
+  async createParentOverride(): Promise<void> {}
+  async upsertParentOverride(): Promise<void> {}
+  async getParentOverride() { return undefined; }
+  async listParentOverrides() { return []; }
 }
 
 class MinimalProvider implements GameProvider {

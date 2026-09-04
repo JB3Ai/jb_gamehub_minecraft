@@ -19,6 +19,7 @@
     "minecraft:test:status": "tsx integration/minecraft/scripts/manage.ts status",
     "minecraft:test:clean": "tsx integration/minecraft/scripts/manage.ts clean",
     "minecraft:test:evidence": "tsx integration/minecraft/scripts/capture-lifecycle-evidence.ts",
+    "minecraft:test:player": "tsx integration/minecraft/scripts/run-player-acceptance.ts",
     "validate:lifecycle:evidence": "tsx integration/minecraft/scripts/validate-lifecycle-evidence.ts"
   },
   "dependencies": {
@@ -36,14 +37,15 @@
     "ws": "^8.18.3"
   },
   "devDependencies": {
+    "@types/express": "^4.17.21",
     "@types/node": "^22.14.0",
     "@types/ws": "^8.18.1",
     "autoprefixer": "^10.4.21",
     "esbuild": "^0.25.0",
+    "minecraft-protocol": "^1.68.0",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",
-    "vite": "^6.2.3",
-    "@types/express": "^4.17.21"
+    "vite": "^6.2.3"
   }
 }

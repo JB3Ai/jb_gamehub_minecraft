@@ -15,6 +15,56 @@ export interface ProviderListResponse {
   providers: ProviderMetadata[];
 }
 
+export interface FamilySummary {
+  id: string;
+  name: string;
+  timezone: string;
+}
+
+export interface ChildProfile {
+  id: string;
+  familyId: string;
+  name: string;
+  timezone?: string;
+  active: boolean;
+}
+
+export interface FamilyRule {
+  id: string;
+  type: string;
+  enabled: boolean;
+  config: Record<string, unknown>;
+}
+
+export interface FamilySession {
+  id: string;
+  providerId: string;
+  serverId: string;
+  startedAt: string;
+  endedAt?: string;
+  durationSeconds: number;
+  status: "active" | "ended";
+  disconnectReason?: string;
+}
+
+export interface FamilyOverride {
+  id: string;
+  reason: string;
+  startsAt: string;
+  expiresAt: string;
+  revokedAt?: string;
+  scope: Record<string, unknown>;
+}
+
+export interface FamilyPlaytime {
+  childId: string;
+  dailySeconds: number;
+  weeklySeconds: number;
+  activeSessionSeconds: number;
+  remainingDailyMinutes?: number;
+  remainingWeeklyMinutes?: number;
+}
+
 export interface ServerInventoryItem {
   id: string;
   providerId: string;

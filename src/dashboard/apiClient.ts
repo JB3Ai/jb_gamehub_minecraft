@@ -3,6 +3,12 @@ import {
   AiAskResponse,
   AiAuditEntry,
   AiProvidersInfo,
+  ChildProfile,
+  FamilyOverride,
+  FamilyPlaytime,
+  FamilyRule,
+  FamilySession,
+  FamilySummary,
   AnalyticsSummary,
   ApiEnvelope,
   EventListResponse,
@@ -129,5 +135,48 @@ export async function askAiStudio(request: AiAskRequest): Promise<AiAskResponse>
 
 export async function getAiAuditTrail(limit = 50): Promise<{ audits: AiAuditEntry[] }> {
   return parseResponse<{ audits: AiAuditEntry[] }>(await fetch(`/api/ai/audit?limit=${limit}`));
+}
+
+export async function getFamilies(): Promise<{ families: FamilySummary[] }> {
+  return parseResponse<{ families: FamilySummary[] }>(await fetch("/api/families"));
+}
+
+export async function getFamilyChildren(familyId: string): Promise<{ children: ChildProfile[] }> {
+  return parseResponse<{ children: ChildProfile[] }>(await fetch(`/api/families/${familyId}/children`));
+}
+
+export async function getChildRules(childId: string): Promise<{ rules: FamilyRule[] }> {
+  return parseResponse<{ rules: FamilyRule[] }>(await fetch(`/api/children/${childId}/rules`));
+}
+
+export async function getChildSessions(childId: string): Promise<{ sessions: FamilySession[] }> {
+  return parseResponse<{ sessions: FamilySession[] }>(await fetch(`/api/children/${childId}/sessions?limit=20`));
+}
+
+export async function getChildPlaytime(childId: string): Promise<{ usage: FamilyPlaytime }> {
+  return parseResponse<{ usage: FamilyPlaytime }>(await fetch(`/api/children/${childId}/playtime`));
+}
+
+export async function getChildOverrides(childId: string): Promise<{ overrides: FamilyOverride[] }> {
+  return parseResponse<{ overrides: FamilyOverride[] }>(await fetch(`/api/children/${childId}/overrides`));
+}
+
+export async function getChildIdentities(childId: string): Promise<{ identities: Array<{ providerId: string; externalPlayerId: string }> }> {
+  return parseResponse<{ identities: Array<{ providerId: string; externalPlayerId: string }> }>(
+    await fetch(`/api/children/${childId}/identities`),
+  );
+}
+
+export async function evaluateChildAccess(
+  childId: string,
+  input: { providerId: string; serverId: string; externalPlayerId: string },
+): Promise<{ decision: { decision: string; reason: string; remainingMinutes?: number }; session?: FamilySession }> {
+  return parseResponse<{ decision: { decision: string; reason: string; remainingMinutes?: number }; session?: FamilySession }>(
+    await fetch(`/api/children/${childId}/evaluate-access`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(input),
+    }),
+  );
 }
 

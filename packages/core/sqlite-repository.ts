@@ -3,12 +3,19 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import {
   AuditRecord,
+  ChildProfile,
   EventQuery,
   EventRecord,
+  Family,
   HistoryStorageStats,
   OperationQuery,
   OperationRecord,
+  ParentMembership,
+  ParentOverride,
+  ParentalRule,
   PersistenceRepository,
+  PlaySession,
+  PlayerIdentity,
   RetentionCleanupResult,
   RetentionPolicy,
   ServerStateSnapshot,
@@ -24,7 +31,7 @@ interface Migration {
   up: string;
 }
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 const migrations: Migration[] = [
   {
@@ -99,6 +106,107 @@ const migrations: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_operations_provider_state ON operations(provider_id, server_id, state, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_events_type_time ON events(type, timestamp DESC);
       CREATE INDEX IF NOT EXISTS idx_events_provider_type ON events(provider_id, server_id, type, timestamp DESC);
+    `,
+  },
+  {
+    version: 3,
+    name: "family_parental_controls",
+    up: `
+      CREATE TABLE IF NOT EXISTS families (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        timezone TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        metadata TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS parent_memberships (
+        id TEXT PRIMARY KEY,
+        family_id TEXT NOT NULL,
+        parent_id TEXT NOT NULL,
+        role TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        metadata TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_parent_memberships_family ON parent_memberships(family_id, created_at DESC);
+
+      CREATE TABLE IF NOT EXISTS child_profiles (
+        id TEXT PRIMARY KEY,
+        family_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        timezone TEXT,
+        created_at TEXT NOT NULL,
+        active INTEGER NOT NULL,
+        metadata TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_child_profiles_family ON child_profiles(family_id, created_at DESC);
+
+      CREATE TABLE IF NOT EXISTS player_identities (
+        id TEXT PRIMARY KEY,
+        family_id TEXT NOT NULL,
+        child_id TEXT NOT NULL,
+        provider_id TEXT NOT NULL,
+        external_player_id TEXT NOT NULL,
+        display_name TEXT NOT NULL,
+        identity_type TEXT NOT NULL,
+        verified INTEGER NOT NULL,
+        metadata TEXT,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_player_identity_unique ON player_identities(child_id, provider_id, external_player_id);
+      CREATE INDEX IF NOT EXISTS idx_player_identities_child ON player_identities(child_id, created_at DESC);
+
+      CREATE TABLE IF NOT EXISTS parental_rules (
+        id TEXT PRIMARY KEY,
+        family_id TEXT NOT NULL,
+        child_id TEXT NOT NULL,
+        type TEXT NOT NULL,
+        enabled INTEGER NOT NULL,
+        config TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        metadata TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_parental_rules_child ON parental_rules(child_id, updated_at DESC);
+
+      CREATE TABLE IF NOT EXISTS play_sessions (
+        id TEXT PRIMARY KEY,
+        family_id TEXT NOT NULL,
+        child_id TEXT NOT NULL,
+        provider_id TEXT NOT NULL,
+        server_id TEXT NOT NULL,
+        player_identity_id TEXT NOT NULL,
+        started_at TEXT NOT NULL,
+        ended_at TEXT,
+        duration_seconds INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        disconnect_reason TEXT,
+        metadata TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_play_sessions_child_time ON play_sessions(child_id, started_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_play_sessions_active ON play_sessions(child_id, provider_id, server_id, status, started_at DESC);
+
+      CREATE TABLE IF NOT EXISTS parent_overrides (
+        id TEXT PRIMARY KEY,
+        family_id TEXT NOT NULL,
+        child_id TEXT NOT NULL,
+        created_by TEXT NOT NULL,
+        scope TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        starts_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        revoked_at TEXT,
+        metadata TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_parent_overrides_child ON parent_overrides(child_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_parent_overrides_active ON parent_overrides(child_id, starts_at, expires_at, revoked_at);
     `,
   },
 ];
@@ -467,6 +575,577 @@ export class SqlitePersistenceRepository implements PersistenceRepository {
       oldestEventAt: oldestEventAt.value,
       oldestAuditAt: oldestAuditAt.value,
     };
+  }
+
+  async createFamily(family: Family): Promise<void> {
+    const db = this.requireDb();
+    db.prepare(
+      `INSERT INTO families (id, name, timezone, created_at, metadata)
+       VALUES (?, ?, ?, ?, ?)`
+    ).run(
+      family.id,
+      family.name,
+      family.timezone,
+      toUtcIso(family.createdAt),
+      JSON.stringify(family.metadata ?? {}),
+    );
+  }
+
+  async listFamilies(): Promise<Family[]> {
+    const db = this.requireDb();
+    const rows = db.prepare(
+      `SELECT id, name, timezone, created_at, metadata FROM families ORDER BY created_at DESC`
+    ).all() as Array<Record<string, unknown>>;
+    return rows.map((row) => ({
+      id: String(row.id),
+      name: String(row.name),
+      timezone: String(row.timezone),
+      createdAt: String(row.created_at),
+      metadata: parseJson<Record<string, unknown>>(row.metadata),
+    }));
+  }
+
+  async getFamily(familyId: string): Promise<Family | undefined> {
+    const db = this.requireDb();
+    const row = db.prepare(
+      `SELECT id, name, timezone, created_at, metadata FROM families WHERE id = ?`
+    ).get(familyId) as Record<string, unknown> | undefined;
+    if (!row) {
+      return undefined;
+    }
+    return {
+      id: String(row.id),
+      name: String(row.name),
+      timezone: String(row.timezone),
+      createdAt: String(row.created_at),
+      metadata: parseJson<Record<string, unknown>>(row.metadata),
+    };
+  }
+
+  async createParentMembership(parent: ParentMembership): Promise<void> {
+    const db = this.requireDb();
+    db.prepare(
+      `INSERT INTO parent_memberships (id, family_id, parent_id, role, created_at, metadata)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).run(
+      parent.id,
+      parent.familyId,
+      parent.parentId,
+      parent.role,
+      toUtcIso(parent.createdAt),
+      JSON.stringify(parent.metadata ?? {}),
+    );
+  }
+
+  async listParentMemberships(familyId: string): Promise<ParentMembership[]> {
+    const db = this.requireDb();
+    const rows = db.prepare(
+      `SELECT id, family_id, parent_id, role, created_at, metadata FROM parent_memberships WHERE family_id = ? ORDER BY created_at DESC`
+    ).all(familyId) as Array<Record<string, unknown>>;
+    return rows.map((row) => ({
+      id: String(row.id),
+      familyId: String(row.family_id),
+      parentId: String(row.parent_id),
+      role: row.role as "parent" | "admin",
+      createdAt: String(row.created_at),
+      metadata: parseJson<Record<string, unknown>>(row.metadata),
+    }));
+  }
+
+  async createChildProfile(child: ChildProfile): Promise<void> {
+    const db = this.requireDb();
+    db.prepare(
+      `INSERT INTO child_profiles (id, family_id, name, timezone, created_at, active, metadata)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      child.id,
+      child.familyId,
+      child.name,
+      child.timezone ?? null,
+      toUtcIso(child.createdAt),
+      child.active ? 1 : 0,
+      JSON.stringify(child.metadata ?? {}),
+    );
+  }
+
+  async upsertChildProfile(child: ChildProfile): Promise<void> {
+    const db = this.requireDb();
+    db.prepare(
+      `INSERT INTO child_profiles (id, family_id, name, timezone, created_at, active, metadata)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         family_id = excluded.family_id,
+         name = excluded.name,
+         timezone = excluded.timezone,
+         active = excluded.active,
+         metadata = excluded.metadata`
+    ).run(
+      child.id,
+      child.familyId,
+      child.name,
+      child.timezone ?? null,
+      toUtcIso(child.createdAt),
+      child.active ? 1 : 0,
+      JSON.stringify(child.metadata ?? {}),
+    );
+  }
+
+  async listChildProfiles(familyId: string): Promise<ChildProfile[]> {
+    const db = this.requireDb();
+    const rows = db.prepare(
+      `SELECT id, family_id, name, timezone, created_at, active, metadata FROM child_profiles WHERE family_id = ? ORDER BY created_at DESC`
+    ).all(familyId) as Array<Record<string, unknown>>;
+    return rows.map((row) => ({
+      id: String(row.id),
+      familyId: String(row.family_id),
+      name: String(row.name),
+      timezone: typeof row.timezone === "string" ? row.timezone : undefined,
+      createdAt: String(row.created_at),
+      active: Number(row.active) === 1,
+      metadata: parseJson<Record<string, unknown>>(row.metadata),
+    }));
+  }
+
+  async getChildProfile(childId: string): Promise<ChildProfile | undefined> {
+    const db = this.requireDb();
+    const row = db.prepare(
+      `SELECT id, family_id, name, timezone, created_at, active, metadata FROM child_profiles WHERE id = ?`
+    ).get(childId) as Record<string, unknown> | undefined;
+    if (!row) {
+      return undefined;
+    }
+    return {
+      id: String(row.id),
+      familyId: String(row.family_id),
+      name: String(row.name),
+      timezone: typeof row.timezone === "string" ? row.timezone : undefined,
+      createdAt: String(row.created_at),
+      active: Number(row.active) === 1,
+      metadata: parseJson<Record<string, unknown>>(row.metadata),
+    };
+  }
+
+  async createPlayerIdentity(identity: PlayerIdentity): Promise<void> {
+    const db = this.requireDb();
+    db.prepare(
+      `INSERT INTO player_identities (id, family_id, child_id, provider_id, external_player_id, display_name, identity_type, verified, metadata, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      identity.id,
+      identity.familyId,
+      identity.childId,
+      identity.providerId,
+      identity.externalPlayerId,
+      identity.displayName,
+      identity.identityType,
+      identity.verified ? 1 : 0,
+      JSON.stringify(identity.metadata ?? {}),
+      toUtcIso(identity.createdAt),
+    );
+  }
+
+  async listPlayerIdentitiesByChild(childId: string): Promise<PlayerIdentity[]> {
+    const db = this.requireDb();
+    const rows = db.prepare(
+      `SELECT id, family_id, child_id, provider_id, external_player_id, display_name, identity_type, verified, metadata, created_at
+       FROM player_identities WHERE child_id = ? ORDER BY created_at DESC`
+    ).all(childId) as Array<Record<string, unknown>>;
+    return rows.map((row) => ({
+      id: String(row.id),
+      familyId: String(row.family_id),
+      childId: String(row.child_id),
+      providerId: String(row.provider_id),
+      externalPlayerId: String(row.external_player_id),
+      displayName: String(row.display_name),
+      identityType: String(row.identity_type),
+      verified: Number(row.verified) === 1,
+      metadata: parseJson<Record<string, unknown>>(row.metadata),
+      createdAt: String(row.created_at),
+    }));
+  }
+
+  async createParentalRule(rule: ParentalRule): Promise<void> {
+    const db = this.requireDb();
+    db.prepare(
+      `INSERT INTO parental_rules (id, family_id, child_id, type, enabled, config, created_at, updated_at, metadata)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      rule.id,
+      rule.familyId,
+      rule.childId,
+      rule.type,
+      rule.enabled ? 1 : 0,
+      JSON.stringify(rule.config ?? {}),
+      toUtcIso(rule.createdAt),
+      toUtcIso(rule.updatedAt),
+      JSON.stringify(rule.metadata ?? {}),
+    );
+  }
+
+  async upsertParentalRule(rule: ParentalRule): Promise<void> {
+    const db = this.requireDb();
+    db.prepare(
+      `INSERT INTO parental_rules (id, family_id, child_id, type, enabled, config, created_at, updated_at, metadata)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         family_id = excluded.family_id,
+         child_id = excluded.child_id,
+         type = excluded.type,
+         enabled = excluded.enabled,
+         config = excluded.config,
+         updated_at = excluded.updated_at,
+         metadata = excluded.metadata`
+    ).run(
+      rule.id,
+      rule.familyId,
+      rule.childId,
+      rule.type,
+      rule.enabled ? 1 : 0,
+      JSON.stringify(rule.config ?? {}),
+      toUtcIso(rule.createdAt),
+      toUtcIso(rule.updatedAt),
+      JSON.stringify(rule.metadata ?? {}),
+    );
+  }
+
+  async getParentalRule(ruleId: string): Promise<ParentalRule | undefined> {
+    const db = this.requireDb();
+    const row = db.prepare(
+      `SELECT id, family_id, child_id, type, enabled, config, created_at, updated_at, metadata
+       FROM parental_rules WHERE id = ?`
+    ).get(ruleId) as Record<string, unknown> | undefined;
+    if (!row) {
+      return undefined;
+    }
+    return {
+      id: String(row.id),
+      familyId: String(row.family_id),
+      childId: String(row.child_id),
+      type: row.type as ParentalRule["type"],
+      enabled: Number(row.enabled) === 1,
+      config: parseJson<Record<string, unknown>>(row.config) ?? {},
+      createdAt: String(row.created_at),
+      updatedAt: String(row.updated_at),
+      metadata: parseJson<Record<string, unknown>>(row.metadata),
+    };
+  }
+
+  async listParentalRulesByChild(childId: string): Promise<ParentalRule[]> {
+    const db = this.requireDb();
+    const rows = db.prepare(
+      `SELECT id, family_id, child_id, type, enabled, config, created_at, updated_at, metadata
+       FROM parental_rules WHERE child_id = ? ORDER BY updated_at DESC`
+    ).all(childId) as Array<Record<string, unknown>>;
+    return rows.map((row) => ({
+      id: String(row.id),
+      familyId: String(row.family_id),
+      childId: String(row.child_id),
+      type: row.type as ParentalRule["type"],
+      enabled: Number(row.enabled) === 1,
+      config: parseJson<Record<string, unknown>>(row.config) ?? {},
+      createdAt: String(row.created_at),
+      updatedAt: String(row.updated_at),
+      metadata: parseJson<Record<string, unknown>>(row.metadata),
+    }));
+  }
+
+  async createPlaySession(session: PlaySession): Promise<void> {
+    const db = this.requireDb();
+    db.prepare(
+      `INSERT INTO play_sessions (id, family_id, child_id, provider_id, server_id, player_identity_id, started_at, ended_at, duration_seconds, status, disconnect_reason, metadata)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      session.id,
+      session.familyId,
+      session.childId,
+      session.providerId,
+      session.serverId,
+      session.playerIdentityId,
+      toUtcIso(session.startedAt),
+      session.endedAt ? toUtcIso(session.endedAt) : null,
+      session.durationSeconds,
+      session.status,
+      session.disconnectReason ?? null,
+      JSON.stringify(session.metadata ?? {}),
+    );
+  }
+
+  async upsertPlaySession(session: PlaySession): Promise<void> {
+    const db = this.requireDb();
+    db.prepare(
+      `INSERT INTO play_sessions (id, family_id, child_id, provider_id, server_id, player_identity_id, started_at, ended_at, duration_seconds, status, disconnect_reason, metadata)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         family_id = excluded.family_id,
+         child_id = excluded.child_id,
+         provider_id = excluded.provider_id,
+         server_id = excluded.server_id,
+         player_identity_id = excluded.player_identity_id,
+         started_at = excluded.started_at,
+         ended_at = excluded.ended_at,
+         duration_seconds = excluded.duration_seconds,
+         status = excluded.status,
+         disconnect_reason = excluded.disconnect_reason,
+         metadata = excluded.metadata`
+    ).run(
+      session.id,
+      session.familyId,
+      session.childId,
+      session.providerId,
+      session.serverId,
+      session.playerIdentityId,
+      toUtcIso(session.startedAt),
+      session.endedAt ? toUtcIso(session.endedAt) : null,
+      session.durationSeconds,
+      session.status,
+      session.disconnectReason ?? null,
+      JSON.stringify(session.metadata ?? {}),
+    );
+  }
+
+  async getPlaySession(sessionId: string): Promise<PlaySession | undefined> {
+    const db = this.requireDb();
+    const row = db.prepare(
+      `SELECT id, family_id, child_id, provider_id, server_id, player_identity_id, started_at, ended_at, duration_seconds, status, disconnect_reason, metadata
+       FROM play_sessions WHERE id = ?`
+    ).get(sessionId) as Record<string, unknown> | undefined;
+    if (!row) {
+      return undefined;
+    }
+    return {
+      id: String(row.id),
+      familyId: String(row.family_id),
+      childId: String(row.child_id),
+      providerId: String(row.provider_id),
+      serverId: String(row.server_id),
+      playerIdentityId: String(row.player_identity_id),
+      startedAt: String(row.started_at),
+      endedAt: typeof row.ended_at === "string" ? row.ended_at : undefined,
+      durationSeconds: Number(row.duration_seconds),
+      status: row.status as PlaySession["status"],
+      disconnectReason: typeof row.disconnect_reason === "string" ? row.disconnect_reason : undefined,
+      metadata: parseJson<Record<string, unknown>>(row.metadata),
+    };
+  }
+
+  async listPlaySessions(query: {
+    childId?: string;
+    providerId?: string;
+    serverId?: string;
+    from?: string;
+    to?: string;
+    status?: PlaySession["status"];
+    includeActive?: boolean;
+    limit?: number;
+  } = {}): Promise<PlaySession[]> {
+    const db = this.requireDb();
+    const where: string[] = [];
+    const params: Array<string | number | null> = [];
+    if (query.childId) {
+      where.push("child_id = ?");
+      params.push(query.childId);
+    }
+    if (query.providerId) {
+      where.push("provider_id = ?");
+      params.push(query.providerId);
+    }
+    if (query.serverId) {
+      where.push("server_id = ?");
+      params.push(query.serverId);
+    }
+    if (query.status) {
+      where.push("status = ?");
+      params.push(query.status);
+    } else if (!query.includeActive) {
+      where.push("status != ?");
+      params.push("active");
+    }
+    if (query.from) {
+      where.push("started_at >= ?");
+      params.push(toUtcIso(query.from));
+    }
+    if (query.to) {
+      where.push("started_at <= ?");
+      params.push(toUtcIso(query.to));
+    }
+
+    const limit = query.limit && query.limit > 0 ? Math.min(query.limit, 10000) : 200;
+    const sql = `
+      SELECT id, family_id, child_id, provider_id, server_id, player_identity_id, started_at, ended_at, duration_seconds, status, disconnect_reason, metadata
+      FROM play_sessions
+      ${where.length > 0 ? `WHERE ${where.join(" AND ")}` : ""}
+      ORDER BY started_at DESC
+      LIMIT ?
+    `;
+    const rows = db.prepare(sql).all(...params, limit) as Array<Record<string, unknown>>;
+    return rows.map((row) => ({
+      id: String(row.id),
+      familyId: String(row.family_id),
+      childId: String(row.child_id),
+      providerId: String(row.provider_id),
+      serverId: String(row.server_id),
+      playerIdentityId: String(row.player_identity_id),
+      startedAt: String(row.started_at),
+      endedAt: typeof row.ended_at === "string" ? row.ended_at : undefined,
+      durationSeconds: Number(row.duration_seconds),
+      status: row.status as PlaySession["status"],
+      disconnectReason: typeof row.disconnect_reason === "string" ? row.disconnect_reason : undefined,
+      metadata: parseJson<Record<string, unknown>>(row.metadata),
+    }));
+  }
+
+  async findActivePlaySession(
+    childId: string,
+    providerId: string,
+    serverId: string,
+    playerIdentityId?: string,
+  ): Promise<PlaySession | undefined> {
+    const db = this.requireDb();
+    const where = ["child_id = ?", "provider_id = ?", "server_id = ?", "status = ?"];
+    const params: Array<string | number | null> = [childId, providerId, serverId, "active"];
+    if (playerIdentityId) {
+      where.push("player_identity_id = ?");
+      params.push(playerIdentityId);
+    }
+    const row = db.prepare(
+      `SELECT id, family_id, child_id, provider_id, server_id, player_identity_id, started_at, ended_at, duration_seconds, status, disconnect_reason, metadata
+       FROM play_sessions
+       WHERE ${where.join(" AND ")}
+       ORDER BY started_at DESC
+       LIMIT 1`
+    ).get(...params) as Record<string, unknown> | undefined;
+    if (!row) {
+      return undefined;
+    }
+    return {
+      id: String(row.id),
+      familyId: String(row.family_id),
+      childId: String(row.child_id),
+      providerId: String(row.provider_id),
+      serverId: String(row.server_id),
+      playerIdentityId: String(row.player_identity_id),
+      startedAt: String(row.started_at),
+      endedAt: typeof row.ended_at === "string" ? row.ended_at : undefined,
+      durationSeconds: Number(row.duration_seconds),
+      status: row.status as PlaySession["status"],
+      disconnectReason: typeof row.disconnect_reason === "string" ? row.disconnect_reason : undefined,
+      metadata: parseJson<Record<string, unknown>>(row.metadata),
+    };
+  }
+
+  async createParentOverride(override: ParentOverride): Promise<void> {
+    const db = this.requireDb();
+    db.prepare(
+      `INSERT INTO parent_overrides (id, family_id, child_id, created_by, scope, reason, starts_at, expires_at, created_at, revoked_at, metadata)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      override.id,
+      override.familyId,
+      override.childId,
+      override.createdBy,
+      JSON.stringify(override.scope ?? {}),
+      override.reason,
+      toUtcIso(override.startsAt),
+      toUtcIso(override.expiresAt),
+      toUtcIso(override.createdAt),
+      override.revokedAt ? toUtcIso(override.revokedAt) : null,
+      JSON.stringify(override.metadata ?? {}),
+    );
+  }
+
+  async upsertParentOverride(override: ParentOverride): Promise<void> {
+    const db = this.requireDb();
+    db.prepare(
+      `INSERT INTO parent_overrides (id, family_id, child_id, created_by, scope, reason, starts_at, expires_at, created_at, revoked_at, metadata)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         family_id = excluded.family_id,
+         child_id = excluded.child_id,
+         created_by = excluded.created_by,
+         scope = excluded.scope,
+         reason = excluded.reason,
+         starts_at = excluded.starts_at,
+         expires_at = excluded.expires_at,
+         created_at = excluded.created_at,
+         revoked_at = excluded.revoked_at,
+         metadata = excluded.metadata`
+    ).run(
+      override.id,
+      override.familyId,
+      override.childId,
+      override.createdBy,
+      JSON.stringify(override.scope ?? {}),
+      override.reason,
+      toUtcIso(override.startsAt),
+      toUtcIso(override.expiresAt),
+      toUtcIso(override.createdAt),
+      override.revokedAt ? toUtcIso(override.revokedAt) : null,
+      JSON.stringify(override.metadata ?? {}),
+    );
+  }
+
+  async getParentOverride(overrideId: string): Promise<ParentOverride | undefined> {
+    const db = this.requireDb();
+    const row = db.prepare(
+      `SELECT id, family_id, child_id, created_by, scope, reason, starts_at, expires_at, created_at, revoked_at, metadata
+       FROM parent_overrides WHERE id = ?`
+    ).get(overrideId) as Record<string, unknown> | undefined;
+    if (!row) {
+      return undefined;
+    }
+    return {
+      id: String(row.id),
+      familyId: String(row.family_id),
+      childId: String(row.child_id),
+      createdBy: String(row.created_by),
+      scope: parseJson<Record<string, unknown>>(row.scope) ?? {},
+      reason: String(row.reason),
+      startsAt: String(row.starts_at),
+      expiresAt: String(row.expires_at),
+      createdAt: String(row.created_at),
+      revokedAt: typeof row.revoked_at === "string" ? row.revoked_at : undefined,
+      metadata: parseJson<Record<string, unknown>>(row.metadata),
+    };
+  }
+
+  async listParentOverrides(query: { childId?: string; activeAt?: string; limit?: number } = {}): Promise<ParentOverride[]> {
+    const db = this.requireDb();
+    const where: string[] = [];
+    const params: Array<string | number | null> = [];
+    if (query.childId) {
+      where.push("child_id = ?");
+      params.push(query.childId);
+    }
+    if (query.activeAt) {
+      const activeAt = toUtcIso(query.activeAt);
+      where.push("revoked_at IS NULL");
+      where.push("starts_at <= ?");
+      where.push("expires_at >= ?");
+      params.push(activeAt, activeAt);
+    }
+
+    const limit = query.limit && query.limit > 0 ? Math.min(query.limit, 10000) : 200;
+    const sql = `
+      SELECT id, family_id, child_id, created_by, scope, reason, starts_at, expires_at, created_at, revoked_at, metadata
+      FROM parent_overrides
+      ${where.length > 0 ? `WHERE ${where.join(" AND ")}` : ""}
+      ORDER BY created_at DESC
+      LIMIT ?
+    `;
+    const rows = db.prepare(sql).all(...params, limit) as Array<Record<string, unknown>>;
+    return rows.map((row) => ({
+      id: String(row.id),
+      familyId: String(row.family_id),
+      childId: String(row.child_id),
+      createdBy: String(row.created_by),
+      scope: parseJson<Record<string, unknown>>(row.scope) ?? {},
+      reason: String(row.reason),
+      startsAt: String(row.starts_at),
+      expiresAt: String(row.expires_at),
+      createdAt: String(row.created_at),
+      revokedAt: typeof row.revoked_at === "string" ? row.revoked_at : undefined,
+      metadata: parseJson<Record<string, unknown>>(row.metadata),
+    }));
   }
 
   private mapOperationRow(row: Record<string, unknown>): OperationRecord {

@@ -200,6 +200,20 @@ Creates a time-bounded parent override.
 ### `DELETE /api/overrides/:overrideId`
 Revokes a parent override.
 
+### Rewards and entitlements
+
+- `GET /api/children/:childId/rewards` returns the append-only reward ledger.
+- `POST /api/children/:childId/rewards` grants `BONUS_MINUTES` or
+  `TEMP_SERVER_ACCESS` (parent actor, reason, and bounded expiry required).
+- `GET /api/children/:childId/entitlements` resolves active rewards for a
+  provider/server at a timestamp.
+- `POST /api/rewards/:rewardId/redeem` appends a bonus-minute consumption.
+- `DELETE /api/rewards/:rewardId` appends a revocation entry.
+
+Rewards never replace the deterministic parental policy or provider-side
+enforcement. They cannot bypass identity, inactive-child, schedule, or
+bedtime safety rules. AI Studio has no reward mutation API.
+
 ### `GET /api/ai/providers`
 Returns the active AI Studio provider (`gemini`, `openai`, or `fallback`), configured model, and which
 provider API keys are configured. Never returns secret values. Response always includes `readOnly: true`.

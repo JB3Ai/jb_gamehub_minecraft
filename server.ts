@@ -30,7 +30,11 @@ function handleApiError(res: express.Response, err: unknown) {
   const message = err instanceof Error ? err.message : "Unknown error";
   const isNotFound = message.includes("not found") || message.includes("Unknown server");
   const isBadRequest =
-    message.startsWith("Invalid ") || message.includes("must be earlier than") || message.includes("confirmation required");
+    message.startsWith("Invalid ") ||
+    message.includes("must be earlier than") ||
+    message.includes("Reward") ||
+    message.includes("reward") ||
+    message.includes("confirmation required");
   const status = isNotFound ? 404 : isBadRequest ? 400 : 500;
   res.status(status).json({
     error: {
@@ -640,6 +644,88 @@ app.post("/api/children/:childId/evaluate-access", async (req, res) => {
       actor: body.actor,
     });
     res.json(result);
+  } catch (err) {
+    handleApiError(res, err);
+  }
+});
+
+app.get("/api/children/:childId/rewards", async (req, res) => {
+  try {
+    const rewards = await familyService.listRewards(req.params.childId);
+    res.json({ rewards });
+  } catch (err) {
+    handleApiError(res, err);
+  }
+});
+
+app.post("/api/children/:childId/rewards", async (req, res) => {
+  try {
+    const body = (req.body ?? {}) as {
+      rewardType?: string;
+      type?: string;
+      amountMinutes?: number;
+      providerId?: string;
+      providerIds?: string[];
+      serverId?: string;
+      serverIds?: string[];
+      startsAt?: string;
+      expiresAt?: string;
+      actor?: string;
+      reason?: string;
+      metadata?: Record<string, unknown>;
+    };
+    const rewardType = String(body.rewardType || body.type || "").toUpperCase();
+    if (rewardType !== "BONUS_MINUTES" && rewardType !== "TEMP_SERVER_ACCESS") {
+      throw new Error("Invalid reward type");
+    }
+    const startsAt = body.startsAt || new Date().toISOString();
+    const parsedStart = Date.parse(startsAt);
+    const expiresAt = body.expiresAt || (Number.isFinite(parsedStart) ? new Date(parsedStart + 60 * 60 * 1000).toISOString() : startsAt);
+    const reward = await familyService.grantReward({
+      childId: req.params.childId,
+      rewardType,
+      amountMinutes: body.amountMinutes,
+      providerIds: [...new Set([...(body.providerIds || []), ...(body.providerId ? [body.providerId] : [])])],
+      serverIds: [...new Set([...(body.serverIds || []), ...(body.serverId ? [body.serverId] : [])])],
+      startsAt,
+      expiresAt,
+      actor: body.actor || "parent-admin",
+      reason: body.reason || "Parent reward",
+      metadata: body.metadata,
+    });
+    res.status(201).json(reward);
+  } catch (err) {
+    handleApiError(res, err);
+  }
+});
+
+app.get("/api/children/:childId/entitlements", async (req, res) => {
+  try {
+    const entitlements = await familyService.resolveEntitlements(req.params.childId, {
+      providerId: typeof req.query.providerId === "string" ? req.query.providerId : "synthetic",
+      serverId: typeof req.query.serverId === "string" ? req.query.serverId : "synthetic-main",
+      at: typeof req.query.at === "string" ? req.query.at : undefined,
+    });
+    res.json({ entitlements });
+  } catch (err) {
+    handleApiError(res, err);
+  }
+});
+
+app.post("/api/rewards/:rewardId/redeem", async (req, res) => {
+  try {
+    const body = (req.body ?? {}) as { amountMinutes?: number; actor?: string };
+    const reward = await familyService.redeemReward(req.params.rewardId, body.amountMinutes || 0, body.actor);
+    res.status(201).json(reward);
+  } catch (err) {
+    handleApiError(res, err);
+  }
+});
+
+app.delete("/api/rewards/:rewardId", async (req, res) => {
+  try {
+    const reward = await familyService.revokeReward(req.params.rewardId, typeof req.query.actor === "string" ? req.query.actor : "parent-admin");
+    res.json(reward);
   } catch (err) {
     handleApiError(res, err);
   }

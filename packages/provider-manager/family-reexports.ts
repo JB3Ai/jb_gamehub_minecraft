@@ -14,4 +14,9 @@ export type {
   ProviderResolvedPlayerIdentity,
   ProviderOnlinePlayer,
   ProviderAccessEnforcementInput,
+  RewardType,
+  RewardLedgerEntryType,
+  RewardLedgerEntry,
+  RewardLedgerRepository,
+  ResolvedEntitlements,
 } from "./family-types";

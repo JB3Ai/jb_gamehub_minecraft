@@ -5,8 +5,9 @@ import { FamilyService } from "./family-service";
 import { evaluateParentalPolicy } from "./family-policy";
 import { loadRuntimeConfig, RuntimeConfig } from "./runtime-config";
 import { SqlitePersistenceRepository } from "./sqlite-repository";
+import { EntitlementResolver, resolveEntitlements } from "./rewards";
 
-export { FamilyService, evaluateParentalPolicy };
+export { FamilyService, evaluateParentalPolicy, EntitlementResolver, resolveEntitlements };
 
 export interface CoreBootstrapConfig {
   minecraftServerDir?: string;

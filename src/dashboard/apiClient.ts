@@ -9,6 +9,8 @@ import {
   FamilyRule,
   FamilySession,
   FamilySummary,
+  FamilyEntitlements,
+  FamilyReward,
   AnalyticsSummary,
   ApiEnvelope,
   EventListResponse,
@@ -167,6 +169,22 @@ export async function getChildIdentities(childId: string): Promise<{ identities:
   );
 }
 
+export async function getChildRewards(childId: string): Promise<{ rewards: FamilyReward[] }> {
+  return parseResponse<{ rewards: FamilyReward[] }>(await fetch(`/api/children/${childId}/rewards`));
+}
+
+export async function getChildEntitlements(
+  childId: string,
+  input: { providerId?: string; serverId?: string } = {},
+): Promise<{ entitlements: FamilyEntitlements }> {
+  const search = new URLSearchParams();
+  if (input.providerId) search.set("providerId", input.providerId);
+  if (input.serverId) search.set("serverId", input.serverId);
+  return parseResponse<{ entitlements: FamilyEntitlements }>(
+    await fetch(`/api/children/${childId}/entitlements?${search.toString()}`),
+  );
+}
+
 export async function evaluateChildAccess(
   childId: string,
   input: { providerId: string; serverId: string; externalPlayerId: string },
@@ -179,4 +197,3 @@ export async function evaluateChildAccess(
     }),
   );
 }
-

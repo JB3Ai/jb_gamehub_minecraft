@@ -1,4 +1,5 @@
 import fs from "fs/promises";
+import { readFileSync } from "fs";
 import path from "path";
 import net from "net";
 import { spawn } from "child_process";
@@ -108,6 +109,7 @@ export class MinecraftProvider implements GameProvider {
   private readonly onlinePlayers = new Map<string, string>();
   private playerLogTimer?: ReturnType<typeof setInterval>;
   private playerLogOffset = 0;
+  private playerLogInitialized = false;
   private readonly paperRcon?: PaperRconAdapter;
 
   constructor(config: MinecraftProviderConfig) {
@@ -271,6 +273,14 @@ export class MinecraftProvider implements GameProvider {
   subscribePlayerEvents(listener: (event: ProviderPlayerLifecycleEvent) => void): () => void {
     this.playerListeners.add(listener);
     if (!this.playerLogTimer) {
+      try {
+        const logPath = path.join(this.config.serverDir, "logs", "latest.log");
+        this.playerLogOffset = readFileSync(logPath, "utf8").length;
+        this.playerLogInitialized = true;
+      } catch {
+        this.playerLogOffset = 0;
+        this.playerLogInitialized = true;
+      }
       this.playerLogTimer = setInterval(() => {
         void this.readPlayerLog();
       }, 1000);
@@ -512,6 +522,11 @@ export class MinecraftProvider implements GameProvider {
     const logPath = path.join(this.config.serverDir, "logs", "latest.log");
     try {
       const raw = await fs.readFile(logPath, "utf8");
+      if (!this.playerLogInitialized) {
+        this.playerLogOffset = raw.length;
+        this.playerLogInitialized = true;
+        return;
+      }
       const appended = raw.slice(this.playerLogOffset);
       this.playerLogOffset = raw.length;
       for (const line of appended.split(/\r?\n/)) {

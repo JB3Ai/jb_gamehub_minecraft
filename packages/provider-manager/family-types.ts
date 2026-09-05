@@ -6,6 +6,43 @@ export type ParentalRuleType =
   | "BEDTIME"
   | "SESSION_MAX_DURATION";
 
+/** Provider-neutral, parent-issued rewards. Ledger entries are append-only. */
+export type RewardType = "BONUS_MINUTES" | "TEMP_SERVER_ACCESS";
+export type RewardLedgerEntryType = "grant" | "consume" | "revoke";
+
+export interface RewardLedgerEntry {
+  id: string;
+  rewardId: string;
+  entryType: RewardLedgerEntryType;
+  rewardType: RewardType;
+  familyId: string;
+  childId: string;
+  amountMinutes?: number;
+  providerIds?: string[];
+  serverIds?: string[];
+  startsAt: string;
+  expiresAt: string;
+  createdAt: string;
+  actor: string;
+  reason: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface RewardLedgerRepository {
+  createRewardLedgerEntry(entry: RewardLedgerEntry): Promise<void>;
+  listRewardLedger(query?: { childId?: string; rewardId?: string; limit?: number }): Promise<RewardLedgerEntry[]>;
+}
+
+export interface ResolvedEntitlements {
+  childId: string;
+  providerId: string;
+  serverId: string;
+  evaluatedAt: string;
+  bonusMinutes: number;
+  temporaryServerAccess: boolean;
+  rewardIds: string[];
+}
+
 export type PolicyDecisionResult = "ALLOW" | "DENY" | "ALLOW_UNTIL";
 
 export type PolicyReasonCode =
@@ -17,7 +54,8 @@ export type PolicyReasonCode =
   | "WEEKLY_LIMIT_REACHED"
   | "SESSION_LIMIT_REACHED"
   | "PARENT_OVERRIDE_ACTIVE"
-  | "IDENTITY_NOT_LINKED";
+  | "IDENTITY_NOT_LINKED"
+  | "CHILD_INACTIVE";
 
 export interface Family {
   id: string;

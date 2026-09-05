@@ -11,8 +11,12 @@ import {
   PlayerIdentity,
   PolicyDecision,
   ProviderPlayerLifecycleEvent,
+  RewardLedgerEntry,
+  RewardType,
+  ResolvedEntitlements,
 } from "../provider-manager/index";
 import { evaluateParentalPolicy, PolicyReasonCode } from "./family-policy";
+import { resolveEntitlements } from "./rewards";
 
 function createId(prefix: string): string {
   return `${prefix}_${Date.now()}_${Math.random().toString(16).slice(2, 10)}`;
@@ -57,14 +61,17 @@ export interface EvaluateAccessOutput {
   decision: PolicyDecision;
   usage: FamilyPlaytimeSummary;
   session?: PlaySession;
+  entitlements: ResolvedEntitlements;
 }
 
 export class FamilyService {
+  private lifecycleQueue: Promise<void> = Promise.resolve();
+
   constructor(private readonly manager: InMemoryProviderManager) {}
 
   bindPlayerLifecycle(): () => void {
     return this.manager.onPlayerEvent((event) => {
-      void this.handlePlayerLifecycle(event);
+      this.lifecycleQueue = this.lifecycleQueue.then(() => this.handlePlayerLifecycle(event));
     });
   }
 
@@ -252,6 +259,135 @@ export class FamilyService {
     return this.manager.listPlayerIdentitiesByChild(childId);
   }
 
+  async listRewards(childId: string): Promise<RewardLedgerEntry[]> {
+    return this.manager.listRewardLedger({ childId, limit: 2000 });
+  }
+
+  async resolveEntitlements(
+    childId: string,
+    input: { providerId: string; serverId: string; at?: string },
+  ): Promise<ResolvedEntitlements> {
+    const at = input.at || new Date().toISOString();
+    const entries = await this.listRewards(childId);
+    return resolveEntitlements(entries, { childId, providerId: input.providerId, serverId: input.serverId, at });
+  }
+
+  async grantReward(input: {
+    childId: string;
+    rewardType: RewardType;
+    amountMinutes?: number;
+    providerIds?: string[];
+    serverIds?: string[];
+    startsAt: string;
+    expiresAt: string;
+    actor: string;
+    reason: string;
+    metadata?: Record<string, unknown>;
+  }): Promise<RewardLedgerEntry> {
+    const child = await this.requireChild(input.childId);
+    const startsMs = Date.parse(input.startsAt);
+    const expiresMs = Date.parse(input.expiresAt);
+    if (!Number.isFinite(startsMs) || !Number.isFinite(expiresMs) || expiresMs <= startsMs) {
+      throw new Error("Reward expiry must be later than reward start");
+    }
+    if (expiresMs - startsMs > 31 * 24 * 60 * 60 * 1000) {
+      throw new Error("Reward duration cannot exceed 31 days");
+    }
+    const amountMinutes = input.rewardType === "BONUS_MINUTES" ? Math.floor(Number(input.amountMinutes)) : undefined;
+    if (input.rewardType === "BONUS_MINUTES" && (!Number.isFinite(amountMinutes) || amountMinutes <= 0 || amountMinutes > 24 * 60)) {
+      throw new Error("Bonus minutes must be an integer between 1 and 1440");
+    }
+    if (input.rewardType === "TEMP_SERVER_ACCESS" && (!(input.serverIds || []).length || (input.serverIds || []).some((serverId) => !serverId.trim()))) {
+      throw new Error("Temporary server access requires valid server IDs");
+    }
+    const now = new Date().toISOString();
+    const rewardId = createId("reward");
+    const entry: RewardLedgerEntry = {
+      id: createId("reward-entry"),
+      rewardId,
+      entryType: "grant",
+      rewardType: input.rewardType,
+      familyId: child.familyId,
+      childId: child.id,
+      amountMinutes,
+      providerIds: [...new Set(input.providerIds || [])],
+      serverIds: [...new Set(input.serverIds || [])],
+      startsAt: input.startsAt,
+      expiresAt: input.expiresAt,
+      createdAt: now,
+      actor: input.actor,
+      reason: input.reason,
+      metadata: input.metadata,
+    };
+    await this.manager.createRewardLedgerEntry(entry);
+    await this.writeAudit({
+      actor: input.actor,
+      action: "reward.granted",
+      familyId: child.familyId,
+      childId: child.id,
+      result: "completed",
+      metadata: { rewardId, rewardType: input.rewardType, amountMinutes, serverIds: entry.serverIds, expiresAt: entry.expiresAt },
+    });
+    return entry;
+  }
+
+  async redeemReward(rewardId: string, amountMinutes: number, actor = "parent-admin"): Promise<RewardLedgerEntry> {
+    const entries = await this.manager.listRewardLedger({ rewardId, limit: 2000 });
+    const grant = entries.find((entry) => entry.entryType === "grant");
+    if (!grant) throw new Error(`Reward not found: ${rewardId}`);
+    if (grant.rewardType !== "BONUS_MINUTES") throw new Error("Only bonus-minute rewards can be redeemed");
+    const granted = grant.amountMinutes || 0;
+    const consumed = entries.filter((entry) => entry.entryType === "consume").reduce((sum, entry) => sum + (entry.amountMinutes || 0), 0);
+    const amount = Math.floor(Number(amountMinutes));
+    if (!Number.isFinite(amount) || amount <= 0 || consumed + amount > granted) {
+      throw new Error("Reward redemption exceeds the remaining bonus minutes");
+    }
+    const entry: RewardLedgerEntry = {
+      ...grant,
+      id: createId("reward-entry"),
+      entryType: "consume",
+      amountMinutes: amount,
+      createdAt: new Date().toISOString(),
+      actor,
+      reason: "Reward redeemed",
+    };
+    await this.manager.createRewardLedgerEntry(entry);
+    await this.writeAudit({
+      actor,
+      action: "reward.redeemed",
+      familyId: grant.familyId,
+      childId: grant.childId,
+      result: "completed",
+      metadata: { rewardId, amountMinutes: amount },
+    });
+    return entry;
+  }
+
+  async revokeReward(rewardId: string, actor = "parent-admin"): Promise<RewardLedgerEntry> {
+    const entries = await this.manager.listRewardLedger({ rewardId, limit: 2000 });
+    const grant = entries.find((entry) => entry.entryType === "grant");
+    if (!grant) throw new Error(`Reward not found: ${rewardId}`);
+    const entry: RewardLedgerEntry = {
+      ...grant,
+      id: createId("reward-entry"),
+      entryType: "revoke",
+      amountMinutes: undefined,
+      createdAt: new Date().toISOString(),
+      actor,
+      reason: "Reward revoked",
+    };
+    await this.manager.createRewardLedgerEntry(entry);
+    await this.writeAudit({
+      actor,
+      action: "reward.revoked",
+      familyId: grant.familyId,
+      childId: grant.childId,
+      result: "completed",
+      metadata: { rewardId },
+    });
+    return entry;
+  }
+
   async createRule(input: {
     familyId: string;
     childId: string;
@@ -424,6 +560,11 @@ export class FamilyService {
 
     const rules = await this.manager.listParentalRulesByChild(child.id);
     const activeOverrides = await this.manager.listParentOverrides({ childId: child.id, activeAt: now, limit: 100 });
+    const entitlements = await this.resolveEntitlements(child.id, {
+      providerId: input.providerId,
+      serverId: input.serverId,
+      at: now,
+    });
 
     const decision = evaluateParentalPolicy({
       child,
@@ -437,6 +578,7 @@ export class FamilyService {
       dailyUsageSeconds: playtime.dailySeconds,
       weeklyUsageSeconds: playtime.weeklySeconds,
       activeOverrides,
+      entitlements,
     });
 
     const provider = this.manager.getProvider(input.providerId);
@@ -473,6 +615,9 @@ export class FamilyService {
           reason: decision.reason,
           decision: decision.decision,
           externalPlayerId: input.externalPlayerId,
+          rewardIds: entitlements.rewardIds,
+          bonusMinutes: entitlements.bonusMinutes,
+          temporaryServerAccess: entitlements.temporaryServerAccess,
         },
       });
 
@@ -482,6 +627,7 @@ export class FamilyService {
         decision,
         usage: playtime,
         session: activeSession,
+        entitlements,
       };
     }
 
@@ -510,6 +656,9 @@ export class FamilyService {
         decision: decision.decision,
         externalPlayerId: input.externalPlayerId,
         sessionId: session.id,
+        rewardIds: entitlements.rewardIds,
+        bonusMinutes: entitlements.bonusMinutes,
+        temporaryServerAccess: entitlements.temporaryServerAccess,
       },
     });
 
@@ -519,6 +668,7 @@ export class FamilyService {
       decision,
       usage: playtime,
       session,
+      entitlements,
     };
   }
 

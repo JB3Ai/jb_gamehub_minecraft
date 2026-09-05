@@ -1,0 +1,48 @@
+{
+  "milestone": "JBGH-019",
+  "status": "CLOSED / PASS",
+  "provider": "minecraft",
+  "server": "minecraft-main",
+  "paperVersion": "1.21.4",
+  "javaMajor": 21,
+  "player": "JBGHReward019",
+  "baseDenied": {
+    "decision": "DENY",
+    "reason": "DAILY_LIMIT_REACHED"
+  },
+  "reward": {
+    "type": "BONUS_MINUTES",
+    "grantedMinutes": 2,
+    "consumedMinutes": 2,
+    "remainingAfterFirstConsumption": 1,
+    "remainingAfterReconnect": 1,
+    "finalEntitlementMinutes": 0
+  },
+  "bedtimePrecedence": {
+    "decision": "DENY",
+    "reason": "BEDTIME_ACTIVE"
+  },
+  "lifecycle": {
+    "join": "PASS",
+    "sessionStart": "PASS",
+    "consumption": "PASS",
+    "disconnect": "PASS",
+    "reconnect": "PASS",
+    "remainingEntitlementRestored": "PASS",
+    "exhaustion": "PASS"
+  },
+  "enforcement": {
+    "policyDecision": "DENY",
+    "rconKick": "PASS",
+    "paperPlayerRemoval": "PASS"
+  },
+  "reconciliation": {
+    "dashboardAndApi": "PASS",
+    "auditActions": [
+      "reward.granted",
+      "reward.redeemed",
+      "policy.denied"
+    ],
+    "ledgerEntries": 3
+  }
+}

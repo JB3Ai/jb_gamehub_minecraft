@@ -124,9 +124,13 @@ export class PaperRconAdapter {
 
   async kickPlayer(player: string, reason: string): Promise<void> {
     await this.execute(`kick ${JSON.stringify(player)} ${JSON.stringify(reason)}`);
-    const remaining = await this.listPlayers();
-    if (remaining.includes(player)) {
-      throw new Error(`Paper did not remove player ${player} after kick command.`);
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const remaining = await this.listPlayers();
+      if (!remaining.includes(player)) {
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 250));
     }
+    throw new Error(`Paper did not remove player ${player} after kick command.`);
   }
 }

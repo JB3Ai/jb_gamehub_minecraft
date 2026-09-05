@@ -2,11 +2,13 @@ import React from "react";
 import {
   askAiStudio,
   evaluateChildAccess,
+  getChildEntitlements,
   getAiAuditTrail,
   getAiProvidersInfo,
   getChildIdentities,
   getChildOverrides,
   getChildPlaytime,
+  getChildRewards,
   getChildRules,
   getChildSessions,
   getFamilies,
@@ -23,12 +25,14 @@ import {
   FamilyRule,
   FamilySession,
   FamilySummary,
+  FamilyEntitlements,
+  FamilyReward,
   OperationRecord,
   ServerInventoryItem,
   WorldRuntime,
 } from "../dashboard/types";
 
-const PANEL_ORDER = ["servers", "status", "operations", "worlds", "events", "analytics", "family", "ai-studio"] as const;
+const PANEL_ORDER = ["servers", "status", "operations", "worlds", "events", "analytics", "family", "rewards", "ai-studio"] as const;
 
 type PanelId = (typeof PANEL_ORDER)[number];
 
@@ -734,6 +738,87 @@ export function FamilyPanel({ selectedServer }: { selectedServer?: ServerInvento
   );
 }
 
+interface RewardSnapshot {
+  child: ChildProfile;
+  rewards: FamilyReward[];
+  entitlements?: FamilyEntitlements;
+  error?: string;
+}
+
+export function RewardsPanel({ selectedServer }: { selectedServer?: ServerInventoryItem }) {
+  const [children, setChildren] = React.useState<RewardSnapshot[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState<string>();
+
+  React.useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      setLoading(true);
+      try {
+        const families = await getFamilies();
+        const family = families.families[0];
+        if (!family) {
+          if (!cancelled) setChildren([]);
+          return;
+        }
+        const childResponse = await getFamilyChildren(family.id);
+        const snapshots = await Promise.all(childResponse.children.map(async (child) => {
+          try {
+            const [rewards, entitlements] = await Promise.all([
+              getChildRewards(child.id),
+              getChildEntitlements(child.id, { providerId: selectedServer?.providerId, serverId: selectedServer?.id }),
+            ]);
+            return { child, rewards: rewards.rewards, entitlements: entitlements.entitlements };
+          } catch (childError) {
+            return { child, rewards: [], error: childError instanceof Error ? childError.message : String(childError) };
+          }
+        }));
+        if (!cancelled) setChildren(snapshots);
+      } catch (loadError) {
+        if (!cancelled) setError(loadError instanceof Error ? loadError.message : String(loadError));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedServer?.id, selectedServer?.providerId]);
+
+  if (loading) return <div className="empty-state">Loading rewards and entitlements...</div>;
+  if (error) return <div className="error-banner">Rewards unavailable: {error}</div>;
+  if (children.length === 0) return <div className="empty-state">No family rewards configured.</div>;
+
+  return (
+    <div className="analytics-grid" aria-label="Rewards and entitlements panel">
+      {children.map((snapshot) => (
+        <article key={snapshot.child.id} className="world-card">
+          <header>
+            <h3>{snapshot.child.name}</h3>
+            <span className="chip is-neutral">{snapshot.rewards.filter((reward) => reward.entryType === "grant").length} grants</span>
+          </header>
+          {snapshot.error ? <p className="error-banner">{snapshot.error}</p> : null}
+          <ul>
+            <li>Bonus minutes available: {snapshot.entitlements?.bonusMinutes ?? 0}</li>
+            <li>Temporary server access: {snapshot.entitlements?.temporaryServerAccess ? "active" : "none"}</li>
+            <li>Active reward IDs: {snapshot.entitlements?.rewardIds.join(", ") || "none"}</li>
+          </ul>
+          <details>
+            <summary>Reward ledger ({snapshot.rewards.length})</summary>
+            <ul>
+              {snapshot.rewards.slice(0, 10).map((reward) => (
+                <li key={reward.id}>
+                  {reward.entryType} · {reward.rewardType} · {reward.amountMinutes ?? "-"} min · {reward.reason}
+                </li>
+              ))}
+            </ul>
+          </details>
+        </article>
+      ))}
+    </div>
+  );
+}
+
 function SectionCard({ id, title, activePanel, children }: { id: PanelId; title: string; activePanel: PanelId; children: React.ReactNode }) {
   return (
     <section className={`dash-card ${activePanel === id ? "is-active" : ""}`} id={`panel-${id}`}>
@@ -809,6 +894,10 @@ export function OperationalDashboard({
 
         <SectionCard id="family" title="FAMILY CONTROLS" activePanel={activePanel}>
           <FamilyPanel selectedServer={selectedServer} />
+        </SectionCard>
+
+        <SectionCard id="rewards" title="REWARDS" activePanel={activePanel}>
+          <RewardsPanel selectedServer={selectedServer} />
         </SectionCard>
 
         <SectionCard id="ai-studio" title="AI STUDIO" activePanel={activePanel}>

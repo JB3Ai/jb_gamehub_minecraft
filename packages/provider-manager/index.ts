@@ -12,6 +12,11 @@ import type {
   ProviderOnlinePlayer,
   ProviderResolvedPlayerIdentity,
   ProviderPlayerLifecycleEvent,
+  RewardLedgerEntry,
+  RewardLedgerEntryType,
+  RewardLedgerRepository,
+  RewardType,
+  ResolvedEntitlements,
 } from "./family-types";
 
 export type {
@@ -28,6 +33,11 @@ export type {
   ProviderOnlinePlayer,
   ProviderResolvedPlayerIdentity,
   ProviderPlayerLifecycleEvent,
+  RewardLedgerEntry,
+  RewardLedgerEntryType,
+  RewardLedgerRepository,
+  RewardType,
+  ResolvedEntitlements,
 } from "./family-types";
 
 export type OperationStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
@@ -210,7 +220,10 @@ export interface AuditRecord {
     | "session.ended"
     | "override.created"
     | "override.expired"
-    | "override.revoked";
+    | "override.revoked"
+    | "reward.granted"
+    | "reward.redeemed"
+    | "reward.revoked";
   providerId?: string;
   serverId?: string;
   operationId?: string;
@@ -313,6 +326,8 @@ export interface PersistenceRepository {
   upsertParentOverride(override: ParentOverride): Promise<void>;
   getParentOverride(overrideId: string): Promise<ParentOverride | undefined>;
   listParentOverrides(query?: { childId?: string; activeAt?: string; limit?: number }): Promise<ParentOverride[]>;
+  createRewardLedgerEntry?(entry: RewardLedgerEntry): Promise<void>;
+  listRewardLedger?(query?: { childId?: string; rewardId?: string; limit?: number }): Promise<RewardLedgerEntry[]>;
 }
 
 export interface GameProvider {
@@ -368,6 +383,7 @@ class InMemoryPersistenceRepository implements PersistenceRepository {
   private readonly rules = new Map<string, ParentalRule>();
   private readonly sessions = new Map<string, PlaySession>();
   private readonly overrides = new Map<string, ParentOverride>();
+  private readonly rewardLedger: RewardLedgerEntry[] = [];
 
   async initialize(): Promise<void> {
     // No-op.
@@ -647,6 +663,25 @@ class InMemoryPersistenceRepository implements PersistenceRepository {
     }
     list.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
     return (query.limit ? list.slice(0, query.limit) : list).map((item) => ({ ...item }));
+  }
+
+  async createRewardLedgerEntry(entry: RewardLedgerEntry): Promise<void> {
+    this.rewardLedger.unshift({
+      ...entry,
+      providerIds: entry.providerIds ? [...entry.providerIds] : undefined,
+      serverIds: entry.serverIds ? [...entry.serverIds] : undefined,
+    });
+  }
+
+  async listRewardLedger(query: { childId?: string; rewardId?: string; limit?: number } = {}): Promise<RewardLedgerEntry[]> {
+    let list = this.rewardLedger;
+    if (query.childId) list = list.filter((item) => item.childId === query.childId);
+    if (query.rewardId) list = list.filter((item) => item.rewardId === query.rewardId);
+    return (query.limit ? list.slice(0, query.limit) : list).map((item) => ({
+      ...item,
+      providerIds: item.providerIds ? [...item.providerIds] : undefined,
+      serverIds: item.serverIds ? [...item.serverIds] : undefined,
+    }));
   }
 }
 
@@ -1017,6 +1052,20 @@ export class InMemoryProviderManager {
 
   async listParentOverrides(query: { childId?: string; activeAt?: string; limit?: number } = {}): Promise<ParentOverride[]> {
     return this.repository.listParentOverrides(query);
+  }
+
+  async createRewardLedgerEntry(entry: RewardLedgerEntry): Promise<void> {
+    if (!this.repository.createRewardLedgerEntry) {
+      throw new Error("Rewards persistence is not supported by this repository");
+    }
+    await this.repository.createRewardLedgerEntry(entry);
+  }
+
+  async listRewardLedger(query: { childId?: string; rewardId?: string; limit?: number } = {}): Promise<RewardLedgerEntry[]> {
+    if (!this.repository.listRewardLedger) {
+      return [];
+    }
+    return this.repository.listRewardLedger(query);
   }
 
   async getServerHistory(providerId: string, serverId: string, limit = 100): Promise<ProviderManagerHistory> {

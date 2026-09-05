@@ -8,6 +8,7 @@ import type {
   PolicyDecision,
   PolicyDecisionResult,
   PolicyReasonCode,
+  ResolvedEntitlements,
 } from "../provider-manager/family-types";
 
 export type { PolicyDecisionResult, PolicyReasonCode } from "../provider-manager/family-types";
@@ -24,6 +25,7 @@ export interface PolicyEvaluationInput {
   dailyUsageSeconds: number;
   weeklyUsageSeconds: number;
   activeOverrides: ParentOverride[];
+  entitlements?: ResolvedEntitlements;
 }
 
 function toLocalParts(isoTimestamp: string, timezone: string): { weekday: string; hour: number; minute: number } {
@@ -76,6 +78,7 @@ function overrideAppliesToTarget(
 
 export function evaluateParentalPolicy(input: PolicyEvaluationInput): PolicyDecision {
   const evaluatedAt = input.currentTimestamp;
+  const policyVersion = input.entitlements ? "jbgh-019-v1" : "jbgh-018-v1";
 
   if (!input.playerIdentity) {
     return {
@@ -83,7 +86,17 @@ export function evaluateParentalPolicy(input: PolicyEvaluationInput): PolicyDeci
       reason: "IDENTITY_NOT_LINKED",
       remainingMinutes: 0,
       evaluatedAt,
-      policyVersion: "jbgh-018-v1",
+      policyVersion,
+    };
+  }
+
+  if (!input.child.active) {
+    return {
+      decision: "DENY",
+      reason: "CHILD_INACTIVE",
+      remainingMinutes: 0,
+      evaluatedAt,
+      policyVersion,
     };
   }
 
@@ -101,7 +114,7 @@ export function evaluateParentalPolicy(input: PolicyEvaluationInput): PolicyDeci
       decision: "ALLOW",
       reason: "PARENT_OVERRIDE_ACTIVE",
       evaluatedAt,
-      policyVersion: "jbgh-018-v1",
+      policyVersion,
       metadata: {
         overrideId: activeOverride.id,
       },
@@ -113,13 +126,14 @@ export function evaluateParentalPolicy(input: PolicyEvaluationInput): PolicyDeci
     const allowedServers = Array.isArray(serverAccessRule.config.allowedServers)
       ? (serverAccessRule.config.allowedServers as unknown[]).map((value) => String(value))
       : [];
-    if (allowedServers.length > 0 && !allowedServers.includes(input.serverId)) {
+    const temporaryAccess = input.entitlements?.temporaryServerAccess === true;
+    if (allowedServers.length > 0 && !allowedServers.includes(input.serverId) && !temporaryAccess) {
       return {
         decision: "DENY",
         reason: "SERVER_NOT_ALLOWED",
         remainingMinutes: 0,
         evaluatedAt,
-        policyVersion: "jbgh-018-v1",
+        policyVersion,
       };
     }
   }
@@ -138,7 +152,7 @@ export function evaluateParentalPolicy(input: PolicyEvaluationInput): PolicyDeci
           reason: "OUTSIDE_SCHEDULE",
           remainingMinutes: 0,
           evaluatedAt,
-          policyVersion: "jbgh-018-v1",
+          policyVersion,
         };
       }
 
@@ -150,7 +164,7 @@ export function evaluateParentalPolicy(input: PolicyEvaluationInput): PolicyDeci
           reason: "OUTSIDE_SCHEDULE",
           remainingMinutes: 0,
           evaluatedAt,
-          policyVersion: "jbgh-018-v1",
+          policyVersion,
         };
       }
     }
@@ -166,32 +180,33 @@ export function evaluateParentalPolicy(input: PolicyEvaluationInput): PolicyDeci
         reason: "BEDTIME_ACTIVE",
         remainingMinutes: 0,
         evaluatedAt,
-        policyVersion: "jbgh-018-v1",
+        policyVersion,
       };
     }
   }
 
   const dailyLimitRule = findEnabledRule(input.rules, "DAILY_PLAY_LIMIT");
-  const dailyLimitMinutes = dailyLimitRule ? Number(dailyLimitRule.config.minutes ?? 0) : undefined;
+  const bonusMinutes = Math.max(0, input.entitlements?.bonusMinutes ?? 0);
+  const dailyLimitMinutes = dailyLimitRule ? Number(dailyLimitRule.config.minutes ?? 0) + bonusMinutes : undefined;
   if (dailyLimitMinutes && input.dailyUsageSeconds >= dailyLimitMinutes * 60) {
     return {
       decision: "DENY",
       reason: "DAILY_LIMIT_REACHED",
       remainingMinutes: 0,
       evaluatedAt,
-      policyVersion: "jbgh-018-v1",
+      policyVersion,
     };
   }
 
   const weeklyLimitRule = findEnabledRule(input.rules, "WEEKLY_PLAY_LIMIT");
-  const weeklyLimitMinutes = weeklyLimitRule ? Number(weeklyLimitRule.config.minutes ?? 0) : undefined;
+  const weeklyLimitMinutes = weeklyLimitRule ? Number(weeklyLimitRule.config.minutes ?? 0) + bonusMinutes : undefined;
   if (weeklyLimitMinutes && input.weeklyUsageSeconds >= weeklyLimitMinutes * 60) {
     return {
       decision: "DENY",
       reason: "WEEKLY_LIMIT_REACHED",
       remainingMinutes: 0,
       evaluatedAt,
-      policyVersion: "jbgh-018-v1",
+      policyVersion,
     };
   }
 
@@ -207,7 +222,7 @@ export function evaluateParentalPolicy(input: PolicyEvaluationInput): PolicyDeci
         reason: "SESSION_LIMIT_REACHED",
         remainingMinutes: 0,
         evaluatedAt,
-        policyVersion: "jbgh-018-v1",
+        policyVersion,
       };
     }
     sessionRemainingMinutes = Math.floor((sessionLimitMinutes * 60 - observedSeconds) / 60);
@@ -232,7 +247,7 @@ export function evaluateParentalPolicy(input: PolicyEvaluationInput): PolicyDeci
         reason: "DAILY_LIMIT_REACHED",
         remainingMinutes: 0,
         evaluatedAt,
-        policyVersion: "jbgh-018-v1",
+        policyVersion,
       };
     }
     return {
@@ -241,7 +256,7 @@ export function evaluateParentalPolicy(input: PolicyEvaluationInput): PolicyDeci
       remainingMinutes,
       allowUntil: new Date(Date.parse(input.currentTimestamp) + remainingMinutes * 60 * 1000).toISOString(),
       evaluatedAt,
-      policyVersion: "jbgh-018-v1",
+      policyVersion,
     };
   }
 
@@ -249,6 +264,6 @@ export function evaluateParentalPolicy(input: PolicyEvaluationInput): PolicyDeci
     decision: "ALLOW",
     reason: "ALLOWED",
     evaluatedAt,
-    policyVersion: "jbgh-018-v1",
+    policyVersion,
   };
 }

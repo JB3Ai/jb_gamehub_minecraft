@@ -18,6 +18,9 @@ import {
   PlayerIdentity,
   RetentionCleanupResult,
   RetentionPolicy,
+  RewardLedgerEntry,
+  RewardLedgerEntryType,
+  RewardType,
   ServerStateSnapshot,
 } from "../provider-manager/index";
 
@@ -31,7 +34,7 @@ interface Migration {
   up: string;
 }
 
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 const migrations: Migration[] = [
   {
@@ -207,6 +210,33 @@ const migrations: Migration[] = [
 
       CREATE INDEX IF NOT EXISTS idx_parent_overrides_child ON parent_overrides(child_id, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_parent_overrides_active ON parent_overrides(child_id, starts_at, expires_at, revoked_at);
+    `,
+  },
+  {
+    version: 4,
+    name: "provider_neutral_rewards",
+    up: `
+      CREATE TABLE IF NOT EXISTS reward_ledger (
+        id TEXT PRIMARY KEY,
+        reward_id TEXT NOT NULL,
+        entry_type TEXT NOT NULL,
+        reward_type TEXT NOT NULL,
+        family_id TEXT NOT NULL,
+        child_id TEXT NOT NULL,
+        amount_minutes INTEGER,
+        provider_ids TEXT,
+        server_ids TEXT,
+        starts_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        actor TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        metadata TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_reward_ledger_child ON reward_ledger(child_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_reward_ledger_reward ON reward_ledger(reward_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_reward_ledger_active ON reward_ledger(child_id, starts_at, expires_at);
     `,
   },
 ];
@@ -1144,6 +1174,72 @@ export class SqlitePersistenceRepository implements PersistenceRepository {
       expiresAt: String(row.expires_at),
       createdAt: String(row.created_at),
       revokedAt: typeof row.revoked_at === "string" ? row.revoked_at : undefined,
+      metadata: parseJson<Record<string, unknown>>(row.metadata),
+    }));
+  }
+
+  async createRewardLedgerEntry(entry: RewardLedgerEntry): Promise<void> {
+    const db = this.requireDb();
+    db.prepare(
+      `INSERT INTO reward_ledger
+        (id, reward_id, entry_type, reward_type, family_id, child_id, amount_minutes, provider_ids, server_ids,
+         starts_at, expires_at, created_at, actor, reason, metadata)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      entry.id,
+      entry.rewardId,
+      entry.entryType,
+      entry.rewardType,
+      entry.familyId,
+      entry.childId,
+      entry.amountMinutes ?? null,
+      JSON.stringify(entry.providerIds ?? []),
+      JSON.stringify(entry.serverIds ?? []),
+      toUtcIso(entry.startsAt),
+      toUtcIso(entry.expiresAt),
+      toUtcIso(entry.createdAt),
+      entry.actor,
+      entry.reason,
+      JSON.stringify(entry.metadata ?? {}),
+    );
+  }
+
+  async listRewardLedger(query: { childId?: string; rewardId?: string; limit?: number } = {}): Promise<RewardLedgerEntry[]> {
+    const db = this.requireDb();
+    const where: string[] = [];
+    const params: Array<string | number> = [];
+    if (query.childId) {
+      where.push("child_id = ?");
+      params.push(query.childId);
+    }
+    if (query.rewardId) {
+      where.push("reward_id = ?");
+      params.push(query.rewardId);
+    }
+    const limit = query.limit && query.limit > 0 ? Math.min(query.limit, 10000) : 2000;
+    const rows = db.prepare(`
+      SELECT id, reward_id, entry_type, reward_type, family_id, child_id, amount_minutes, provider_ids, server_ids,
+             starts_at, expires_at, created_at, actor, reason, metadata
+      FROM reward_ledger
+      ${where.length > 0 ? `WHERE ${where.join(" AND ")}` : ""}
+      ORDER BY created_at DESC
+      LIMIT ?
+    `).all(...params, limit) as Array<Record<string, unknown>>;
+    return rows.map((row) => ({
+      id: String(row.id),
+      rewardId: String(row.reward_id),
+      entryType: row.entry_type as RewardLedgerEntryType,
+      rewardType: row.reward_type as RewardType,
+      familyId: String(row.family_id),
+      childId: String(row.child_id),
+      amountMinutes: row.amount_minutes === null || row.amount_minutes === undefined ? undefined : Number(row.amount_minutes),
+      providerIds: parseJson<string[]>(row.provider_ids) ?? [],
+      serverIds: parseJson<string[]>(row.server_ids) ?? [],
+      startsAt: String(row.starts_at),
+      expiresAt: String(row.expires_at),
+      createdAt: String(row.created_at),
+      actor: String(row.actor),
+      reason: String(row.reason),
       metadata: parseJson<Record<string, unknown>>(row.metadata),
     }));
   }

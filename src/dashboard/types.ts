@@ -65,6 +65,31 @@ export interface FamilyPlaytime {
   remainingWeeklyMinutes?: number;
 }
 
+export interface FamilyReward {
+  id: string;
+  rewardId: string;
+  entryType: "grant" | "consume" | "revoke";
+  rewardType: "BONUS_MINUTES" | "TEMP_SERVER_ACCESS";
+  childId: string;
+  amountMinutes?: number;
+  serverIds?: string[];
+  startsAt: string;
+  expiresAt: string;
+  createdAt: string;
+  actor: string;
+  reason: string;
+}
+
+export interface FamilyEntitlements {
+  childId: string;
+  providerId: string;
+  serverId: string;
+  evaluatedAt: string;
+  bonusMinutes: number;
+  temporaryServerAccess: boolean;
+  rewardIds: string[];
+}
+
 export interface ServerInventoryItem {
   id: string;
   providerId: string;

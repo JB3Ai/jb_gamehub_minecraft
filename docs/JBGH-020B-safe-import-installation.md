@@ -1,14 +1,15 @@
 # JBGH-020B — Safe Import / Installation Pipeline
 
-Status: IMPLEMENTED / LIVE ACCEPTANCE PENDING
+Status: CLOSED / PASS
 Milestone: JBGH-020B — Safe Import / Installation Pipeline
 Dependencies: JBGH-020A Content Scanner & Corpus Classification
 Implementation: `packages/content-library/importer.ts`
 
 ## Objective
 
-Install only scanner-validated, explicitly approved content into GameHub-managed
-locations. Import is deliberately separate from inspection:
+Install only scanner-validated, explicitly approved content into
+provider-configured, GameHub-managed locations. Import is deliberately separate
+from inspection:
 
 ```text
 source (read-only)
@@ -16,7 +17,7 @@ source (read-only)
   -> import plan
   -> compatibility and safety gate
   -> operation-scoped staging
-  -> managed destination
+  -> managed provider destination
 ```
 
 No source file is modified, and no item is installed directly from its source
@@ -26,10 +27,10 @@ path into a live server directory.
 
 | Content type | Managed target | Import method |
 |---|---|---|
-| `java-world` | configured managed-world root | bounded ZIP extraction to staging, world structure validation, staged directory copy |
-| `paper-plugin` | configured managed-plugin root | source hash verification, staged file copy, `plugin.yml`/`paper-plugin.yml` validation |
-| `resource-pack` | configured managed-resource-pack root | source hash verification and staged file copy |
-| `datapack` | `<managed-worlds>/<worldId>/datapacks/` | source hash verification and staged file copy |
+| `java-world` | Paper server `worlds/` root | bounded ZIP extraction to staging, world structure validation, staged directory copy |
+| `paper-plugin` | Paper server `plugins/` root | source hash verification, staged file copy, `plugin.yml`/`paper-plugin.yml` validation |
+| `resource-pack` | Paper server `resource_packs/` root | source hash verification and staged file copy |
+| `datapack` | `<server>/worlds/<worldId>/datapacks/` | source hash verification and staged file copy |
 
 `bedrock-world`, `behavior-pack`, `skin`, `unknown`, malformed archives, RAR
 archives, invalid sources, and providers without an import adapter are blocked
@@ -47,8 +48,9 @@ with structured reason codes before staging is created.
   counts, oversized entries, and oversized total extracted content.
 - Extraction is streamed; archive contents are never extracted into source,
   provider, or live server directories.
-- Managed destination roots are boundary-checked; derived names cannot escape
-  them.
+- Minecraft's provider adapter owns its Paper `worlds/`, `plugins/`, and
+  `resource_packs/` roots. All destinations are boundary-checked; derived names
+  cannot escape them.
 - Existing destinations cause `DESTINATION_COLLISION`; no overwrite path exists.
 - A failure after destination creation removes only that newly-created
   destination and records `content.import.rolled-back`.
@@ -87,10 +89,14 @@ interface ContentImportPlan {
 - Malformed ZIPs, RAR, unknown content, wrong provider, unsafe archive paths,
   destination collisions, and post-scan source-hash changes are blocked.
 
-## Live Paper acceptance still required
+## Live Paper acceptance
 
-The controlled live-Paper proof remains an explicit gate before this milestone
-can be closed:
+The controlled live-Paper proof passed on 2026-09-20 using the disposable
+managed Paper harness. The repeatable command is:
+
+```text
+npx tsx integration/minecraft/scripts/run-content-import-acceptance.ts
+```
 
 ```text
 Java world ZIP -> scan -> approved plan -> staged extraction
@@ -101,9 +107,26 @@ Paper plugin JAR -> scan -> approved plan -> managed plugins directory
 -> Paper restart -> plugin detected -> original JAR hash unchanged
 ```
 
-That run must use disposable managed server directories and must not introduce
-the newly discovered unmanifested world archives into the official JBGH-020
-corpus.
+Evidence: `integration/minecraft/evidence/JBGH-020B-live-import-1789919396431.json`
+
+The run proved:
+
+- Java world source archive scanned as `READY`, approved, safely staged, and
+  installed at the provider-owned Paper `worlds/JBGH020BLiveWorld` destination.
+- Paper started with `level-name=worlds/JBGH020BLiveWorld`; the Minecraft
+  provider discovered the installed world and a real protocol client joined it.
+- The source world archive SHA-256 was identical before and after import.
+- A freshly compiled Paper plugin JAR was scanned, approved, staged, installed
+  to the provider-owned `plugins/` destination, and enabled by Paper after a
+  restart (`JBGH-020B acceptance plugin enabled`).
+- The source plugin JAR SHA-256 was identical before and after import.
+- Staging was empty after both operations, audit JSONL contained installation
+  lifecycle entries, and all artifacts created by the run were removed after
+  evidence capture.
+
+The run used only generated temporary source content and the disposable
+managed server harness; no newly discovered unmanifested archives were added to
+the official JBGH-020 corpus.
 
 ## Completion checklist
 
@@ -114,8 +137,8 @@ corpus.
 - [x] Managed-destination boundary and collision protection
 - [x] Rollback and append-only audit trail
 - [x] Automated acceptance for supported and blocked cases
-- [ ] Live Paper world import/start/detection acceptance
-- [ ] Live Paper plugin restart/detection acceptance
+- [x] Live Paper world import/start/detection acceptance
+- [x] Live Paper plugin restart/detection acceptance
 
 ## AI Studio Consumption Guide
 

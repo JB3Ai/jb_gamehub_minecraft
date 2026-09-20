@@ -17,13 +17,12 @@ export class MinecraftContentImportAdapter {
   private readonly executor: ContentImportExecutor;
 
   constructor(config: MinecraftContentImportAdapterConfig) {
-    const managedRoot = path.join(config.serverDir, "gamehub-managed-content");
     this.executor = new ContentImportExecutor({
-      stagingRoot: config.stagingRoot ?? path.join(managedRoot, "staging"),
-      managedWorldsRoot: path.join(managedRoot, "worlds"),
-      managedPluginsRoot: path.join(managedRoot, "plugins"),
-      managedResourcePacksRoot: path.join(managedRoot, "resource-packs"),
-      auditLogPath: config.auditLogPath ?? path.join(managedRoot, "audit", "content-import.jsonl"),
+      stagingRoot: config.stagingRoot ?? path.join(config.serverDir, ".gamehub-content-staging"),
+      managedWorldsRoot: path.join(config.serverDir, "worlds"),
+      managedPluginsRoot: path.join(config.serverDir, "plugins"),
+      managedResourcePacksRoot: path.join(config.serverDir, "resource_packs"),
+      auditLogPath: config.auditLogPath ?? path.join(config.serverDir, "gamehub-content-audit.jsonl"),
     });
   }
 

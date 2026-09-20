@@ -1,0 +1,72 @@
+{
+  "milestone": "JBGH-020B",
+  "capturedAt": "2026-09-20T15:49:10.576Z",
+  "harness": "D:\\jb_gamehub_minecraft\\integration\\minecraft\\server",
+  "world": {
+    "sourceSha256": "8c2b4eaf9b44f574eadf6c626ab292911c6eb3d26219c3752e88b5447109fd5e",
+    "sourceSha256Unchanged": true,
+    "plan": {
+      "operationId": "content_import_1789919350652_ba85b395",
+      "contentId": "content_1789919350651_093c4b94",
+      "contentType": "java-world",
+      "sourcePath": "C:\\Users\\OB1JB\\AppData\\Local\\Temp\\jbgh020b-live-ubt08v\\JBGH020BLiveWorld.zip",
+      "stagingPath": "D:\\jb_gamehub_minecraft\\integration\\minecraft\\server\\.gamehub-content-staging\\content_import_1789919350652_ba85b395",
+      "destinationPath": "D:\\jb_gamehub_minecraft\\integration\\minecraft\\server\\worlds\\JBGH020BLiveWorld",
+      "providerId": "minecraft",
+      "serverId": "minecraft-main",
+      "compatibilityStatus": "READY",
+      "actions": [
+        "verify-source-hash",
+        "create-staging-directory",
+        "extract-archive-to-staging",
+        "validate-staged-content",
+        "copy-staged-content-to-managed-destination",
+        "remove-staging-directory"
+      ],
+      "warnings": [],
+      "requiresApproval": true,
+      "status": "planned",
+      "blockingIssues": [],
+      "sourceSha256": "8c2b4eaf9b44f574eadf6c626ab292911c6eb3d26219c3752e88b5447109fd5e",
+      "createdAt": "2026-09-20T15:49:10.652Z"
+    },
+    "result": "completed",
+    "providerDetectedWorld": true,
+    "protocolJoinSucceeded": true
+  },
+  "plugin": {
+    "sourceSha256": "552b2202a651f256b1b63fe8d0e12e219631cc4564eeaed58506923d728b3e00",
+    "sourceSha256Unchanged": true,
+    "plan": {
+      "operationId": "content_import_1789919373946_5cb5ffcc",
+      "contentId": "content_1789919373946_5d2a962e",
+      "contentType": "paper-plugin",
+      "sourcePath": "C:\\Users\\OB1JB\\AppData\\Local\\Temp\\jbgh020b-live-ubt08v\\JBGH020BAcceptance.jar",
+      "stagingPath": "D:\\jb_gamehub_minecraft\\integration\\minecraft\\server\\.gamehub-content-staging\\content_import_1789919373946_5cb5ffcc",
+      "destinationPath": "D:\\jb_gamehub_minecraft\\integration\\minecraft\\server\\plugins\\JBGH020BAcceptance.jar",
+      "providerId": "minecraft",
+      "serverId": "minecraft-main",
+      "compatibilityStatus": "READY",
+      "actions": [
+        "verify-source-hash",
+        "create-staging-directory",
+        "copy-file-to-staging",
+        "validate-staged-content",
+        "copy-staged-content-to-managed-destination",
+        "remove-staging-directory"
+      ],
+      "warnings": [],
+      "requiresApproval": true,
+      "status": "planned",
+      "blockingIssues": [],
+      "sourceSha256": "552b2202a651f256b1b63fe8d0e12e219631cc4564eeaed58506923d728b3e00",
+      "createdAt": "2026-09-20T15:49:33.946Z"
+    },
+    "result": "completed",
+    "paperLoadedPlugin": true
+  },
+  "cleanup": {
+    "stagingCleaned": true,
+    "auditContainsLifecycle": true
+  }
+}

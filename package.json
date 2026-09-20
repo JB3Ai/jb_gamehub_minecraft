@@ -20,6 +20,7 @@
     "minecraft:test:clean": "tsx integration/minecraft/scripts/manage.ts clean",
     "minecraft:test:evidence": "tsx integration/minecraft/scripts/capture-lifecycle-evidence.ts",
     "minecraft:test:player": "tsx integration/minecraft/scripts/run-player-acceptance.ts",
+    "minecraft:test:content-import": "tsx integration/minecraft/scripts/run-content-import-acceptance.ts",
     "validate:lifecycle:evidence": "tsx integration/minecraft/scripts/validate-lifecycle-evidence.ts"
   },
   "dependencies": {

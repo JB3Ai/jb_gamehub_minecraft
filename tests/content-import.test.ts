@@ -230,7 +230,7 @@ test("Minecraft import adapter owns managed destination layout while core plan r
   assert.equal(plan.status, "planned");
   assert.equal(
     plan.destinationPath,
-    path.join(root, "paper-server", "gamehub-managed-content", "plugins", "sample.jar"),
+    path.join(root, "paper-server", "plugins", "sample.jar"),
   );
 
   const result = await adapter.execute(plan, { item, providerId: "minecraft", serverId: "minecraft-main" }, true);

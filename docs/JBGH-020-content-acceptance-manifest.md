@@ -66,18 +66,17 @@ The current Geyser cache contains `GeyserIntegratedPack.mcpack`, but it is a
 runtime-generated plugin cache artifact, not an untouched acceptance fixture.
 It must not be silently promoted to the Bedrock-content corpus.
 
-## Corpus drift observed during JBGH-020A acceptance
+## Intentionally removed standalone-server fixture
 
-As of the JBGH-020A scanner acceptance run, `STANDALONEminecraft server/` is no
-longer present under `JBGH-020 TEST CONTENT/`. Items `JBGH-020-CONTENT-013`
-through `JBGH-020-CONTENT-018` (the standalone Java worlds, both resource-pack
-locations, the datapacks directory, and the plugins collection) therefore
-resolve to `SOURCE_NOT_FOUND` / `BLOCKED` rather than their originally recorded
-expectation. This is treated as a corpus-tracking fact, not a scanner defect:
-the scanner correctly reports a missing source as `BLOCKED` rather than
-guessing or fabricating a result. These six items are recorded as
-`MISSING_CORPUS (source removed after manifest capture)` below until the
-standalone server fixture is restored.
+The `STANDALONEminecraft server/` directory was intentionally removed from
+`JBGH-020 TEST CONTENT/` after the initial manifest capture. Items
+`JBGH-020-CONTENT-013` through `JBGH-020-CONTENT-018` therefore have no active
+acceptance fixture and are recorded as `MISSING_CORPUS (intentionally removed)`.
+
+When these paths are included in a scan, the expected scanner behavior is
+`SOURCE_NOT_FOUND` / `BLOCKED`: it must report the missing source explicitly
+rather than crash, guess a type, or fabricate a compatible result. This is an
+intentional corpus-scope decision, not scanner or corpus drift.
 
 Two additional archives (`high-modern-city.zip`,
 `Mattupolis [Release 11] by mattuFIN.zip`) now exist under `01 WORLDS/` that
@@ -114,7 +113,7 @@ Every imported item must satisfy:
 - [ ] Bedrock behaviour/resource pack fixtures added
 - [ ] Skin fixture added
 - [ ] Invalid and malformed fixtures added
-- [ ] `STANDALONEminecraft server/` fixture restored (items 013-018 currently MISSING_CORPUS)
+- [ ] Optional: add replacement fixtures for items 013-018 if their acceptance coverage is required again
 
 ## JBGH-020A acceptance evidence
 
@@ -126,10 +125,10 @@ manifest via
   content type and expected compatibility status.
 - SHA-256 matched the manifest-recorded hash for every present file with a
   known hash (`006`, `009`, `010`, `011`, `012`).
-- 6/6 items under the now-missing `STANDALONEminecraft server/` (`013`-`018`)
-  correctly resolved to `BLOCKED`/`SOURCE_NOT_FOUND` rather than crashing or
-  fabricating a result; this is scored against the manifest as
-  `MISSING_CORPUS`, not a scanner defect.
+- Items `013`-`018` are excluded from the active corpus because
+  `STANDALONEminecraft server/` was intentionally removed. When exercised as
+  missing paths, the scanner returns `BLOCKED`/`SOURCE_NOT_FOUND` rather than
+  crashing or fabricating a result, as required by the safety contract.
 - Source-mutation check: every scanned file's SHA-256 was identical before and
   after the scan (PASS).
 - The 14.9 GB stress file (`008`) is skipped by default

@@ -88,6 +88,7 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 - [JBGH-017-ai-studio.md](./docs/JBGH-017-ai-studio.md) - AI Studio Read-Only Intelligence Layer
 - [JBGH-019-rewards-education-hooks.md](./docs/JBGH-019-rewards-education-hooks.md) - Provider-Neutral Rewards and Education Hooks
 - [JBGH-020C-content-library-ui.md](./docs/JBGH-020C-content-library-ui.md) - Content Library UI, Import Preview, and Approval
+- [JBGH-020D-bedrock-worlds-pack-linking.md](./docs/JBGH-020D-bedrock-worlds-pack-linking.md) - Bedrock World and Pack-Linking Extension Contract
 - [UI.md](./docs/UI.md) - Design System & Component Guidelines
 - [IDEAS.md](./IDEAS.md) - Innovation Sandbox & Backlog
 

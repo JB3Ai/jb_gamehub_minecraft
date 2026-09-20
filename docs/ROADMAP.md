@@ -12,7 +12,8 @@
 - [x] JBGH-017: AI Studio Read-Only Intelligence Layer
 - [x] JBGH-018: Family Management and Parental Controls
 - [x] JBGH-019: Provider-Neutral Rewards and Education Hooks
-- [ ] JBGH-020C: Content Library UI + Import Preview / Approval (implementation complete; live UI acceptance pending)
+- [x] JBGH-020C: Content Library UI + Import Preview / Approval
+- [ ] JBGH-020D: Bedrock Worlds & Pack Linking (fixture contract drafted; deliberate Bedrock corpus and managed Bedrock provider target required)
 
 ## 🚀 Sprint Roadmap
 

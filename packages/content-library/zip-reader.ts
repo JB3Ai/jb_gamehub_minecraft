@@ -1,5 +1,9 @@
-import { open, stat } from "node:fs/promises";
-import { inflateRawSync } from "node:zlib";
+import { createReadStream, createWriteStream } from "node:fs";
+import { mkdir, open, stat, writeFile } from "node:fs/promises";
+import { pipeline } from "node:stream/promises";
+import { Transform } from "node:stream";
+import { createInflateRaw, inflateRawSync } from "node:zlib";
+import path from "node:path";
 import { CONTENT_SCAN_LIMITS } from "./types";
 
 /**
@@ -22,6 +26,7 @@ export interface ZipEntry {
   uncompressedSize: number;
   compressionMethod: number;
   localHeaderOffset: number;
+  externalFileAttributes: number;
   /** True when the entry path escapes its archive root (zip-slip candidate). */
   unsafePath: boolean;
 }
@@ -113,6 +118,7 @@ export async function listZipEntries(filePath: string): Promise<ZipListing> {
     const nameLength = centralDir.readUInt16LE(offset + 28);
     const extraLength = centralDir.readUInt16LE(offset + 30);
     const commentLength = centralDir.readUInt16LE(offset + 32);
+    const externalFileAttributes = centralDir.readUInt32LE(offset + 38);
     const localHeaderOffset = centralDir.readUInt32LE(offset + 42);
     const nameStart = offset + 46;
     const nameEnd = nameStart + nameLength;
@@ -127,6 +133,7 @@ export async function listZipEntries(filePath: string): Promise<ZipListing> {
       uncompressedSize,
       compressionMethod,
       localHeaderOffset,
+      externalFileAttributes,
       unsafePath: isUnsafeEntryPath(name),
     });
     offset = nameEnd + extraLength + commentLength;
@@ -168,6 +175,90 @@ export async function readZipEntryBytes(filePath: string, entry: ZipEntry): Prom
     }
   }
   return undefined; // Unsupported compression method; classifier treats absence as "not found".
+}
+
+function destinationForEntry(destinationRoot: string, entryName: string): string {
+  const normalizedName = entryName.replace(/\\/g, "/");
+  if (isUnsafeEntryPath(normalizedName)) {
+    throw new ZipReadError(`Unsafe archive path rejected: ${entryName}`);
+  }
+  const destination = path.resolve(destinationRoot, ...normalizedName.split("/"));
+  const boundary = `${path.resolve(destinationRoot)}${path.sep}`;
+  if (destination !== path.resolve(destinationRoot) && !destination.startsWith(boundary)) {
+    throw new ZipReadError(`Archive path escapes destination boundary: ${entryName}`);
+  }
+  return destination;
+}
+
+/**
+ * Extracts a pre-validated ZIP entry using streaming I/O. The caller must
+ * enforce archive-wide entry/size limits before invoking this helper.
+ * Symlinks are rejected and every remaining entry is materialized as a
+ * regular file beneath destinationRoot.
+ */
+class ByteLimitTransform extends Transform {
+  private bytes = 0;
+
+  constructor(private readonly maximumBytes: number) {
+    super();
+  }
+
+  override _transform(chunk: Buffer, _encoding: BufferEncoding, callback: (error?: Error | null, data?: Buffer) => void): void {
+    this.bytes += chunk.length;
+    if (this.bytes > this.maximumBytes) {
+      callback(new ZipReadError(`Archive entry exceeds actual extraction limit of ${this.maximumBytes} bytes.`));
+      return;
+    }
+    callback(null, chunk);
+  }
+
+  get byteCount(): number {
+    return this.bytes;
+  }
+}
+
+export async function extractZipEntryToDirectory(
+  filePath: string,
+  entry: ZipEntry,
+  destinationRoot: string,
+  maximumOutputBytes = CONTENT_SCAN_LIMITS.maxArchiveEntryBytes,
+): Promise<number> {
+  if (entry.isDirectory) {
+    await mkdir(destinationForEntry(destinationRoot, entry.name), { recursive: true });
+    return 0;
+  }
+  if (entry.unsafePath) {
+    throw new ZipReadError(`Unsafe archive path rejected: ${entry.name}`);
+  }
+  if ((entry.externalFileAttributes >>> 16 & 0o170000) === 0o120000) {
+    throw new ZipReadError(`Symbolic-link archive entry rejected: ${entry.name}`);
+  }
+  if (entry.compressionMethod !== 0 && entry.compressionMethod !== 8) {
+    throw new ZipReadError(`Unsupported compression method ${entry.compressionMethod} for ${entry.name}`);
+  }
+
+  const localHeader = await readAt(filePath, entry.localHeaderOffset, 30);
+  if (localHeader.length < 30 || localHeader.readUInt32LE(0) !== LOCAL_HEADER_SIGNATURE) {
+    throw new ZipReadError(`Local file header signature mismatch for ${entry.name}`);
+  }
+  const nameLength = localHeader.readUInt16LE(26);
+  const extraLength = localHeader.readUInt16LE(28);
+  const dataStart = entry.localHeaderOffset + 30 + nameLength + extraLength;
+  const destination = destinationForEntry(destinationRoot, entry.name);
+  await mkdir(path.dirname(destination), { recursive: true });
+  if (entry.compressedSize === 0) {
+    await writeFile(destination, Buffer.alloc(0), { flag: "wx" });
+    return 0;
+  }
+
+  const source = createReadStream(filePath, { start: dataStart, end: dataStart + entry.compressedSize - 1 });
+  const outputLimiter = new ByteLimitTransform(maximumOutputBytes);
+  if (entry.compressionMethod === 0) {
+    await pipeline(source, outputLimiter, createWriteStream(destination, { flags: "wx" }));
+    return outputLimiter.byteCount;
+  }
+  await pipeline(source, createInflateRaw(), outputLimiter, createWriteStream(destination, { flags: "wx" }));
+  return outputLimiter.byteCount;
 }
 
 export async function zipContainsAny(filePath: string, markerNames: string[]): Promise<{ found: string[]; entries: ZipEntry[]; truncated: boolean }> {

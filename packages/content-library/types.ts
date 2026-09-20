@@ -103,10 +103,72 @@ export interface ContentScanReport {
   events: ContentScanEvent[];
 }
 
+export type ContentImportAction =
+  | "verify-source-hash"
+  | "create-staging-directory"
+  | "extract-archive-to-staging"
+  | "copy-file-to-staging"
+  | "validate-staged-content"
+  | "copy-staged-content-to-managed-destination"
+  | "remove-staging-directory";
+
+export type ContentImportStatus = "planned" | "blocked" | "completed" | "failed" | "rolled-back";
+
+export interface ContentImportPlan {
+  operationId: string;
+  contentId: string;
+  contentType: ContentType;
+  sourcePath: string;
+  stagingPath: string;
+  destinationPath: string;
+  providerId: string;
+  serverId?: string;
+  compatibilityStatus: CompatibilityStatus;
+  actions: ContentImportAction[];
+  warnings: CompatibilityIssue[];
+  requiresApproval: boolean;
+  status: Extract<ContentImportStatus, "planned" | "blocked">;
+  blockingIssues: CompatibilityIssue[];
+  sourceSha256?: string;
+  createdAt: string;
+}
+
+export interface ContentImportAuditRecord {
+  operationId: string;
+  timestamp: string;
+  action: string;
+  result: "completed" | "failed" | "blocked" | "rolled-back";
+  contentId: string;
+  contentType: ContentType;
+  sourcePath: string;
+  destinationPath: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ContentImportResult {
+  plan: ContentImportPlan;
+  status: Exclude<ContentImportStatus, "planned" | "blocked"> | "blocked";
+  installedPath?: string;
+  audit: ContentImportAuditRecord[];
+  error?: CompatibilityIssue;
+}
+
+export interface ContentImportRequest {
+  item: ContentItem;
+  providerId: string;
+  serverId?: string;
+  /** Required for datapacks; identifies a world directory beneath managedWorldsRoot. */
+  worldId?: string;
+}
+
 /** Bounds enforced by the scanner so large files never require unbounded memory. */
 export const CONTENT_SCAN_LIMITS = {
   /** Maximum bytes read into memory from any single archive entry for classification purposes. */
   maxInspectedEntryBytes: 8 * 1024 * 1024,
   /** Streamed hashing chunk size. */
   hashChunkBytes: 1024 * 1024,
+  /** Installation guardrails. Archives exceeding these limits are blocked before extraction. */
+  maxArchiveEntries: 10_000,
+  maxArchiveExtractedBytes: 4 * 1024 * 1024 * 1024,
+  maxArchiveEntryBytes: 512 * 1024 * 1024,
 } as const;

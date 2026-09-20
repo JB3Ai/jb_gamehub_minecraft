@@ -204,13 +204,22 @@ async function classifyFile(sourcePath: string): Promise<ClassificationResult> {
 
   if (ext === ".zip") {
     try {
-      const { found, truncated } = await zipContainsAny(sourcePath, ["level.dat", "pack.mcmeta", "manifest.json"]);
+      const { entries, found, truncated } = await zipContainsAny(sourcePath, ["level.dat", "pack.mcmeta", "manifest.json"]);
       if (truncated) warnings.push("ARCHIVE_TOO_COMPLEX_TO_INSPECT");
       if (found.includes("level.dat")) {
         return { contentType: "java-world", sourceKind: "file", markers: ["level.dat"], warnings, notes, detectedFromContent: true };
       }
       if (found.includes("pack.mcmeta")) {
-        return { contentType: "resource-pack", sourceKind: "file", markers: ["pack.mcmeta"], warnings, notes, detectedFromContent: true };
+        const hasDataDirectory = entries.some((entry) => entry.name.replace(/\\/g, "/").startsWith("data/"));
+        const hasAssetsDirectory = entries.some((entry) => entry.name.replace(/\\/g, "/").startsWith("assets/"));
+        return {
+          contentType: hasDataDirectory && !hasAssetsDirectory ? "datapack" : "resource-pack",
+          sourceKind: "file",
+          markers: ["pack.mcmeta"],
+          warnings,
+          notes,
+          detectedFromContent: true,
+        };
       }
       if (found.includes("manifest.json")) {
         return { contentType: "behavior-pack", sourceKind: "file", markers: ["manifest.json"], warnings, notes, detectedFromContent: true };

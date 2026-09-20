@@ -22,6 +22,8 @@ import {
   WorldSummary,
 } from "../provider-manager/index";
 import { PaperRconAdapter } from "./paper-rcon";
+export { MinecraftContentImportAdapter } from "./content-import";
+export type { MinecraftContentImportAdapterConfig } from "./content-import";
 
 interface MinecraftProviderConfig {
   providerId?: string;

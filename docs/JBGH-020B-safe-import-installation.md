@@ -1,8 +1,8 @@
 # JBGH-020B — Safe Import / Installation Pipeline
 
-Status: IMPLEMENTED / LIVE ACCEPTANCE PENDING  
-Milestone: JBGH-020B — Safe Import / Installation Pipeline  
-Dependencies: JBGH-020A Content Scanner & Corpus Classification  
+Status: IMPLEMENTED / LIVE ACCEPTANCE PENDING
+Milestone: JBGH-020B — Safe Import / Installation Pipeline
+Dependencies: JBGH-020A Content Scanner & Corpus Classification
 Implementation: `packages/content-library/importer.ts`
 
 ## Objective

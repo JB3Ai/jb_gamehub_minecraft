@@ -50,6 +50,30 @@ Lists worlds from the provider.
 ### `POST /api/servers/:id/worlds/:worldId/validate`
 Runs provider-owned world/pack validation.
 
+### Content Library
+
+- `GET /api/content/sources` lists file/directory labels below the configured
+  server-side content root. Clients cannot select an arbitrary root.
+- `GET /api/content` lists process-local scanned content items.
+- `POST /api/content/scan` accepts only a root-relative `sourcePath` and
+  returns provider-neutral classification, hash, validation, compatibility,
+  warnings, markers, and scan lifecycle events.
+- `GET /api/content/items/:contentId` returns a scanned content item.
+- `POST /api/content/import-plans` creates a canonical, non-mutating plan from
+  a scanned content ID. Client-supplied destination and staging fields are not
+  accepted.
+- `GET /api/content/import-plans/:operationId` returns an existing canonical
+  plan.
+- `POST /api/content/import-plans/:operationId/execute` requires
+  `{ "approve": true }` and executes the JBGH-020B staged import pipeline.
+- `GET /api/content/inventory` returns provider-derived managed worlds,
+  plugins, resource packs, and datapacks.
+- `GET /api/content/history` returns append-only import audit records.
+
+Content APIs never allow a client to bypass provider destination mapping,
+hash re-verification, compatibility checks, collision checks, staging,
+archive safety, rollback, or audit recording.
+
 ### `GET /api/operations/:id`
 Returns operation details by ID.
 

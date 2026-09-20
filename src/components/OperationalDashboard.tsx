@@ -17,6 +17,7 @@ import {
   executeContentImportPlan,
   getContentHistory,
   getContentInventory,
+  getContentItems,
   getContentSources,
   scanContent,
   type ContentImportPlanResponse,
@@ -381,22 +382,28 @@ function formatBytes(value: number): string {
 export function ContentLibraryPanel({ selectedServer }: { selectedServer?: ServerInventoryItem }) {
   const [sources, setSources] = React.useState<Array<{ path: string; kind: "file" | "directory" }>>([]);
   const [selectedSource, setSelectedSource] = React.useState("");
-  const [item, setItem] = React.useState<ContentLibraryItem>();
+  const [items, setItems] = React.useState<ContentLibraryItem[]>([]);
+  const [selectedItemId, setSelectedItemId] = React.useState<string>();
   const [plan, setPlan] = React.useState<ContentImportPlanResponse>();
   const [inventory, setInventory] = React.useState<Array<{ contentType: string; path: string; items: Array<{ path: string; kind: string }> }>>([]);
   const [history, setHistory] = React.useState<Array<{ action: string; result: string; timestamp: string; destinationPath?: string }>>([]);
   const [progress, setProgress] = React.useState<string[]>([]);
   const [error, setError] = React.useState<string>();
   const [busy, setBusy] = React.useState(false);
+  const [filter, setFilter] = React.useState<"all" | "worlds" | "plugins" | "resource-packs" | "datapacks" | "unsupported" | "blocked">("all");
+  const [query, setQuery] = React.useState("");
+  const selectedItem = items.find((entry) => entry.contentId === selectedItemId);
 
   const refresh = React.useCallback(async () => {
     try {
-      const [sourceResponse, inventoryResponse, historyResponse] = await Promise.all([
+      const [sourceResponse, itemResponse, inventoryResponse, historyResponse] = await Promise.all([
         getContentSources(),
+        getContentItems(),
         getContentInventory(),
         getContentHistory(),
       ]);
       setSources(sourceResponse.sources);
+      setItems(itemResponse.items);
       setInventory(inventoryResponse.inventory);
       setHistory(historyResponse.audit.slice(-20).reverse());
       setSelectedSource((current) => current || sourceResponse.sources[0]?.path || "");
@@ -418,7 +425,11 @@ export function ContentLibraryPanel({ selectedServer }: { selectedServer?: Serve
     try {
       const response = await scanContent(selectedSource, selectedServer.id);
       const nextItem = response.report.items[0];
-      setItem(nextItem);
+      if (!nextItem) {
+        throw new Error("The scanner returned no content item.");
+      }
+      setItems((current) => [nextItem, ...current.filter((entry) => entry.sourcePath !== nextItem.sourcePath)]);
+      setSelectedItemId(nextItem.contentId);
       setProgress(response.report.events.map((event) => event.type));
       setError(undefined);
     } catch (err) {
@@ -429,10 +440,10 @@ export function ContentLibraryPanel({ selectedServer }: { selectedServer?: Serve
   };
 
   const preview = async () => {
-    if (!item || !selectedServer) return;
+    if (!selectedItem || !selectedServer) return;
     setBusy(true);
     try {
-      const response = await createContentImportPlan(item.contentId, { serverId: selectedServer.id });
+      const response = await createContentImportPlan(selectedItem.contentId, { serverId: selectedServer.id });
       setPlan(response.plan);
       setProgress((current) => [...current, "content.import.plan.created"]);
       setError(undefined);
@@ -451,7 +462,8 @@ export function ContentLibraryPanel({ selectedServer }: { selectedServer?: Serve
       const response = await executeContentImportPlan(plan.operationId);
       setProgress((current) => [...current, ...response.result.audit.map((entry) => entry.action)]);
       if (response.result.status !== "completed") {
-        setError(response.result.error?.message || `Import ${response.result.status}.`);
+        const reason = response.result.error;
+        setError(reason ? `${reason.code}: ${reason.message}` : `Import ${response.result.status}.`);
         return;
       }
       await refresh();
@@ -462,6 +474,18 @@ export function ContentLibraryPanel({ selectedServer }: { selectedServer?: Serve
       setBusy(false);
     }
   };
+
+  const filteredItems = items.filter((entry) => {
+    const haystack = [entry.sourcePath, entry.contentId, entry.contentType, entry.sourceManifestId || ""].join(" ").toLowerCase();
+    if (query.trim() && !haystack.includes(query.trim().toLowerCase())) return false;
+    if (filter === "all") return true;
+    if (filter === "worlds") return entry.contentType === "java-world" || entry.contentType === "bedrock-world";
+    if (filter === "plugins") return entry.contentType === "paper-plugin";
+    if (filter === "resource-packs") return entry.contentType === "resource-pack";
+    if (filter === "datapacks") return entry.contentType === "datapack";
+    if (filter === "blocked") return entry.compatibility.status === "BLOCKED";
+    return ["unknown", "behavior-pack", "skin", "bedrock-world"].includes(entry.contentType) || entry.compatibility.status === "UNKNOWN";
+  });
 
   return (
     <div className="analytics-grid" aria-label="Content library import controls">
@@ -475,28 +499,67 @@ export function ContentLibraryPanel({ selectedServer }: { selectedServer?: Serve
           {sources.map((source) => <option key={source.path} value={source.path}>{source.kind === "directory" ? "[dir] " : ""}{source.path}</option>)}
         </select>
         <button type="button" className="cmd-btn" onClick={() => void scan()} disabled={busy || !selectedSource || !selectedServer}>Scan selected source</button>
-        {item ? (
+        <div className="content-library-filters" aria-label="Content library filters">
+          {(["all", "worlds", "plugins", "resource-packs", "datapacks", "unsupported", "blocked"] as const).map((entry) => (
+            <button key={entry} type="button" className={`cmd-btn ${filter === entry ? "is-selected" : ""}`} onClick={() => setFilter(entry)} disabled={busy}>
+              {entry.replace("-", " ").toUpperCase()}
+            </button>
+          ))}
+        </div>
+        <input
+          type="search"
+          aria-label="Search scanned content"
+          placeholder="Search name, ID, manifest, or type"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          disabled={busy}
+        />
+        {filteredItems.length === 0 ? <p>No scanned content matches this view.</p> : (
+          <ul className="content-library-list" aria-label="Scanned content">
+            {filteredItems.map((entry) => (
+              <li key={entry.contentId}>
+                <button type="button" className={`inline-link ${selectedItemId === entry.contentId ? "is-selected" : ""}`} onClick={() => { setSelectedItemId(entry.contentId); setPlan(undefined); }}>
+                  {entry.sourcePath} · {entry.contentType.toUpperCase()} · {formatBytes(entry.sizeBytes)}
+                </button>
+                <span className={`chip ${contentStatusClass(entry.compatibility.status)}`}>{entry.compatibility.status}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </article>
+
+      <article className="world-card">
+        <header><h3>Content Details</h3></header>
+        {!selectedItem ? <p>Select scanned content to inspect its classification and compatibility.</p> : (
           <div>
-            <hr />
-            <p><strong>{item.contentType.toUpperCase()}</strong> · {formatBytes(item.sizeBytes)}</p>
-            <p>SHA-256: <code>{item.sha256 || "directory / unavailable"}</code></p>
-            <p>Markers: {item.metadata.markers.join(", ") || "none"}</p>
-            <span className={`chip ${contentStatusClass(item.compatibility.status)}`}>{item.compatibility.status}</span>
-            {item.compatibility.issues.map((entry) => <p key={entry.code}>{entry.code}: {entry.message}</p>)}
+            <p><strong>{selectedItem.sourcePath}</strong> · {selectedItem.contentType.toUpperCase()} · {formatBytes(selectedItem.sizeBytes)}</p>
+            <p>Content ID: <code>{selectedItem.contentId}</code></p>
+            <p>Manifest ID: <code>{selectedItem.sourceManifestId || "not mapped"}</code></p>
+            <p>Scanned: {formatTimestamp(selectedItem.scannedAt)}</p>
+            <p>Source: {selectedItem.metadata.sourceKind}</p>
+            <p>SHA-256: <code>{selectedItem.sha256 || "directory / unavailable"}</code></p>
+            <p>Markers: {selectedItem.metadata.markers.join(", ") || "none"}</p>
+            <p>Validation: <span className={`chip ${contentStatusClass(selectedItem.validationStatus === "valid" ? "READY" : selectedItem.validationStatus === "invalid" ? "BLOCKED" : "UNKNOWN")}`}>{selectedItem.validationStatus.toUpperCase()}</span></p>
+            <p>Compatibility: <span className={`chip ${contentStatusClass(selectedItem.compatibility.status)}`}>{selectedItem.compatibility.status}</span></p>
+            {selectedItem.warnings.map((warning) => <p key={warning}>Warning: {warning}</p>)}
+            {selectedItem.compatibility.issues.map((entry) => <p key={`${entry.code}-${entry.message}`}>{entry.code}: {entry.message}</p>)}
             <button type="button" className="cmd-btn" onClick={() => void preview()} disabled={busy}>Preview import</button>
           </div>
-        ) : null}
+        )}
       </article>
 
       <article className="world-card">
         <header><h3>Import Preview & Approval</h3></header>
-        {!plan ? <p>Scan a content item, then generate a non-mutating import plan.</p> : (
+        {!plan ? <p>Select scanned content, inspect its details, then generate a non-mutating import plan.</p> : (
           <div>
             <p><strong>{plan.status.toUpperCase()}</strong> · approval required: {String(plan.requiresApproval)}</p>
+            <p>Operation: <code>{plan.operationId}</code></p>
+            <p>Content: <code>{plan.contentId}</code> · {plan.contentType.toUpperCase()}</p>
+            <p>Compatibility: {plan.compatibilityStatus}</p>
             <p>Provider destination: <code>{plan.destinationPath}</code></p>
             <p>Staging: <code>{plan.stagingPath}</code></p>
             <p>Actions: {plan.actions.join(" → ")}</p>
-            {[...plan.warnings, ...plan.blockingIssues].map((entry) => <p key={`${entry.code}-${entry.message}`}>{entry.code}: {entry.message}</p>)}
+            {[...plan.warnings, ...plan.blockingIssues].map((entry, index) => <p key={`${entry.code}-${entry.message}-${index}`}>{entry.code}: {entry.message}</p>)}
             {plan.status === "planned" ? <button type="button" className="cmd-btn" onClick={() => void approve()} disabled={busy}>Approve & install</button> : <p className="error-banner">Blocked: the backend will not stage or install this plan.</p>}
           </div>
         )}
@@ -507,7 +570,7 @@ export function ContentLibraryPanel({ selectedServer }: { selectedServer?: Serve
       <article className="world-card">
         <header><h3>Installed Content</h3></header>
         {inventory.map((group) => (
-          <div key={group.path}>
+          <div key={`${group.contentType}-${group.path}`}>
             <strong>{group.contentType}</strong>
             <ul>{group.items.slice(0, 12).map((entry) => <li key={entry.path}>{entry.path}</li>)}</ul>
           </div>
@@ -516,7 +579,7 @@ export function ContentLibraryPanel({ selectedServer }: { selectedServer?: Serve
 
       <article className="world-card">
         <header><h3>Import Audit</h3></header>
-        {history.length === 0 ? <p>No import activity recorded.</p> : <ul>{history.map((entry, index) => <li key={`${entry.timestamp}-${index}`}>{formatTimestamp(entry.timestamp)} · {entry.action} · {entry.result}</li>)}</ul>}
+        {history.length === 0 ? <p>No import activity recorded.</p> : <ul>{history.map((entry, index) => <li key={`${entry.timestamp}-${index}`}>{formatTimestamp(entry.timestamp)} · {entry.action} · {entry.result}{entry.destinationPath ? ` · ${entry.destinationPath}` : ""}</li>)}</ul>}
       </article>
     </div>
   );

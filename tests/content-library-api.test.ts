@@ -95,6 +95,9 @@ test("Content Library API scans configured sources, previews a backend-owned pla
     });
     assert.equal(execution.status, 201);
     assert.equal(((await execution.json()) as { result: { status: string } }).result.status, "completed");
+    const canonicalPlan = await fetch(`http://127.0.0.1:3356/api/content/import-plans/${plan.operationId}`);
+    assert.equal(canonicalPlan.status, 200);
+    assert.equal(((await canonicalPlan.json()) as { plan: { operationId: string } }).plan.operationId, plan.operationId);
 
     const blockedScan = await fetch("http://127.0.0.1:3356/api/content/scan", {
       method: "POST",
@@ -108,6 +111,7 @@ test("Content Library API scans configured sources, previews a backend-owned pla
       body: JSON.stringify({ contentId: blockedItem.contentId, serverId: "minecraft-main" }),
     });
     assert.equal(blockedPlan.status, 422);
+    assert.equal(((await blockedPlan.json()) as { plan: { status: string; blockingIssues: Array<{ code: string }> } }).plan.status, "blocked");
 
     await closeServer(server);
     server = await startServer(3356, {
@@ -122,7 +126,9 @@ test("Content Library API scans configured sources, previews a backend-owned pla
     const inventoryBody = (await inventory.json()) as { inventory: Array<{ contentType: string; items: Array<{ path: string }> }> };
     assert.ok(inventoryBody.inventory.find((group) => group.contentType === "java-world")?.items.some((entry) => entry.path === "city"));
     const history = await fetch("http://127.0.0.1:3356/api/content/history");
-    assert.ok(((await history.json()) as { audit: Array<{ action: string }> }).audit.some((entry) => entry.action === "content.import.installed"));
+    const audit = ((await history.json()) as { audit: Array<{ action: string }> }).audit;
+    assert.ok(audit.some((entry) => entry.action === "content.import.installed"));
+    assert.ok(audit.some((entry) => entry.action === "content.import.staging-cleaned"));
   } finally {
     await closeServer(server);
     if (previousRoot === undefined) delete process.env.GAMEHUB_CONTENT_ROOT;

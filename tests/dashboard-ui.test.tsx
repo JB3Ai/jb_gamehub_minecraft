@@ -162,10 +162,13 @@ test("responsive navigation renders section controls", () => {
   assert.match(html, /CONTENT-LIBRARY/);
 });
 
-test("content library UI exposes scan, preview, approval, and audit surfaces without destination inputs", () => {
+test("content library UI exposes scan, search, details, preview, approval, and audit surfaces without destination inputs", () => {
   const html = renderToStaticMarkup(<ContentLibraryPanel selectedServer={sampleServer} />);
   assert.match(html, /Content Browser/);
   assert.match(html, /Scan selected source/);
+  assert.match(html, /Search scanned content/);
+  assert.match(html, /Content Details/);
+  assert.match(html, /UNSUPPORTED/);
   assert.match(html, /Import Preview/);
   assert.match(html, /Destination paths are provider-owned/);
   assert.doesNotMatch(html, /name="destinationPath"/);

@@ -338,6 +338,53 @@ body {
 	font-size: 0.82rem;
 }
 
+.world-card code {
+	overflow-wrap: anywhere;
+}
+
+.content-library-filters {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.4rem;
+	margin: 0.7rem 0;
+}
+
+.content-library-filters .is-selected {
+	border-color: var(--accent);
+	background: rgba(6, 182, 212, 0.15);
+}
+
+.world-card input[type="search"] {
+	width: 100%;
+	border: 1px solid var(--line);
+	background: var(--bg-elevated);
+	color: var(--text);
+	border-radius: 0.6rem;
+	padding: 0.45rem 0.7rem;
+	font: inherit;
+	font-size: 0.82rem;
+}
+
+.content-library-list {
+	display: grid;
+	gap: 0.45rem;
+	padding: 0;
+	list-style: none;
+}
+
+.content-library-list li {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.5rem;
+}
+
+.content-library-list .inline-link {
+	max-width: calc(100% - 6.5rem);
+	overflow-wrap: anywhere;
+	text-align: left;
+}
+
 .world-card ul {
 	padding-left: 1rem;
 }

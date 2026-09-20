@@ -208,6 +208,8 @@ export interface ContentLibraryItem {
   warnings: string[];
   compatibility: { status: "READY" | "WARNING" | "BLOCKED" | "UNKNOWN"; issues: Array<{ code: string; message: string; severity: string }> };
   metadata: { markers: string[]; sourceKind: string };
+  sourceManifestId?: string;
+  scannedAt: string;
 }
 
 export interface ContentImportPlanResponse {
@@ -229,6 +231,10 @@ export async function getContentSources(): Promise<{ root: string; sources: Arra
   return parseResponse(await fetch("/api/content/sources"));
 }
 
+export async function getContentItems(): Promise<{ items: ContentLibraryItem[] }> {
+  return parseResponse(await fetch("/api/content"));
+}
+
 export async function scanContent(sourcePath: string, serverId = "minecraft-main"): Promise<{ report: { items: ContentLibraryItem[]; events: Array<{ type: string; timestamp: string }> } }> {
   return parseResponse(await fetch("/api/content/scan", {
     method: "POST",
@@ -238,19 +244,31 @@ export async function scanContent(sourcePath: string, serverId = "minecraft-main
 }
 
 export async function createContentImportPlan(contentId: string, input: { serverId?: string; worldId?: string } = {}): Promise<{ plan: ContentImportPlanResponse }> {
-  return parseResponse(await fetch("/api/content/import-plans", {
+  const response = await fetch("/api/content/import-plans", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ contentId, serverId: input.serverId || "minecraft-main", worldId: input.worldId }),
-  }));
+  });
+  if (response.status === 422) {
+    return (await response.json()) as { plan: ContentImportPlanResponse };
+  }
+  return parseResponse(response);
+}
+
+export async function getContentImportPlan(operationId: string): Promise<{ plan: ContentImportPlanResponse }> {
+  return parseResponse(await fetch(`/api/content/import-plans/${operationId}`));
 }
 
 export async function executeContentImportPlan(operationId: string): Promise<{ result: { status: string; installedPath?: string; error?: { code: string; message: string }; audit: Array<{ action: string; result: string; timestamp: string }> } }> {
-  return parseResponse(await fetch(`/api/content/import-plans/${operationId}/execute`, {
+  const response = await fetch(`/api/content/import-plans/${operationId}/execute`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ approve: true }),
-  }));
+  });
+  if (response.status === 409 || response.status === 422) {
+    return (await response.json()) as { result: { status: string; installedPath?: string; error?: { code: string; message: string }; audit: Array<{ action: string; result: string; timestamp: string }> } };
+  }
+  return parseResponse(response);
 }
 
 export async function getContentInventory(): Promise<{ inventory: Array<{ contentType: string; path: string; items: Array<{ path: string; kind: string }> }> }> {

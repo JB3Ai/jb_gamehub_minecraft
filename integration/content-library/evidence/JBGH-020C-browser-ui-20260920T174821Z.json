@@ -1,0 +1,359 @@
+﻿{
+    "milestone":  "JBGH-020C",
+    "capturedAt":  "2026-09-20T16:48:20.9844709Z",
+    "environment":  {
+                        "dashboard":  "http://127.0.0.1:3001",
+                        "provider":  "minecraft",
+                        "serverId":  "minecraft-main",
+                        "harness":  "D:\\jb_gamehub_minecraft\\integration\\minecraft\\server"
+                    },
+    "sourceIntegrity":  {
+                            "worldSha256":  "584288a33dc79b6f394d3774122ffb2f300d0599905a19eada99a9c29f5cc6d7",
+                            "pluginSha256":  "e7d806ca8ad5d886d6871a227a2f570041fa0042f467e4e7e292349aaea029bf"
+                        },
+    "browserFlows":  {
+                         "javaWorld":  {
+                                           "source":  "ui-world.zip",
+                                           "destination":  "D:\\jb_gamehub_minecraft\\integration\\minecraft\\server\\worlds\\ui-world",
+                                           "lifecycle":  [
+                                                             "content.scan.started",
+                                                             "content.import.plan.created",
+                                                             "content.import.approved",
+                                                             "content.import.source-verified",
+                                                             "content.import.staging-created",
+                                                             "content.import.staged-validated",
+                                                             "content.import.installed",
+                                                             "content.import.staging-cleaned"
+                                                         ],
+                                           "paperProviderDiscovery":  true
+                                       },
+                         "paperPlugin":  {
+                                             "source":  "ui-plugin.jar",
+                                             "destination":  "D:\\jb_gamehub_minecraft\\integration\\minecraft\\server\\plugins\\ui-plugin.jar",
+                                             "lifecycle":  [
+                                                               "content.scan.started",
+                                                               "content.import.plan.created",
+                                                               "content.import.approved",
+                                                               "content.import.source-verified",
+                                                               "content.import.staging-created",
+                                                               "content.import.staged-validated",
+                                                               "content.import.installed",
+                                                               "content.import.staging-cleaned"
+                                                           ],
+                                             "paperLoaded":  true
+                                         },
+                         "blockedRar":  {
+                                            "source":  "blocked.rar",
+                                            "result":  "BLOCKED",
+                                            "reasonCodes":  [
+                                                                "RAR_FORMAT_UNSUPPORTED",
+                                                                "CONTENT_TYPE_UNSUPPORTED"
+                                                            ]
+                                        },
+                         "blockedMalformedZip":  {
+                                                     "source":  "malformed.zip",
+                                                     "result":  "BLOCKED",
+                                                     "reasonCodes":  [
+                                                                         "ARCHIVE_MALFORMED",
+                                                                         "CONTENT_COMPATIBILITY_NOT_APPROVED",
+                                                                         "CONTENT_VALIDATION_NOT_VALID"
+                                                                     ]
+                                                 },
+                         "hashMismatch":  {
+                                              "source":  "ui-plugin.jar",
+                                              "result":  "FAILED",
+                                              "reasonCode":  "SOURCE_HASH_MISMATCH",
+                                              "destinationModified":  false
+                                          },
+                         "collision":  {
+                                           "source":  "ui-world.zip",
+                                           "result":  "FAILED",
+                                           "reasonCode":  "DESTINATION_COLLISION",
+                                           "destinationModified":  false
+                                       }
+                     },
+    "auditActions":  [
+                         "content.import.source-verified",
+                         "content.import.staging-created",
+                         "content.import.staged-validated",
+                         "content.import.installed",
+                         "content.import.staging-cleaned",
+                         "content.import.failed"
+                     ],
+    "inventory":  {
+                      "javaWorld":  {
+                                        "path":  "ui-world",
+                                        "providerDiscovered":  true
+                                    },
+                      "paperPlugin":  {
+                                          "path":  "ui-plugin.jar",
+                                          "paperLoaded":  true
+                                      }
+                  },
+    "restartAcceptance":  {
+                              "dashboardRestarted":  true,
+                              "completedHistoryVisible":  true,
+                              "providerInventoryRediscovered":  true,
+                              "pendingPlansCleared":  true
+                          },
+    "operationEvidence":  {
+                              "operationIds":  [
+                                                   "content_import_1789922712120_57f96cc4",
+                                                   "content_import_1789922764565_17473952",
+                                                   "content_import_1789922791131_04774218",
+                                                   "content_import_1789922851535_237389ee",
+                                                   "content_import_1789922876768_3284cae7",
+                                                   "content_import_1789922886835_d6db0df2"
+                                               ],
+                              "contentIds":  [
+                                                 "content_1789922708922_23cd9b96",
+                                                 "content_1789922764519_a5d5dc5e",
+                                                 "content_1789922788299_1f7c4f5b",
+                                                 "content_1789922851486_d79d4b97",
+                                                 "content_1789922876704_6206ad2d",
+                                                 "content_1789922886775_1d51ac9b"
+                                             ],
+                              "auditRecords":  [
+                                                   {
+                                                       "operationId":  "content_import_1789922712120_57f96cc4",
+                                                       "timestamp":  "2026-09-20T16:45:14.342Z",
+                                                       "action":  "content.import.source-verified",
+                                                       "result":  "completed",
+                                                       "contentId":  "content_1789922708922_23cd9b96",
+                                                       "contentType":  "java-world",
+                                                       "sourcePath":  "C:\\Users\\OB1JB\\AppData\\Local\\Temp\\jbgh020c-ui-acceptance\\corpus\\ui-world.zip",
+                                                       "destinationPath":  "D:\\jb_gamehub_minecraft\\integration\\minecraft\\server\\worlds\\ui-world",
+                                                       "errorCode":  null,
+                                                       "errorMessage":  null
+                                                   },
+                                                   {
+                                                       "operationId":  "content_import_1789922712120_57f96cc4",
+                                                       "timestamp":  "2026-09-20T16:45:14.345Z",
+                                                       "action":  "content.import.staging-created",
+                                                       "result":  "completed",
+                                                       "contentId":  "content_1789922708922_23cd9b96",
+                                                       "contentType":  "java-world",
+                                                       "sourcePath":  "C:\\Users\\OB1JB\\AppData\\Local\\Temp\\jbgh020c-ui-acceptance\\corpus\\ui-world.zip",
+                                                       "destinationPath":  "D:\\jb_gamehub_minecraft\\integration\\minecraft\\server\\worlds\\ui-world",
+                                                       "errorCode":  null,
+                                                       "errorMessage":  null
+                                                   },
+                                                   {
+                                                       "operationId":  "content_import_1789922712120_57f96cc4",
+                                                       "timestamp":  "2026-09-20T16:45:14.734Z",
+                                                       "action":  "content.import.staged-validated",
+                                                       "result":  "completed",
+                                                       "contentId":  "content_1789922708922_23cd9b96",
+                                                       "contentType":  "java-world",
+                                                       "sourcePath":  "C:\\Users\\OB1JB\\AppData\\Local\\Temp\\jbgh020c-ui-acceptance\\corpus\\ui-world.zip",
+                                                       "destinationPath":  "D:\\jb_gamehub_minecraft\\integration\\minecraft\\server\\worlds\\ui-world",
+                                                       "errorCode":  null,
+                                                       "errorMessage":  null
+                                                   },
+                                                   {
+                                                       "operationId":  "content_import_1789922764565_17473952",
+                                                       "timestamp":  "2026-09-20T16:46:06.637Z",
+                                                       "action":  "content.import.source-verified",
+                                                       "result":  "completed",
+                                                       "contentId":  "content_1789922764519_a5d5dc5e",
+                                                       "contentType":  "java-world",
+                                                       "sourcePath":  "C:\\Users\\OB1JB\\AppData\\Local\\Temp\\jbgh020c-ui-acceptance\\corpus\\ui-world.zip",
+                                                       "destinationPath":  "D:\\jb_gamehub_minecraft\\integration\\minecraft\\server\\worlds\\ui-world",
+                                                       "errorCode":  null,
+                                                       "errorMessage":  null
+                                                   },
+                                                   {
+                                                       "operationId":  "content_import_1789922764565_17473952",
+                                                       "timestamp":  "2026-09-20T16:46:06.638Z",
+                                                       "action":  "content.import.staging-created",
+                                                       "result":  "completed",
+                                                       "contentId":  "content_1789922764519_a5d5dc5e",
+                                                       "contentType":  "java-world",
+                                                       "sourcePath":  "C:\\Users\\OB1JB\\AppData\\Local\\Temp\\jbgh020c-ui-acceptance\\corpus\\ui-world.zip",
+                                                       "destinationPath":  "D:\\jb_gamehub_minecraft\\integration\\minecraft\\server\\worlds\\ui-world",
+                                                       "errorCode":  null,
+                                                       "errorMessage":  null
+                                                   },
+                                                   {
+                                                       "operationId":  "content_import_1789922764565_17473952",
+                                                       "timestamp":  "2026-09-20T16:46:06.849Z",
+                                                       "action":  "content.import.staged-validated",
+                                                       "result":  "completed",
+                                                       "contentId":  "content_1789922764519_a5d5dc5e",
+                                                       "contentType":  "java-world",
+                                                       "sourcePath":  "C:\\Users\\OB1JB\\AppData\\Local\\Temp\\jbgh020c-ui-acceptance\\corpus\\ui-world.zip",
+                                                       "destinationPath":  "D:\\jb_gamehub_minecraft\\integration\\minecraft\\server\\worlds\\ui-world",
+                                                       "errorCode":  null,
+                                                       "errorMessage":  null
+                                                   },
+                                                   {
+                                                       "operationId":  "content_import_1789922764565_17473952",
+                                                       "timestamp":  "2026-09-20T16:46:06.911Z",
+                                                       "action":  "content.import.installed",
+                                                       "result":  "completed",
+                                                       "contentId":  "content_1789922764519_a5d5dc5e",
+                                                       "contentType":  "java-world",
+                                                       "sourcePath":  "C:\\Users\\OB1JB\\AppData\\Local\\Temp\\jbgh020c-ui-acceptance\\corpus\\ui-world.zip",
+                                                       "destinationPath":  "D:\\jb_gamehub_minecraft\\integration\\minecraft\\server\\worlds\\ui-world",
+                                                       "errorCode":  null,
+                                                       "errorMessage":  null
+                                                   },
+                                                   {
+                                                       "operationId":  "content_import_1789922764565_17473952",
+                                                       "timestamp":  "2026-09-20T16:46:06.919Z",
+                                                       "action":  "content.import.staging-cleaned",
+                                                       "result":  "completed",
+                                                       "contentId":  "content_1789922764519_a5d5dc5e",
+                                                       "contentType":  "java-world",
+                                                       "sourcePath":  "C:\\Users\\OB1JB\\AppData\\Local\\Temp\\jbgh020c-ui-acceptance\\corpus\\ui-world.zip",
+                                                       "destinationPath":  "D:\\jb_gamehub_minecraft\\integration\\minecraft\\server\\worlds\\ui-world",
+                                                       "errorCode":  null,
+                                                       "errorMessage":  null
+                                                   },
+                                                   {
+                                                       "operationId":  "content_import_1789922791131_04774218",
+                                                       "timestamp":  "2026-09-20T16:46:34.031Z",
+                                                       "action":  "content.import.source-verified",
+                                                       "result":  "completed",
+                                                       "contentId":  "content_1789922788299_1f7c4f5b",
+                                                       "contentType":  "paper-plugin",
+                                                       "sourcePath":  "C:\\Users\\OB1JB\\AppData\\Local\\Temp\\jbgh020c-ui-acceptance\\corpus\\ui-plugin.jar",
+                                                       "destinationPath":  "D:\\jb_gamehub_minecraft\\integration\\minecraft\\server\\plugins\\ui-plugin.jar",
+                                                       "errorCode":  null,
+                                                       "errorMessage":  null
+                                                   },
+                                                   {
+                                                       "operationId":  "content_import_1789922791131_04774218",
+                                                       "timestamp":  "2026-09-20T16:46:34.032Z",
+                                                       "action":  "content.import.staging-created",
+                                                       "result":  "completed",
+                                                       "contentId":  "content_1789922788299_1f7c4f5b",
+                                                       "contentType":  "paper-plugin",
+                                                       "sourcePath":  "C:\\Users\\OB1JB\\AppData\\Local\\Temp\\jbgh020c-ui-acceptance\\corpus\\ui-plugin.jar",
+                                                       "destinationPath":  "D:\\jb_gamehub_minecraft\\integration\\minecraft\\server\\plugins\\ui-plugin.jar",
+                                                       "errorCode":  null,
+                                                       "errorMessage":  null
+                                                   },
+                                                   {
+                                                       "operationId":  "content_import_1789922791131_04774218",
+                                                       "timestamp":  "2026-09-20T16:46:34.034Z",
+                                                       "action":  "content.import.staged-validated",
+                                                       "result":  "completed",
+                                                       "contentId":  "content_1789922788299_1f7c4f5b",
+                                                       "contentType":  "paper-plugin",
+                                                       "sourcePath":  "C:\\Users\\OB1JB\\AppData\\Local\\Temp\\jbgh020c-ui-acceptance\\corpus\\ui-plugin.jar",
+                                                       "destinationPath":  "D:\\jb_gamehub_minecraft\\integration\\minecraft\\server\\plugins\\ui-plugin.jar",
+                                                       "errorCode":  null,
+                                                       "errorMessage":  null
+                                                   },
+                                                   {
+                                                       "operationId":  "content_import_1789922791131_04774218",
+                                                       "timestamp":  "2026-09-20T16:46:34.036Z",
+                                                       "action":  "content.import.installed",
+                                                       "result":  "completed",
+                                                       "contentId":  "content_1789922788299_1f7c4f5b",
+                                                       "contentType":  "paper-plugin",
+                                                       "sourcePath":  "C:\\Users\\OB1JB\\AppData\\Local\\Temp\\jbgh020c-ui-acceptance\\corpus\\ui-plugin.jar",
+                                                       "destinationPath":  "D:\\jb_gamehub_minecraft\\integration\\minecraft\\server\\plugins\\ui-plugin.jar",
+                                                       "errorCode":  null,
+                                                       "errorMessage":  null
+                                                   },
+                                                   {
+                                                       "operationId":  "content_import_1789922791131_04774218",
+                                                       "timestamp":  "2026-09-20T16:46:34.037Z",
+                                                       "action":  "content.import.staging-cleaned",
+                                                       "result":  "completed",
+                                                       "contentId":  "content_1789922788299_1f7c4f5b",
+                                                       "contentType":  "paper-plugin",
+                                                       "sourcePath":  "C:\\Users\\OB1JB\\AppData\\Local\\Temp\\jbgh020c-ui-acceptance\\corpus\\ui-plugin.jar",
+                                                       "destinationPath":  "D:\\jb_gamehub_minecraft\\integration\\minecraft\\server\\plugins\\ui-plugin.jar",
+                                                       "errorCode":  null,
+                                                       "errorMessage":  null
+                                                   },
+                                                   {
+                                                       "operationId":  "content_import_1789922851535_237389ee",
+                                                       "timestamp":  "2026-09-20T16:47:36.336Z",
+                                                       "action":  "content.import.failed",
+                                                       "result":  "failed",
+                                                       "contentId":  "content_1789922851486_d79d4b97",
+                                                       "contentType":  "paper-plugin",
+                                                       "sourcePath":  "C:\\Users\\OB1JB\\AppData\\Local\\Temp\\jbgh020c-ui-acceptance\\corpus\\ui-plugin.jar",
+                                                       "destinationPath":  "D:\\jb_gamehub_minecraft\\integration\\minecraft\\server\\plugins\\ui-plugin.jar",
+                                                       "errorCode":  null,
+                                                       "errorMessage":  null
+                                                   },
+                                                   {
+                                                       "operationId":  "content_import_1789922851535_237389ee",
+                                                       "timestamp":  "2026-09-20T16:47:36.337Z",
+                                                       "action":  "content.import.staging-cleaned",
+                                                       "result":  "completed",
+                                                       "contentId":  "content_1789922851486_d79d4b97",
+                                                       "contentType":  "paper-plugin",
+                                                       "sourcePath":  "C:\\Users\\OB1JB\\AppData\\Local\\Temp\\jbgh020c-ui-acceptance\\corpus\\ui-plugin.jar",
+                                                       "destinationPath":  "D:\\jb_gamehub_minecraft\\integration\\minecraft\\server\\plugins\\ui-plugin.jar",
+                                                       "errorCode":  null,
+                                                       "errorMessage":  null
+                                                   },
+                                                   {
+                                                       "operationId":  "content_import_1789922876768_3284cae7",
+                                                       "timestamp":  "2026-09-20T16:48:00.935Z",
+                                                       "action":  "content.import.failed",
+                                                       "result":  "failed",
+                                                       "contentId":  "content_1789922876704_6206ad2d",
+                                                       "contentType":  "paper-plugin",
+                                                       "sourcePath":  "C:\\Users\\OB1JB\\AppData\\Local\\Temp\\jbgh020c-ui-acceptance\\corpus\\ui-plugin.jar",
+                                                       "destinationPath":  "D:\\jb_gamehub_minecraft\\integration\\minecraft\\server\\plugins\\ui-plugin.jar",
+                                                       "errorCode":  null,
+                                                       "errorMessage":  null
+                                                   },
+                                                   {
+                                                       "operationId":  "content_import_1789922876768_3284cae7",
+                                                       "timestamp":  "2026-09-20T16:48:00.936Z",
+                                                       "action":  "content.import.staging-cleaned",
+                                                       "result":  "completed",
+                                                       "contentId":  "content_1789922876704_6206ad2d",
+                                                       "contentType":  "paper-plugin",
+                                                       "sourcePath":  "C:\\Users\\OB1JB\\AppData\\Local\\Temp\\jbgh020c-ui-acceptance\\corpus\\ui-plugin.jar",
+                                                       "destinationPath":  "D:\\jb_gamehub_minecraft\\integration\\minecraft\\server\\plugins\\ui-plugin.jar",
+                                                       "errorCode":  null,
+                                                       "errorMessage":  null
+                                                   },
+                                                   {
+                                                       "operationId":  "content_import_1789922886835_d6db0df2",
+                                                       "timestamp":  "2026-09-20T16:48:09.859Z",
+                                                       "action":  "content.import.source-verified",
+                                                       "result":  "completed",
+                                                       "contentId":  "content_1789922886775_1d51ac9b",
+                                                       "contentType":  "java-world",
+                                                       "sourcePath":  "C:\\Users\\OB1JB\\AppData\\Local\\Temp\\jbgh020c-ui-acceptance\\corpus\\ui-world.zip",
+                                                       "destinationPath":  "D:\\jb_gamehub_minecraft\\integration\\minecraft\\server\\worlds\\ui-world",
+                                                       "errorCode":  null,
+                                                       "errorMessage":  null
+                                                   },
+                                                   {
+                                                       "operationId":  "content_import_1789922886835_d6db0df2",
+                                                       "timestamp":  "2026-09-20T16:48:09.860Z",
+                                                       "action":  "content.import.failed",
+                                                       "result":  "failed",
+                                                       "contentId":  "content_1789922886775_1d51ac9b",
+                                                       "contentType":  "java-world",
+                                                       "sourcePath":  "C:\\Users\\OB1JB\\AppData\\Local\\Temp\\jbgh020c-ui-acceptance\\corpus\\ui-world.zip",
+                                                       "destinationPath":  "D:\\jb_gamehub_minecraft\\integration\\minecraft\\server\\worlds\\ui-world",
+                                                       "errorCode":  null,
+                                                       "errorMessage":  null
+                                                   },
+                                                   {
+                                                       "operationId":  "content_import_1789922886835_d6db0df2",
+                                                       "timestamp":  "2026-09-20T16:48:09.860Z",
+                                                       "action":  "content.import.staging-cleaned",
+                                                       "result":  "completed",
+                                                       "contentId":  "content_1789922886775_1d51ac9b",
+                                                       "contentType":  "java-world",
+                                                       "sourcePath":  "C:\\Users\\OB1JB\\AppData\\Local\\Temp\\jbgh020c-ui-acceptance\\corpus\\ui-world.zip",
+                                                       "destinationPath":  "D:\\jb_gamehub_minecraft\\integration\\minecraft\\server\\worlds\\ui-world",
+                                                       "errorCode":  null,
+                                                       "errorMessage":  null
+                                                   }
+                                               ]
+                          }
+}

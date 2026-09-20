@@ -12,6 +12,7 @@
 - [x] JBGH-017: AI Studio Read-Only Intelligence Layer
 - [x] JBGH-018: Family Management and Parental Controls
 - [x] JBGH-019: Provider-Neutral Rewards and Education Hooks
+- [ ] JBGH-020C: Content Library UI + Import Preview / Approval (implementation complete; live UI acceptance pending)
 
 ## 🚀 Sprint Roadmap
 

@@ -19,7 +19,7 @@ import { MinecraftContentImportAdapter } from "./packages/minecraft-provider/con
 import fs from "node:fs/promises";
 
 const app = express();
-const PORT = 3000;
+const PORT = Number.parseInt(process.env.PORT || "3000", 10) || 3000;
 let providerManager: InMemoryProviderManager;
 let wsServer: WebSocketServer | undefined;
 let activeRuntimeConfig: RuntimeConfig | undefined;
@@ -73,6 +73,19 @@ async function listContentSources(root: string): Promise<Array<{ path: string; k
     throw error;
   }
   return results.sort((left, right) => left.path.localeCompare(right.path));
+}
+
+async function listInstalledDatapacks(worldsRoot: string): Promise<Array<{ path: string; kind: "file" | "directory" }>> {
+  const worlds = await listContentSources(worldsRoot);
+  const worldDirectories = worlds.filter((entry) => entry.kind === "directory" && !entry.path.includes(path.sep));
+  const datapacks = await Promise.all(
+    worldDirectories.map(async (world) => {
+      const root = path.join(worldsRoot, world.path, "datapacks");
+      const entries = await listContentSources(root);
+      return entries.map((entry) => ({ ...entry, path: path.join(world.path, "datapacks", entry.path) }));
+    }),
+  );
+  return datapacks.flat().sort((left, right) => left.path.localeCompare(right.path));
 }
 
 async function readContentAudit(): Promise<unknown[]> {
@@ -323,6 +336,10 @@ app.get("/api/content/sources", async (_req, res) => {
   }
 });
 
+app.get("/api/content", (_req, res) => {
+  res.json({ items: [...contentItems.values()] });
+});
+
 app.post("/api/content/scan", async (req, res) => {
   try {
     const sourcePath = assertContentSourcePath(req.body?.sourcePath);
@@ -366,6 +383,14 @@ app.post("/api/content/import-plans", (req, res) => {
   }
 });
 
+app.get("/api/content/import-plans/:operationId", (req, res) => {
+  const plan = contentPlans.get(req.params.operationId);
+  if (!plan) {
+    return res.status(404).json({ error: { code: "NOT_FOUND", message: `Import plan not found: ${req.params.operationId}` } });
+  }
+  return res.json({ plan });
+});
+
 app.post("/api/content/import-plans/:operationId/execute", async (req, res) => {
   try {
     const plan = contentPlans.get(req.params.operationId);
@@ -398,6 +423,11 @@ app.get("/api/content/inventory", async (_req, res) => {
         items: await listContentSources(root.path),
       })),
     );
+    inventory.push({
+      contentType: "datapack",
+      path: path.join(serverDir, "worlds"),
+      items: await listInstalledDatapacks(path.join(serverDir, "worlds")),
+    });
     res.json({ inventory });
   } catch (err) {
     handleApiError(res, err);
@@ -1161,7 +1191,12 @@ export async function startServer(port = PORT, overrides: Partial<RuntimeConfig>
   let vite: Awaited<ReturnType<typeof createViteServer>> | undefined;
   if (process.env.NODE_ENV !== "production") {
     vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        watch: {
+          ignored: [`${path.resolve(config.minecraftServerDir).replace(/\\/g, "/")}/**`],
+        },
+      },
       appType: "spa",
     });
     app.use(vite.middlewares);

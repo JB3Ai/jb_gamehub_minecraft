@@ -23,6 +23,7 @@
 - 📈 **Operational Intelligence**: Query provider-scoped uptime, operation, event, validation, and retention analytics.
 - 🧠 **AI Studio (Read-Only)**: Ask natural-language questions about GameHub activity; AI Studio can observe and explain but never mutate GameHub.
 - 🎁 **Provider-Neutral Rewards**: Parent-audited bonus minutes and temporary server entitlements with deterministic parental-policy safety boundaries.
+- 📚 **Content Library Preview & Approval**: Browse configured content roots, inspect classifications and compatibility, review provider-owned import plans, and explicitly approve safe staged imports.
 
 ---
 
@@ -86,6 +87,7 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 - [JBGH-016-analytics.md](./docs/JBGH-016-analytics.md) - Provider-Neutral Analytics and History Management
 - [JBGH-017-ai-studio.md](./docs/JBGH-017-ai-studio.md) - AI Studio Read-Only Intelligence Layer
 - [JBGH-019-rewards-education-hooks.md](./docs/JBGH-019-rewards-education-hooks.md) - Provider-Neutral Rewards and Education Hooks
+- [JBGH-020C-content-library-ui.md](./docs/JBGH-020C-content-library-ui.md) - Content Library UI, Import Preview, and Approval
 - [UI.md](./docs/UI.md) - Design System & Component Guidelines
 - [IDEAS.md](./IDEAS.md) - Innovation Sandbox & Backlog
 

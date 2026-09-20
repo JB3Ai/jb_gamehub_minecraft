@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import {
   AiStudioPanel,
   AnalyticsPanel,
+  ContentLibraryPanel,
   LiveEventsPanel,
   OperationsPanel,
   SectionNavigation,
@@ -158,6 +159,17 @@ test("responsive navigation renders section controls", () => {
   assert.match(html, /aria-label="Toggle sections"/);
   assert.match(html, /SERVERS/);
   assert.match(html, /EVENTS/);
+  assert.match(html, /CONTENT-LIBRARY/);
+});
+
+test("content library UI exposes scan, preview, approval, and audit surfaces without destination inputs", () => {
+  const html = renderToStaticMarkup(<ContentLibraryPanel selectedServer={sampleServer} />);
+  assert.match(html, /Content Browser/);
+  assert.match(html, /Scan selected source/);
+  assert.match(html, /Import Preview/);
+  assert.match(html, /Destination paths are provider-owned/);
+  assert.doesNotMatch(html, /name="destinationPath"/);
+  assert.doesNotMatch(html, /name="stagingPath"/);
 });
 
 test("live events panel renders expected event types", () => {

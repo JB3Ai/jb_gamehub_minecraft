@@ -13,6 +13,10 @@ import { FamilyService } from "./packages/core/family-service";
 import { createAiProvider } from "./packages/ai-provider/index";
 import { EventQuery, InMemoryProviderManager, OperationQuery } from "./packages/provider-manager/index";
 import { loadRuntimeConfig, runtimeConfigDiagnostics, RuntimeConfig } from "./packages/core/runtime-config";
+import { ContentLibraryScanner } from "./packages/content-library";
+import type { ContentImportPlan, ContentItem, ContentScanReport } from "./packages/content-library";
+import { MinecraftContentImportAdapter } from "./packages/minecraft-provider/content-import";
+import fs from "node:fs/promises";
 
 const app = express();
 const PORT = 3000;
@@ -23,6 +27,66 @@ let analyticsService: AnalyticsService;
 let familyService: FamilyService;
 let aiStudioService: AiStudioService;
 let unbindFamilyLifecycle: (() => void) | undefined;
+const contentItems = new Map<string, ContentItem>();
+const contentPlans = new Map<string, ContentImportPlan>();
+
+function contentRoot(): string {
+  const configured = process.env.GAMEHUB_CONTENT_ROOT?.trim();
+  return path.resolve(configured || path.join(process.cwd(), "JBGH-020 TEST CONTENT"));
+}
+
+function contentAuditPath(): string {
+  if (!activeRuntimeConfig) throw new Error("Runtime configuration is unavailable.");
+  return path.join(activeRuntimeConfig.minecraftServerDir, "gamehub-content-audit.jsonl");
+}
+
+function assertContentSourcePath(relativePath: unknown): string {
+  if (typeof relativePath !== "string" || relativePath.trim() === "") {
+    throw new Error("Invalid sourcePath: supply a non-empty path relative to the configured content root.");
+  }
+  const root = contentRoot();
+  const candidate = path.resolve(root, relativePath);
+  if (candidate !== root && !candidate.startsWith(`${root}${path.sep}`)) {
+    throw new Error("Invalid sourcePath: the path must remain inside the configured content root.");
+  }
+  return candidate;
+}
+
+async function listContentSources(root: string): Promise<Array<{ path: string; kind: "file" | "directory" }>> {
+  const results: Array<{ path: string; kind: "file" | "directory" }> = [];
+  async function visit(directory: string): Promise<void> {
+    const entries = await fs.readdir(directory, { withFileTypes: true });
+    for (const entry of entries) {
+      const child = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        results.push({ path: path.relative(root, child), kind: "directory" });
+        await visit(child);
+      } else if (entry.isFile()) {
+        results.push({ path: path.relative(root, child), kind: "file" });
+      }
+    }
+  }
+  try {
+    await visit(root);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
+  }
+  return results.sort((left, right) => left.path.localeCompare(right.path));
+}
+
+async function readContentAudit(): Promise<unknown[]> {
+  try {
+    const raw = await fs.readFile(contentAuditPath(), "utf8");
+    return raw
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .map((line) => JSON.parse(line));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
+  }
+}
 
 app.use(express.json());
 
@@ -32,6 +96,9 @@ function handleApiError(res: express.Response, err: unknown) {
   const isBadRequest =
     message.startsWith("Invalid ") ||
     message.includes("must be earlier than") ||
+    message.includes("approval is required") ||
+    message.includes("Scan content before") ||
+    message.includes("Content item not found") ||
     message.includes("Reward") ||
     message.includes("reward") ||
     message.includes("confirmation required");
@@ -239,6 +306,107 @@ app.post("/api/servers/:id/worlds/:worldId/validate", async (req, res) => {
   try {
     const result = await providerManager.validateWorld(req.params.id, req.params.worldId);
     res.json(result);
+  } catch (err) {
+    handleApiError(res, err);
+  }
+});
+
+app.get("/api/content/sources", async (_req, res) => {
+  try {
+    const root = contentRoot();
+    res.json({
+      root,
+      sources: await listContentSources(root),
+    });
+  } catch (err) {
+    handleApiError(res, err);
+  }
+});
+
+app.post("/api/content/scan", async (req, res) => {
+  try {
+    const sourcePath = assertContentSourcePath(req.body?.sourcePath);
+    const target = {
+      targetId: typeof req.body?.serverId === "string" ? req.body.serverId : "minecraft-main",
+      providerId: "minecraft",
+    };
+    const scanner = new ContentLibraryScanner();
+    const report: ContentScanReport = await scanner.scan({ paths: [sourcePath], target });
+    for (const item of report.items) contentItems.set(item.contentId, item);
+    res.status(201).json({ report });
+  } catch (err) {
+    handleApiError(res, err);
+  }
+});
+
+app.get("/api/content/items/:contentId", (req, res) => {
+  const item = contentItems.get(req.params.contentId);
+  if (!item) {
+    return res.status(404).json({ error: { code: "NOT_FOUND", message: `Content item not found: ${req.params.contentId}` } });
+  }
+  return res.json({ item });
+});
+
+app.post("/api/content/import-plans", (req, res) => {
+  try {
+    const contentId = req.body?.contentId;
+    const serverId = typeof req.body?.serverId === "string" ? req.body.serverId : "minecraft-main";
+    const worldId = typeof req.body?.worldId === "string" ? req.body.worldId : undefined;
+    const item = typeof contentId === "string" ? contentItems.get(contentId) : undefined;
+    if (!item) throw new Error("Content item not found. Scan content before creating an import plan.");
+    if (serverId !== "minecraft-main") throw new Error(`Unknown server: ${serverId}`);
+    if (!activeRuntimeConfig) throw new Error("Runtime configuration is unavailable.");
+
+    const adapter = new MinecraftContentImportAdapter({ serverDir: activeRuntimeConfig.minecraftServerDir });
+    const plan = adapter.createPlan({ item, providerId: "minecraft", serverId, worldId });
+    contentPlans.set(plan.operationId, plan);
+    res.status(plan.status === "blocked" ? 422 : 201).json({ plan });
+  } catch (err) {
+    handleApiError(res, err);
+  }
+});
+
+app.post("/api/content/import-plans/:operationId/execute", async (req, res) => {
+  try {
+    const plan = contentPlans.get(req.params.operationId);
+    if (!plan) throw new Error(`Import plan not found: ${req.params.operationId}`);
+    const item = contentItems.get(plan.contentId);
+    if (!item) throw new Error(`Content item not found: ${plan.contentId}`);
+    if (req.body?.approve !== true) throw new Error("Import approval is required: set body.approve to true.");
+    if (!activeRuntimeConfig) throw new Error("Runtime configuration is unavailable.");
+
+    const adapter = new MinecraftContentImportAdapter({ serverDir: activeRuntimeConfig.minecraftServerDir });
+    const result = await adapter.execute(plan, { item, providerId: "minecraft", serverId: plan.serverId }, true);
+    res.status(result.status === "completed" ? 201 : result.status === "blocked" ? 422 : 409).json({ result });
+  } catch (err) {
+    handleApiError(res, err);
+  }
+});
+
+app.get("/api/content/inventory", async (_req, res) => {
+  try {
+    if (!activeRuntimeConfig) throw new Error("Runtime configuration is unavailable.");
+    const serverDir = activeRuntimeConfig.minecraftServerDir;
+    const roots = [
+      { contentType: "java-world", path: path.join(serverDir, "worlds") },
+      { contentType: "paper-plugin", path: path.join(serverDir, "plugins") },
+      { contentType: "resource-pack", path: path.join(serverDir, "resource_packs") },
+    ];
+    const inventory = await Promise.all(
+      roots.map(async (root) => ({
+        ...root,
+        items: await listContentSources(root.path),
+      })),
+    );
+    res.json({ inventory });
+  } catch (err) {
+    handleApiError(res, err);
+  }
+});
+
+app.get("/api/content/history", async (_req, res) => {
+  try {
+    res.json({ audit: await readContentAudit() });
   } catch (err) {
     handleApiError(res, err);
   }
@@ -959,6 +1127,8 @@ export async function startServer(port = PORT, overrides: Partial<RuntimeConfig>
     ...overrides,
   };
   activeRuntimeConfig = config;
+  contentItems.clear();
+  contentPlans.clear();
   providerManager = await bootstrapCore({
     minecraftServerDir: config.minecraftServerDir,
     minecraftHost: config.minecraftHost,

@@ -13,6 +13,14 @@ import {
   getChildSessions,
   getFamilies,
   getFamilyChildren,
+  createContentImportPlan,
+  executeContentImportPlan,
+  getContentHistory,
+  getContentInventory,
+  getContentSources,
+  scanContent,
+  type ContentImportPlanResponse,
+  type ContentLibraryItem,
 } from "../dashboard/apiClient";
 import {
   AiAskResponse,
@@ -32,7 +40,7 @@ import {
   WorldRuntime,
 } from "../dashboard/types";
 
-const PANEL_ORDER = ["servers", "status", "operations", "worlds", "events", "analytics", "family", "rewards", "ai-studio"] as const;
+const PANEL_ORDER = ["servers", "status", "operations", "worlds", "content-library", "events", "analytics", "family", "rewards", "ai-studio"] as const;
 
 type PanelId = (typeof PANEL_ORDER)[number];
 
@@ -352,6 +360,164 @@ export function WorldsPanel({
           </button>
         </article>
       ))}
+    </div>
+  );
+}
+
+function contentStatusClass(status: string): string {
+  if (status === "READY" || status === "completed") return "is-good";
+  if (status === "WARNING" || status === "planned") return "is-warn";
+  if (status === "BLOCKED" || status === "UNKNOWN" || status === "failed") return "is-bad";
+  return "is-neutral";
+}
+
+function formatBytes(value: number): string {
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KiB`;
+  if (value < 1024 * 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(1)} MiB`;
+  return `${(value / (1024 * 1024 * 1024)).toFixed(2)} GiB`;
+}
+
+export function ContentLibraryPanel({ selectedServer }: { selectedServer?: ServerInventoryItem }) {
+  const [sources, setSources] = React.useState<Array<{ path: string; kind: "file" | "directory" }>>([]);
+  const [selectedSource, setSelectedSource] = React.useState("");
+  const [item, setItem] = React.useState<ContentLibraryItem>();
+  const [plan, setPlan] = React.useState<ContentImportPlanResponse>();
+  const [inventory, setInventory] = React.useState<Array<{ contentType: string; path: string; items: Array<{ path: string; kind: string }> }>>([]);
+  const [history, setHistory] = React.useState<Array<{ action: string; result: string; timestamp: string; destinationPath?: string }>>([]);
+  const [progress, setProgress] = React.useState<string[]>([]);
+  const [error, setError] = React.useState<string>();
+  const [busy, setBusy] = React.useState(false);
+
+  const refresh = React.useCallback(async () => {
+    try {
+      const [sourceResponse, inventoryResponse, historyResponse] = await Promise.all([
+        getContentSources(),
+        getContentInventory(),
+        getContentHistory(),
+      ]);
+      setSources(sourceResponse.sources);
+      setInventory(inventoryResponse.inventory);
+      setHistory(historyResponse.audit.slice(-20).reverse());
+      setSelectedSource((current) => current || sourceResponse.sources[0]?.path || "");
+      setError(undefined);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Content Library could not load.");
+    }
+  }, []);
+
+  React.useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  const scan = async () => {
+    if (!selectedSource || !selectedServer) return;
+    setBusy(true);
+    setPlan(undefined);
+    setProgress(["content.scan.started"]);
+    try {
+      const response = await scanContent(selectedSource, selectedServer.id);
+      const nextItem = response.report.items[0];
+      setItem(nextItem);
+      setProgress(response.report.events.map((event) => event.type));
+      setError(undefined);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Content scan failed.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const preview = async () => {
+    if (!item || !selectedServer) return;
+    setBusy(true);
+    try {
+      const response = await createContentImportPlan(item.contentId, { serverId: selectedServer.id });
+      setPlan(response.plan);
+      setProgress((current) => [...current, "content.import.plan.created"]);
+      setError(undefined);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Import preview failed.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const approve = async () => {
+    if (!plan) return;
+    setBusy(true);
+    setProgress((current) => [...current, "content.import.approved", "content.import.running"]);
+    try {
+      const response = await executeContentImportPlan(plan.operationId);
+      setProgress((current) => [...current, ...response.result.audit.map((entry) => entry.action)]);
+      if (response.result.status !== "completed") {
+        setError(response.result.error?.message || `Import ${response.result.status}.`);
+        return;
+      }
+      await refresh();
+      setError(undefined);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Approved import failed.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="analytics-grid" aria-label="Content library import controls">
+      <article className="world-card">
+        <header>
+          <h3>Content Browser</h3>
+          <button type="button" className="cmd-btn" onClick={() => void refresh()} disabled={busy}>Refresh</button>
+        </header>
+        <p>Sources are constrained to the configured content root. Destination paths are provider-owned and never editable here.</p>
+        <select aria-label="Content source" value={selectedSource} onChange={(event) => setSelectedSource(event.target.value)} disabled={busy}>
+          {sources.map((source) => <option key={source.path} value={source.path}>{source.kind === "directory" ? "[dir] " : ""}{source.path}</option>)}
+        </select>
+        <button type="button" className="cmd-btn" onClick={() => void scan()} disabled={busy || !selectedSource || !selectedServer}>Scan selected source</button>
+        {item ? (
+          <div>
+            <hr />
+            <p><strong>{item.contentType.toUpperCase()}</strong> · {formatBytes(item.sizeBytes)}</p>
+            <p>SHA-256: <code>{item.sha256 || "directory / unavailable"}</code></p>
+            <p>Markers: {item.metadata.markers.join(", ") || "none"}</p>
+            <span className={`chip ${contentStatusClass(item.compatibility.status)}`}>{item.compatibility.status}</span>
+            {item.compatibility.issues.map((entry) => <p key={entry.code}>{entry.code}: {entry.message}</p>)}
+            <button type="button" className="cmd-btn" onClick={() => void preview()} disabled={busy}>Preview import</button>
+          </div>
+        ) : null}
+      </article>
+
+      <article className="world-card">
+        <header><h3>Import Preview & Approval</h3></header>
+        {!plan ? <p>Scan a content item, then generate a non-mutating import plan.</p> : (
+          <div>
+            <p><strong>{plan.status.toUpperCase()}</strong> · approval required: {String(plan.requiresApproval)}</p>
+            <p>Provider destination: <code>{plan.destinationPath}</code></p>
+            <p>Staging: <code>{plan.stagingPath}</code></p>
+            <p>Actions: {plan.actions.join(" → ")}</p>
+            {[...plan.warnings, ...plan.blockingIssues].map((entry) => <p key={`${entry.code}-${entry.message}`}>{entry.code}: {entry.message}</p>)}
+            {plan.status === "planned" ? <button type="button" className="cmd-btn" onClick={() => void approve()} disabled={busy}>Approve & install</button> : <p className="error-banner">Blocked: the backend will not stage or install this plan.</p>}
+          </div>
+        )}
+        {progress.length > 0 ? <p>Lifecycle: {progress.join(" → ")}</p> : null}
+        {error ? <p className="error-banner">{error}</p> : null}
+      </article>
+
+      <article className="world-card">
+        <header><h3>Installed Content</h3></header>
+        {inventory.map((group) => (
+          <div key={group.path}>
+            <strong>{group.contentType}</strong>
+            <ul>{group.items.slice(0, 12).map((entry) => <li key={entry.path}>{entry.path}</li>)}</ul>
+          </div>
+        ))}
+      </article>
+
+      <article className="world-card">
+        <header><h3>Import Audit</h3></header>
+        {history.length === 0 ? <p>No import activity recorded.</p> : <ul>{history.map((entry, index) => <li key={`${entry.timestamp}-${index}`}>{formatTimestamp(entry.timestamp)} · {entry.action} · {entry.result}</li>)}</ul>}
+      </article>
     </div>
   );
 }
@@ -882,6 +1048,10 @@ export function OperationalDashboard({
 
         <SectionCard id="worlds" title="WORLDS" activePanel={activePanel}>
           <WorldsPanel worlds={worlds} onValidate={onValidateWorld} />
+        </SectionCard>
+
+        <SectionCard id="content-library" title="CONTENT LIBRARY" activePanel={activePanel}>
+          <ContentLibraryPanel selectedServer={selectedServer} />
         </SectionCard>
 
         <SectionCard id="events" title="LIVE EVENTS" activePanel={activePanel}>

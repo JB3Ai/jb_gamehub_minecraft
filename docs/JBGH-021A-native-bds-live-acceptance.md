@@ -1,8 +1,38 @@
 # JBGH-021A - Native BDS Live Acceptance Harness
 
-Status: IMPLEMENTED / OPERATOR EXECUTION REQUIRED
+Status: CLOSED / PASS
 Milestone: JBGH-021A - Native BDS Live Acceptance Harness
 Depends on: JBGH-021
+
+## JBGH-021A — CLOSED / PASS
+
+Native Bedrock Dedicated Server live acceptance completed successfully
+on 2026-10-01.
+
+Validated:
+
+- native BDS start/stop
+- provider discovery
+- endpoint/capabilities discovery
+- provider-discovered world validation
+- world: Bedrock level
+- real client join
+- Family session start
+- client disconnect
+- Family session closure
+- reconnect usage persistence
+- SERVER_ACCESS deny enforcement
+- real native BDS kick
+- audit/history evidence
+- dashboard evidence
+- persistence after GameHub restart
+- source BDS preservation
+- disposable runtime cleanup
+
+All 18 acceptance gates passed.
+
+JBGH-021A is CLOSED.
+JBGH-022 may now proceed.
 
 ## Purpose
 

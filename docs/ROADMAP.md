@@ -15,7 +15,37 @@
 - [x] JBGH-020C: Content Library UI + Import Preview / Approval
 - [x] JBGH-020D: Bedrock Worlds & Pack Linking (content pipeline closed; native runtime remains provider-scoped)
 - [ ] JBGH-021: Native Bedrock Server Provider (BDS adapter implemented; live native-client acceptance pending)
-- [ ] JBGH-021A: Native BDS Live Acceptance Harness (opt-in harness implemented; operator-run BDS/client evidence pending)
+- [x] JBGH-021A — CLOSED / PASS: Native BDS Live Acceptance
+
+### JBGH-021A — CLOSED / PASS
+
+Native Bedrock Dedicated Server live acceptance completed successfully
+on 2026-10-01.
+
+Validated:
+
+- native BDS start/stop
+- provider discovery
+- endpoint/capabilities discovery
+- provider-discovered world validation
+- world: Bedrock level
+- real client join
+- Family session start
+- client disconnect
+- Family session closure
+- reconnect usage persistence
+- SERVER_ACCESS deny enforcement
+- real native BDS kick
+- audit/history evidence
+- dashboard evidence
+- persistence after GameHub restart
+- source BDS preservation
+- disposable runtime cleanup
+
+All 18 acceptance gates passed.
+
+JBGH-021A is CLOSED.
+JBGH-022 may now proceed.
 
 ## 🚀 Sprint Roadmap
 

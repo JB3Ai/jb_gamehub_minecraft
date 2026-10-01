@@ -4,7 +4,41 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import dgram from "node:dgram";
-import { assertDisposableRuntime, assertUdpPortAvailable, deterministicServerProperties, isInsideRoot, safeXuidReference } from "../integration/bedrock/scripts/native-bds-acceptance-utils";
+import { assertDisposableRuntime, assertUdpPortAvailable, deterministicServerProperties, discoverValidatedWorld, isInsideRoot, safeXuidReference } from "../integration/bedrock/scripts/native-bds-acceptance-utils";
+
+for (const id of ["JBGH021AWorld", "Bedrock level"]) {
+  test(`native BDS world discovery accepts validated provider world ${id}`, async () => {
+    const validated: string[] = [];
+    const result = await discoverValidatedWorld([{ id }], async (worldId) => {
+      validated.push(worldId);
+      return { valid: true };
+    });
+    assert.deepEqual(result, { discoveredWorldIds: [id], world: id, worldDiscovered: true });
+    assert.deepEqual(validated, [id]);
+  });
+}
+
+test("native BDS world discovery fails without provider worlds or valid ids", async () => {
+  for (const worlds of [[], [{ id: "" }, { id: "   " }]]) {
+    const result = await discoverValidatedWorld(worlds, async () => {
+      assert.fail("No world should be validated without a valid discovered id");
+    });
+    assert.equal(result.worldDiscovered, false);
+    assert.equal(result.world, "");
+  }
+});
+
+test("native BDS world discovery fails when provider validation rejects the world", async () => {
+  const result = await discoverValidatedWorld([{ id: "Bedrock level" }], async () => ({ valid: false }));
+  assert.deepEqual(result, { discoveredWorldIds: ["Bedrock level"], world: "Bedrock level", worldDiscovered: false });
+});
+
+test("native BDS world discovery selects a validated world after an invalid world", async () => {
+  const result = await discoverValidatedWorld([{ id: "invalid" }, { id: "Bedrock level" }], async (id) => ({ valid: id === "Bedrock level" }));
+  assert.equal(result.worldDiscovered, true);
+  assert.equal(result.world, "Bedrock level");
+  assert.deepEqual(result.discoveredWorldIds, ["invalid", "Bedrock level"]);
+});
 
 test("native BDS harness rejects paths outside its managed integration root", () => {
   const root = path.join(tmpdir(), "jbgh021a-root");

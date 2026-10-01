@@ -8,6 +8,7 @@ import {
   assertDisposableRuntime,
   assertUdpPortAvailable,
   deterministicServerProperties,
+  discoverValidatedWorld,
   exists,
   isInsideRoot,
   NativeBdsEvidence,
@@ -91,7 +92,7 @@ async function main(): Promise<void> {
     providerId: "minecraft-bedrock",
     serverId: "bedrock-main",
     endpoint: { host, port: bedrockPort },
-    world: "JBGH021AWorld",
+    world: "",
     clientCommandConfigured: Boolean(process.env.BDS_ACCEPTANCE_CLIENT_COMMAND?.trim()),
     runtime: { nodeVersion: process.version, bdsVersion: "NOT_CAPTURED", gameHubCommit: process.env.GITHUB_SHA },
     observed: {
@@ -177,7 +178,11 @@ async function main(): Promise<void> {
     });
     evidence.observed.serverOnline = true;
     const worlds = await fetchJson<{ worlds: Array<{ id: string }> }>(`${api}/api/servers/bedrock-main/worlds`);
-    evidence.observed.worldDiscovered = worlds.worlds.some((world) => world.id === "JBGH021AWorld");
+    evidence.discoveredWorldIds = worlds.worlds.map((world) => world.id);
+    const discovery = await discoverValidatedWorld(worlds.worlds, (worldId) =>
+      fetchJson<{ valid: boolean }>(`${api}/api/servers/bedrock-main/worlds/${encodeURIComponent(worldId)}/validate`, { method: "POST" }));
+    evidence.world = discovery.world;
+    evidence.observed.worldDiscovered = discovery.worldDiscovered;
 
     const family = await fetchJson<{ id: string }>(`${api}/api/families`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "JBGH-021A Acceptance", timezone: "UTC" }) });
     const child = await fetchJson<{ id: string }>(`${api}/api/families/${family.id}/children`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "Bedrock Acceptance Child", timezone: "UTC" }) });

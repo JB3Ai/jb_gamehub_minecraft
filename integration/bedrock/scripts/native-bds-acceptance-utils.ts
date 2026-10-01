@@ -23,7 +23,8 @@ export interface NativeBdsEvidence {
   providerId: "minecraft-bedrock";
   serverId: "bedrock-main";
   endpoint?: { host: string; port: number };
-  world: "JBGH021AWorld";
+  world: string;
+  discoveredWorldIds?: string[];
   clientCommandConfigured: boolean;
   clientIdentity?: { xuidSha256: string; displayName?: string };
   observed: Record<string, boolean>;
@@ -80,4 +81,19 @@ export function deterministicServerProperties(port: number): string {
 
 export function safeXuidReference(xuid: string): string {
   return createHash("sha256").update(xuid).digest("hex");
+}
+
+export async function discoverValidatedWorld(
+  worlds: Array<{ id: string }>,
+  validate: (worldId: string) => Promise<{ valid: boolean }>,
+): Promise<{ discoveredWorldIds: string[]; world: string; worldDiscovered: boolean }> {
+  const discoveredWorldIds = worlds
+    .map((world) => world.id)
+    .filter((id) => typeof id === "string" && id.trim().length > 0);
+  for (const id of discoveredWorldIds) {
+    if ((await validate(id)).valid === true) {
+      return { discoveredWorldIds, world: id, worldDiscovered: true };
+    }
+  }
+  return { discoveredWorldIds, world: discoveredWorldIds[0] ?? "", worldDiscovered: false };
 }

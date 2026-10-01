@@ -1,6 +1,6 @@
 # JBGH-020D - Bedrock Worlds & Pack Linking
 
-Status: DRAFT / FIXTURE BLOCKED
+Status: CLOSED / PASS
 Milestone: JBGH-020D - Bedrock Worlds & Pack Linking
 Dependencies: JBGH-020A, JBGH-020B, JBGH-020C
 Requirement IDs: JBGH-020D-REQ-001 through JBGH-020D-REQ-014
@@ -28,6 +28,50 @@ Bedrock .mcworld / .mcpack
 JBGH-020D must preserve source bytes, source hashes, planning, approval,
 collision protection, rollback, staging cleanup, and the archive protections
 already closed in JBGH-020A through JBGH-020C.
+
+## Implementation progress
+
+The read-only scanner foundation is implemented and covered by generated,
+deliberate test fixtures:
+
+- `.mcworld` classification now requires `level.dat` plus a Bedrock storage
+  indicator (`db/` or `levelname.txt`); an extension alone is insufficient.
+- `.mcpack` and `.mcaddon` manifests are parsed for canonical header/module
+  UUIDs, three-part versions, supported module types, duplicate module UUIDs,
+  and dependency identity.
+- Invalid manifests and malformed archives are reported as `unknown` with
+  structured reason codes; they are never upgraded to a guessed pack type.
+- Linkage reads validate existing JSON records, merge only matching UUID/version
+  identities, and write through a same-directory temporary replacement.
+
+The provider-owned staged import/link adapter and the existing Content Library
+API approval route are implemented behind an explicit `BEDROCK_CONTENT_DIR`;
+when JBGH-021 configures `BEDROCK_SERVER_DIR`, the API maps plans to that
+native provider root instead. A content-only directory is **not** a native
+runtime registration.
+The generic dashboard continues to display backend plans and lifecycle results;
+it must not construct linkage JSON or select arbitrary paths. Native Bedrock
+runtime verification remains unimplemented. `minecraft-main` remains correctly
+blocked for all native Bedrock targets.
+
+## Deliberate automated fixture acceptance
+
+The automated corpus is generated in
+[`tests/bedrock-content-import.test.ts`](../tests/bedrock-content-import.test.ts)
+and never sourced from the removed standalone server directory or an
+uncontrolled download:
+
+| Stable fixture ID | Fixture | Expected result |
+|---|---|---|
+| JBGH-020D-CONTENT-001 | Minimal `.mcworld` with `level.dat`, `levelname.txt`, and `db/` | `READY` for `bedrock-main`; staged import preserves source bytes |
+| JBGH-020D-CONTENT-002 | Valid resource `.mcpack` | staged provider-owned install plus `world_resource_packs.json` linkage |
+| JBGH-020D-CONTENT-003 | Pack aimed at a missing managed world | rollback with `BEDROCK_TARGET_WORLD_NOT_FOUND` |
+| JBGH-020D-CONTENT-004 | Pack declaring an absent dependency | plan blocked with `BEDROCK_PACK_DEPENDENCY_MISSING` |
+| JBGH-020D-CONTENT-005 | Invalid/malformed manifests and linkage | safe unknown/blocked classification with structured reason codes |
+
+The filesystem-backed adapter used by this acceptance is explicitly a
+disposable provider-adapter fixture. It establishes pipeline and rollback
+behavior; it is not evidence of a live native Bedrock server runtime.
 
 ## Critical runtime boundary
 

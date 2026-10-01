@@ -2,6 +2,8 @@ export * from "./types";
 export { ContentLibraryScanner } from "./scanner";
 export { classifyContent, toMetadata } from "./classifier";
 export { evaluateMinecraftCompatibility } from "./minecraft-content-adapter";
+export { inspectBedrockArchive, parseBedrockManifest, readBedrockLinkage, mergeBedrockLinkage, writeBedrockLinkageAtomic } from "./bedrock-content-adapter";
+export type { BedrockInspection, BedrockPackIdentity } from "./bedrock-content-adapter";
 export { hashFileStreamed, hashBuffer } from "./hashing";
 export { extractZipEntryToDirectory, listZipEntries, readZipEntryBytes, zipContainsAny, ZipReadError } from "./zip-reader";
 export { ContentImportExecutor, ContentImportPlanner } from "./importer";

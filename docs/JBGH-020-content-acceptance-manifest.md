@@ -66,6 +66,21 @@ The current Geyser cache contains `GeyserIntegratedPack.mcpack`, but it is a
 runtime-generated plugin cache artifact, not an untouched acceptance fixture.
 It must not be silently promoted to the Bedrock-content corpus.
 
+## JBGH-020D deliberate generated fixtures
+
+The following fixture IDs are generated during automated acceptance and are
+kept outside `JBGH-020 TEST CONTENT/`. They make the Bedrock pipeline
+repeatable without treating the removed standalone server or runtime-generated
+Geyser files as corpus content.
+
+| ID | Source | Expected type | Target | Expected result | Size | SHA-256 | Notes |
+|---|---|---|---|---|---:|---|---|
+| `JBGH-020D-CONTENT-001` | generated `city.mcworld` | Bedrock World | `bedrock-main` | READY | generated | run-specific | Requires `level.dat`, `levelname.txt`/`db`, staged import, and source preservation |
+| `JBGH-020D-CONTENT-002` | generated `textures.mcpack` | Bedrock Resource Pack | `bedrock-main` | READY | generated | run-specific | Canonical manifest identity, managed install, and resource-pack link |
+| `JBGH-020D-CONTENT-003` | generated behavior `.mcpack` | Behavior Pack | `bedrock-main` | BLOCKED at execution | generated | run-specific | Missing managed target world must trigger rollback |
+| `JBGH-020D-CONTENT-004` | generated dependency `.mcpack` | Bedrock Resource Pack | `bedrock-main` | BLOCKED at plan | generated | run-specific | Must report `BEDROCK_PACK_DEPENDENCY_MISSING` before staging |
+| `JBGH-020D-CONTENT-005` | generated invalid manifest/archive cases | Unknown | `bedrock-main` | UNKNOWN/BLOCKED | generated | run-specific | Must emit structured manifest/archive reason codes without guessing |
+
 ## Intentionally removed standalone-server fixture
 
 The `STANDALONEminecraft server/` directory was intentionally removed from

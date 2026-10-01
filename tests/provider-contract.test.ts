@@ -18,8 +18,9 @@ test("provider discovery and capability reporting", async () => {
   });
 
   const providers = manager.listProviders();
-  assert.equal(providers.length, 2);
+  assert.equal(providers.length, 3);
   assert.ok(providers.some((provider) => provider.id === "minecraft"));
+  assert.ok(providers.some((provider) => provider.id === "minecraft-bedrock"));
   assert.ok(providers.some((provider) => provider.id === "synthetic"));
 
   const capabilities = manager.getCapabilities("minecraft");

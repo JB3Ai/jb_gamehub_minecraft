@@ -390,6 +390,37 @@ test("evaluateParentalPolicy enforces daily, weekly, bedtime, schedule, and over
     activeOverrides: [],
   });
   assert.equal(sessionAllowed.reason, "ALLOWED");
+
+  const sessionDenied = evaluateParentalPolicy({
+    child: baseChild,
+    providerId: "synthetic",
+    serverId: "synthetic-main",
+    playerIdentity: {
+      ...identity,
+      providerId: "synthetic",
+      externalPlayerId: "skyler-synth",
+    },
+    timezone: "UTC",
+    currentTimestamp: "2025-01-06T12:00:00.000Z",
+    rules: [
+      { ...allowedSchedule, id: "rule_session", type: "SESSION_MAX_DURATION", config: { minutes: 30 } },
+    ],
+    dailyUsageSeconds: 0,
+    weeklyUsageSeconds: 0,
+    activeSession: {
+      id: "session_1",
+      familyId: "family_123",
+      childId: "child_123",
+      providerId: "synthetic",
+      serverId: "synthetic-main",
+      playerIdentityId: "identity_123",
+      startedAt: "2025-01-06T11:00:00.000Z",
+      durationSeconds: 3600,
+      status: "active",
+    },
+    activeOverrides: [],
+  });
+  assert.equal(sessionDenied.reason, "SESSION_LIMIT_REACHED");
 });
 
 test("provider player lifecycle creates, reconnects, and ends durable sessions", async () => {
@@ -440,5 +471,4 @@ test("provider player lifecycle creates, reconnects, and ends durable sessions",
     unbind();
     await manager.shutdown();
   }
-
 });

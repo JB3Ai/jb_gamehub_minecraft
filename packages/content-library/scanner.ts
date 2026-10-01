@@ -20,7 +20,7 @@ function evaluateCompatibility(
   providerId: string,
   input: Parameters<typeof evaluateMinecraftCompatibility>[0],
 ): CompatibilityResult {
-  if (providerId === "minecraft" || providerId === "minecraft-bedrock") {
+  if (providerId === "minecraft" || providerId === "minecraft-bedrock" || providerId === "bedrock") {
     return evaluateMinecraftCompatibility(input);
   }
   return { status: "UNKNOWN", issues: [{ code: "PROVIDER_NOT_SUPPORTED", message: `No content adapter registered for provider '${providerId}'.`, severity: "blocking" }] };

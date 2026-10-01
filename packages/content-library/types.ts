@@ -110,6 +110,7 @@ export type ContentImportAction =
   | "copy-file-to-staging"
   | "validate-staged-content"
   | "copy-staged-content-to-managed-destination"
+  | "merge-world-pack-links"
   | "remove-staging-directory";
 
 export type ContentImportStatus = "planned" | "blocked" | "completed" | "failed" | "rolled-back";

@@ -13,7 +13,9 @@
 - [x] JBGH-018: Family Management and Parental Controls
 - [x] JBGH-019: Provider-Neutral Rewards and Education Hooks
 - [x] JBGH-020C: Content Library UI + Import Preview / Approval
-- [ ] JBGH-020D: Bedrock Worlds & Pack Linking (fixture contract drafted; deliberate Bedrock corpus and managed Bedrock provider target required)
+- [x] JBGH-020D: Bedrock Worlds & Pack Linking (content pipeline closed; native runtime remains provider-scoped)
+- [ ] JBGH-021: Native Bedrock Server Provider (BDS adapter implemented; live native-client acceptance pending)
+- [ ] JBGH-021A: Native BDS Live Acceptance Harness (opt-in harness implemented; operator-run BDS/client evidence pending)
 
 ## 🚀 Sprint Roadmap
 

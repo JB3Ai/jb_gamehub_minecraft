@@ -136,3 +136,66 @@ test("Content Library API scans configured sources, previews a backend-owned pla
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("Content Library API maps Bedrock plans to the configured native provider root", async () => {
+  process.env.NODE_ENV = "production";
+  const root = await createRoot("bedrock-api");
+  const corpus = path.join(root, "corpus");
+  const paperDir = path.join(root, "paper");
+  const bedrockDir = path.join(root, "bedrock");
+  await mkdir(corpus, { recursive: true });
+  await mkdir(bedrockDir, { recursive: true });
+  await writeFile(path.join(bedrockDir, "bedrock_server.exe"), "fixture");
+  await writeFile(path.join(corpus, "city.mcworld"), buildStoredZip([
+    { name: "level.dat", content: Buffer.from("level") },
+    { name: "db/000001.log", content: Buffer.from("db") },
+  ]));
+  const previousRoot = process.env.GAMEHUB_CONTENT_ROOT;
+  process.env.GAMEHUB_CONTENT_ROOT = corpus;
+  const server = await startServer(3357, {
+    minecraftServerDir: paperDir,
+    bedrockServerDir: bedrockDir,
+    minecraftStartCommand: "node -e \"process.exit(0)\"",
+    minecraftStopCommand: "node -e \"process.exit(0)\"",
+    persistenceDbPath: path.join(root, "gamehub.sqlite"),
+    aiProvider: "fallback",
+  });
+  try {
+    const scan = await fetch("http://127.0.0.1:3357/api/content/scan", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ sourcePath: "city.mcworld", serverId: "bedrock-main" }),
+    });
+    assert.equal(scan.status, 201);
+    const item = ((await scan.json()) as { report: { items: Array<{ contentId: string; contentType: string; compatibility: { status: string } }> } }).report.items[0];
+    assert.equal(item.contentType, "bedrock-world");
+    assert.equal(item.compatibility.status, "READY");
+    const planResponse = await fetch("http://127.0.0.1:3357/api/content/import-plans", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ contentId: item.contentId, serverId: "bedrock-main", destinationPath: "C:\\Windows\\System32" }),
+    });
+    assert.equal(planResponse.status, 201);
+    const plan = ((await planResponse.json()) as { plan: { operationId: string; destinationPath: string } }).plan;
+    assert.equal(plan.destinationPath, path.join(bedrockDir, "worlds", "city"));
+    const execution = await fetch(`http://127.0.0.1:3357/api/content/import-plans/${plan.operationId}/execute`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ approve: true }),
+    });
+    assert.equal(execution.status, 201);
+    const executionBody = (await execution.json()) as { result: { status: string } };
+    assert.equal(executionBody.result.status, "completed");
+    const inventory = (await (await fetch("http://127.0.0.1:3357/api/content/inventory")).json()) as {
+      inventory: Array<{ contentType: string; items: Array<{ path: string }> }>;
+    };
+    assert.ok(inventory.inventory.find((group) => group.contentType === "bedrock-world")?.items.some((entry) => entry.path === "city"));
+    const history = (await (await fetch("http://127.0.0.1:3357/api/content/history")).json()) as { audit: Array<{ action: string }> };
+    assert.ok(history.audit.some((entry) => entry.action === "content.import.installed"));
+  } finally {
+    await closeServer(server);
+    if (previousRoot === undefined) delete process.env.GAMEHUB_CONTENT_ROOT;
+    else process.env.GAMEHUB_CONTENT_ROOT = previousRoot;
+    await rm(root, { recursive: true, force: true });
+  }
+});

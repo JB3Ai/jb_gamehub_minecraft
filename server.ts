@@ -364,6 +364,24 @@ app.get("/api/content/items/:contentId", (req, res) => {
   return res.json({ item });
 });
 
+/**
+ * Resolves the managed content root for a known server ID. Bedrock content
+ * is routed to the native BDS installation root (`bedrockServerDir`) rather
+ * than the Java/Paper server directory; this keeps the two editions'
+ * managed worlds/packs from being mixed on disk.
+ */
+function resolveContentServerDir(serverId: string): string {
+  if (!activeRuntimeConfig) throw new Error("Runtime configuration is unavailable.");
+  if (serverId === "minecraft-main") return activeRuntimeConfig.minecraftServerDir;
+  if (serverId === "bedrock-main") {
+    if (!activeRuntimeConfig.bedrockServerDir) {
+      throw new Error("Bedrock content import requires BEDROCK_SERVER_DIR to be configured.");
+    }
+    return activeRuntimeConfig.bedrockServerDir;
+  }
+  throw new Error(`Unknown server: ${serverId}`);
+}
+
 app.post("/api/content/import-plans", (req, res) => {
   try {
     const contentId = req.body?.contentId;
@@ -371,10 +389,9 @@ app.post("/api/content/import-plans", (req, res) => {
     const worldId = typeof req.body?.worldId === "string" ? req.body.worldId : undefined;
     const item = typeof contentId === "string" ? contentItems.get(contentId) : undefined;
     if (!item) throw new Error("Content item not found. Scan content before creating an import plan.");
-    if (serverId !== "minecraft-main") throw new Error(`Unknown server: ${serverId}`);
-    if (!activeRuntimeConfig) throw new Error("Runtime configuration is unavailable.");
+    const serverDir = resolveContentServerDir(serverId);
 
-    const adapter = new MinecraftContentImportAdapter({ serverDir: activeRuntimeConfig.minecraftServerDir });
+    const adapter = new MinecraftContentImportAdapter({ serverDir });
     const plan = adapter.createPlan({ item, providerId: "minecraft", serverId, worldId });
     contentPlans.set(plan.operationId, plan);
     res.status(plan.status === "blocked" ? 422 : 201).json({ plan });
@@ -398,9 +415,9 @@ app.post("/api/content/import-plans/:operationId/execute", async (req, res) => {
     const item = contentItems.get(plan.contentId);
     if (!item) throw new Error(`Content item not found: ${plan.contentId}`);
     if (req.body?.approve !== true) throw new Error("Import approval is required: set body.approve to true.");
-    if (!activeRuntimeConfig) throw new Error("Runtime configuration is unavailable.");
+    const serverDir = resolveContentServerDir(plan.serverId);
 
-    const adapter = new MinecraftContentImportAdapter({ serverDir: activeRuntimeConfig.minecraftServerDir });
+    const adapter = new MinecraftContentImportAdapter({ serverDir });
     const result = await adapter.execute(plan, { item, providerId: "minecraft", serverId: plan.serverId }, true);
     res.status(result.status === "completed" ? 201 : result.status === "blocked" ? 422 : 409).json({ result });
   } catch (err) {

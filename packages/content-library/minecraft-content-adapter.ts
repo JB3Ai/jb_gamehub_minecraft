@@ -107,8 +107,7 @@ export function evaluateMinecraftCompatibility(input: MinecraftCompatibilityInpu
 
     case "resource-pack":
       if (isBedrockTarget) {
-        status = downgrade(status, "WARNING");
-        issues.push(issue("RESOURCE_PACK_FORMAT_UNCERTAIN", "Resource pack format relative to Bedrock was not verified.", "warning"));
+        status = downgrade(status, "READY");
       } else {
         status = downgrade(status, "READY");
       }

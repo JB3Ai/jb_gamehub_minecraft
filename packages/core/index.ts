@@ -1,4 +1,5 @@
 import { MinecraftProvider } from "../minecraft-provider/index";
+import { BedrockProvider } from "../bedrock-provider/index";
 import { InMemoryProviderManager } from "../provider-manager/index";
 import { SyntheticProvider } from "../synthetic-provider/index";
 import { FamilyService } from "./family-service";
@@ -11,6 +12,9 @@ export { FamilyService, evaluateParentalPolicy, EntitlementResolver, resolveEnti
 
 export interface CoreBootstrapConfig {
   minecraftServerDir?: string;
+  bedrockServerDir?: string;
+  bedrockStartCommand?: string;
+  bedrockStopCommand?: string;
   minecraftHost?: string;
   minecraftJavaPort?: number;
   minecraftBedrockPort?: number;
@@ -28,6 +32,9 @@ export async function bootstrapCore(config: CoreBootstrapConfig = {}): Promise<I
   const runtime: RuntimeConfig = {
     ...loadRuntimeConfig(process.env),
     ...(config.minecraftServerDir ? { minecraftServerDir: config.minecraftServerDir } : {}),
+    ...(config.bedrockServerDir ? { bedrockServerDir: config.bedrockServerDir } : {}),
+    ...(config.bedrockStartCommand ? { bedrockStartCommand: config.bedrockStartCommand } : {}),
+    ...(config.bedrockStopCommand ? { bedrockStopCommand: config.bedrockStopCommand } : {}),
     ...(config.minecraftHost ? { minecraftHost: config.minecraftHost } : {}),
     ...(typeof config.minecraftJavaPort === "number" ? { minecraftJavaPort: config.minecraftJavaPort } : {}),
     ...(typeof config.minecraftBedrockPort === "number" ? { minecraftBedrockPort: config.minecraftBedrockPort } : {}),
@@ -63,6 +70,14 @@ export async function bootstrapCore(config: CoreBootstrapConfig = {}): Promise<I
   });
 
   await providerManager.register(minecraftProvider);
+  const bedrockProvider = new BedrockProvider({
+    serverDir: runtime.bedrockServerDir,
+    host: runtime.minecraftHost,
+    port: runtime.minecraftBedrockPort,
+    startCommand: runtime.bedrockStartCommand,
+    stopCommand: runtime.bedrockStopCommand,
+  });
+  await providerManager.register(bedrockProvider);
   const syntheticProvider = new SyntheticProvider();
   await providerManager.register(syntheticProvider);
 

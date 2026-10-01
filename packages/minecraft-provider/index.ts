@@ -24,6 +24,8 @@ import {
 import { PaperRconAdapter } from "./paper-rcon";
 export { MinecraftContentImportAdapter } from "./content-import";
 export type { MinecraftContentImportAdapterConfig } from "./content-import";
+export { BedrockContentImportAdapter } from "./bedrock-content-import";
+export type { BedrockContentImportAdapterConfig } from "./bedrock-content-import";
 
 interface MinecraftProviderConfig {
   providerId?: string;

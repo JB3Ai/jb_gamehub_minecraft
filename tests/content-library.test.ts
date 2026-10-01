@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { ContentLibraryScanner } from "../packages/content-library/scanner";
 import { evaluateMinecraftCompatibility } from "../packages/content-library/minecraft-content-adapter";
+import { inspectBedrockArchive, mergeBedrockLinkage, readBedrockLinkage, writeBedrockLinkageAtomic } from "../packages/content-library/bedrock-content-adapter";
 import { buildStoredZip } from "./fixtures/content-library/build-zip";
 
 async function makeTmpDir(name: string): Promise<string> {
@@ -36,7 +37,10 @@ test("classifies a Java world directory (level.dat present) as READY for minecra
 
 test("classifies a Bedrock .mcworld file as BLOCKED for minecraft-main and READY for bedrock-main", async () => {
   const dir = await makeTmpDir("bedrock-world");
-  const worldZip = buildStoredZip([{ name: "level.dat", content: Buffer.from("bedrock-level") }]);
+  const worldZip = buildStoredZip([
+    { name: "level.dat", content: Buffer.from("bedrock-level") },
+    { name: "db/000001.log", content: Buffer.from("bedrock-db") },
+  ]);
   const filePath = path.join(dir, "sample.mcworld");
   await writeFile(filePath, worldZip);
 
@@ -99,7 +103,11 @@ test("classifies a resource pack ZIP (pack.mcmeta) as READY for minecraft-main",
 
 test("classifies a Bedrock behavior pack (manifest.json, data module) and blocks it on minecraft-main", async () => {
   const dir = await makeTmpDir("behavior-pack");
-  const manifest = JSON.stringify({ format_version: 2, header: { uuid: "abc" }, modules: [{ type: "data" }] });
+  const manifest = JSON.stringify({
+    format_version: 2,
+    header: { name: "Behavior", uuid: "1c3e8cf8-83f5-4d7e-9f11-2bd9339a2e01", version: [1, 0, 0] },
+    modules: [{ type: "data", uuid: "a32fa729-a57e-4e72-b00c-77444fdc0a02", version: [1, 0, 0] }],
+  });
   const zip = buildStoredZip([{ name: "manifest.json", content: Buffer.from(manifest) }]);
   const filePath = path.join(dir, "sample.mcpack");
   await writeFile(filePath, zip);
@@ -115,6 +123,54 @@ test("classifies a Bedrock behavior pack (manifest.json, data module) and blocks
   assert.equal(bedrockReport.items[0].contentType, "behavior-pack");
   assert.equal(bedrockReport.items[0].compatibility.status, "READY");
 
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("parses normalized Bedrock pack identity and rejects invalid manifest UUIDs", async () => {
+  const dir = await makeTmpDir("bedrock-manifest");
+  const validPath = path.join(dir, "resource.mcpack");
+  const invalidPath = path.join(dir, "invalid.mcpack");
+  await writeFile(validPath, buildStoredZip([{ name: "manifest.json", content: Buffer.from(JSON.stringify({
+    format_version: 2,
+    header: { name: "City Textures", description: "fixture", uuid: "1c3e8cf8-83f5-4d7e-9f11-2bd9339a2e10", version: [1, 2, 3] },
+    modules: [{ type: "resources", uuid: "a32fa729-a57e-4e72-b00c-77444fdc0a20", version: [1, 2, 3] }],
+    dependencies: [{ uuid: "bc671c7e-08be-4a61-921b-9f2bbde14e30", version: [1, 0, 0] }],
+  })) }]));
+  await writeFile(invalidPath, buildStoredZip([{ name: "manifest.json", content: Buffer.from('{"header":{"uuid":"bad"}}') }]));
+  const valid = await inspectBedrockArchive(validPath);
+  const invalid = await inspectBedrockArchive(invalidPath);
+  assert.equal(valid?.contentType, "resource-pack");
+  assert.equal(valid?.identity?.headerUuid, "1c3e8cf8-83f5-4d7e-9f11-2bd9339a2e10");
+  assert.deepEqual(valid?.identity?.dependencies[0]?.version, [1, 0, 0]);
+  assert.equal(invalid?.contentType, "unknown");
+  assert.ok(invalid?.warnings.includes("BEDROCK_HEADER_UUID_INVALID"));
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("reads valid Bedrock world linkage and rejects malformed linkage", async () => {
+  const dir = await makeTmpDir("bedrock-linkage");
+  await writeFile(path.join(dir, "world_resource_packs.json"), JSON.stringify([
+    { pack_id: "1c3e8cf8-83f5-4d7e-9f11-2bd9339a2e10", version: [1, 0, 0] },
+  ]));
+  assert.deepEqual(await readBedrockLinkage(dir, "world_resource_packs.json"), [
+    { pack_id: "1c3e8cf8-83f5-4d7e-9f11-2bd9339a2e10", version: [1, 0, 0] },
+  ]);
+  await writeFile(path.join(dir, "world_behavior_packs.json"), '{"not":"an array"}');
+  await assert.rejects(() => readBedrockLinkage(dir, "world_behavior_packs.json"), /Linkage root/);
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("merges Bedrock linkage without duplicates and blocks version conflicts", async () => {
+  const dir = await makeTmpDir("bedrock-link-merge");
+  const existing = [{ pack_id: "1c3e8cf8-83f5-4d7e-9f11-2bd9339a2e10", version: [1, 0, 0] as [number, number, number] }];
+  const merged = mergeBedrockLinkage(existing, [...existing, { pack_id: "bc671c7e-08be-4a61-921b-9f2bbde14e30", version: [2, 0, 0] }]);
+  assert.equal(merged.length, 2);
+  await assert.rejects(
+    async () => mergeBedrockLinkage(existing, [{ pack_id: existing[0].pack_id, version: [2, 0, 0] }]),
+    { code: "BEDROCK_PACK_VERSION_CONFLICT" },
+  );
+  await writeBedrockLinkageAtomic(dir, "world_resource_packs.json", merged);
+  assert.deepEqual(await readBedrockLinkage(dir, "world_resource_packs.json"), merged);
   await rm(dir, { recursive: true, force: true });
 });
 

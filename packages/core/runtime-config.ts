@@ -1,5 +1,11 @@
 export interface RuntimeConfig {
   minecraftServerDir: string;
+  /** Filesystem root for an explicitly configured Bedrock content adapter; not a runtime declaration. */
+  bedrockContentDir?: string;
+  /** Bedrock Dedicated Server installation root. Presence enables the native runtime provider. */
+  bedrockServerDir?: string;
+  bedrockStartCommand?: string;
+  bedrockStopCommand?: string;
   minecraftHost: string;
   minecraftJavaPort: number;
   minecraftBedrockPort: number;
@@ -43,6 +49,10 @@ function parseAiProvider(raw: string | undefined): "gemini" | "openai" | "fallba
 export function loadRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeConfig {
   return {
     minecraftServerDir: env.MINECRAFT_SERVER_DIR || process.cwd(),
+    bedrockContentDir: env.BEDROCK_CONTENT_DIR || undefined,
+    bedrockServerDir: env.BEDROCK_SERVER_DIR || undefined,
+    bedrockStartCommand: env.BEDROCK_START_COMMAND || undefined,
+    bedrockStopCommand: env.BEDROCK_STOP_COMMAND || undefined,
     minecraftHost: env.MINECRAFT_HOST || "127.0.0.1",
     minecraftJavaPort: parsePort(env.MINECRAFT_JAVA_PORT, 25565, "MINECRAFT_JAVA_PORT"),
     minecraftBedrockPort: parsePort(env.MINECRAFT_BEDROCK_PORT, 19132, "MINECRAFT_BEDROCK_PORT"),
@@ -64,6 +74,10 @@ export function loadRuntimeConfig(env: NodeJS.ProcessEnv = process.env): Runtime
 export function runtimeConfigDiagnostics(config: RuntimeConfig): string[] {
   return [
     `MINECRAFT_SERVER_DIR=${config.minecraftServerDir}`,
+    `BEDROCK_CONTENT_DIR=${config.bedrockContentDir || "not_configured"}`,
+    `BEDROCK_SERVER_DIR=${config.bedrockServerDir || "not_configured"}`,
+    `BEDROCK_START_COMMAND=${config.bedrockStartCommand ? "configured" : "not_configured"}`,
+    `BEDROCK_STOP_COMMAND=${config.bedrockStopCommand ? "configured" : "not_configured"}`,
     `MINECRAFT_HOST=${config.minecraftHost}`,
     `MINECRAFT_JAVA_PORT=${config.minecraftJavaPort}`,
     `MINECRAFT_BEDROCK_PORT=${config.minecraftBedrockPort}`,

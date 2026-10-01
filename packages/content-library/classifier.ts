@@ -2,6 +2,7 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import type { ContentMetadata, ContentSourceKind, ContentType } from "./types";
 import { listZipEntries, zipContainsAny, readZipEntryBytes, ZipReadError } from "./zip-reader";
+import { inspectBedrockArchive } from "./bedrock-content-adapter";
 
 export interface ClassificationResult {
   contentType: ContentType;
@@ -147,6 +148,18 @@ async function classifyFile(sourcePath: string): Promise<ClassificationResult> {
   const warnings: string[] = [];
   const notes: string[] = [];
 
+  const bedrock = await inspectBedrockArchive(sourcePath);
+  if (bedrock) {
+    return {
+      contentType: bedrock.contentType,
+      sourceKind: "file",
+      markers: bedrock.markers,
+      warnings: bedrock.warnings,
+      notes: bedrock.notes,
+      detectedFromContent: bedrock.contentType !== "unknown",
+    };
+  }
+
   if (ext === ".rar") {
     return {
       contentType: "unknown",
@@ -156,10 +169,6 @@ async function classifyFile(sourcePath: string): Promise<ClassificationResult> {
       notes: ["RAR archives cannot be inspected safely; content requires re-packaging as ZIP before ingestion."],
       detectedFromContent: false,
     };
-  }
-
-  if (ext === ".mcworld") {
-    return { contentType: "bedrock-world", sourceKind: "file", markers: ["*.mcworld"], warnings, notes, detectedFromContent: true };
   }
 
   if (SKIN_IMAGE_EXTENSIONS.has(ext)) {
@@ -177,29 +186,6 @@ async function classifyFile(sourcePath: string): Promise<ClassificationResult> {
     }
     if (!hasPluginDescriptor) warnings.push("PLUGIN_DESCRIPTOR_NOT_FOUND");
     return { contentType: "paper-plugin", sourceKind: "file", markers: hasPluginDescriptor ? ["plugin.yml"] : [], warnings, notes, detectedFromContent: hasPluginDescriptor };
-  }
-
-  if (ext === ".mcpack" || ext === ".mcaddon") {
-    try {
-      const { entries, found } = await zipContainsAny(sourcePath, ["manifest.json"]);
-      if (found.length > 0) {
-        const manifestEntry = entries.find((entry) => entry.name.replace(/\\/g, "/").split("/").pop() === "manifest.json");
-        if (manifestEntry) {
-          const bytes = await readZipEntryBytes(sourcePath, manifestEntry);
-          if (bytes) {
-            const parsed = JSON.parse(bytes.toString("utf8")) as { modules?: Array<{ type?: string }> };
-            const types = (parsed.modules ?? []).map((module) => module.type);
-            if (types.includes("resources") || types.includes("skin_pack")) {
-              return { contentType: "resource-pack", sourceKind: "file", markers: ["manifest.json"], warnings, notes, detectedFromContent: true };
-            }
-          }
-        }
-      }
-    } catch (error) {
-      warnings.push("ARCHIVE_MALFORMED");
-      notes.push((error as ZipReadError).message);
-    }
-    return { contentType: "behavior-pack", sourceKind: "file", markers: ["manifest.json"], warnings, notes, detectedFromContent: true };
   }
 
   if (ext === ".zip") {

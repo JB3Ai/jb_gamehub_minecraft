@@ -89,6 +89,8 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 - [JBGH-019-rewards-education-hooks.md](./docs/JBGH-019-rewards-education-hooks.md) - Provider-Neutral Rewards and Education Hooks
 - [JBGH-020C-content-library-ui.md](./docs/JBGH-020C-content-library-ui.md) - Content Library UI, Import Preview, and Approval
 - [JBGH-020D-bedrock-worlds-pack-linking.md](./docs/JBGH-020D-bedrock-worlds-pack-linking.md) - Bedrock World and Pack-Linking Extension Contract
+- [JBGH-021-native-bedrock-provider.md](./docs/JBGH-021-native-bedrock-provider.md) - Native Bedrock Dedicated Server Provider Contract
+- [JBGH-021A-native-bds-live-acceptance.md](./docs/JBGH-021A-native-bds-live-acceptance.md) - Opt-in Native BDS Live Acceptance Harness
 - [UI.md](./docs/UI.md) - Design System & Component Guidelines
 - [IDEAS.md](./IDEAS.md) - Innovation Sandbox & Backlog
 

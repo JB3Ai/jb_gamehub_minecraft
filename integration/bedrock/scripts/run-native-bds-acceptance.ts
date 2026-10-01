@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { startAcceptanceClient, runAcceptanceClientPhase } from "./native-bds-client";
 import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -74,56 +74,10 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
 
 function startClient(command: string, environment: Record<string, string>) {
   const { executable, args } = parseCommand(command);
-  const client = spawn(executable, args, {
+  return startAcceptanceClient(executable, args, {
     cwd: WORKSPACE_ROOT,
     env: { ...process.env, ...environment },
-    stdio: ["inherit", "pipe", "inherit"],
-    windowsHide: true,
   });
-  client.stdout?.on("data", (chunk) => process.stdout.write(chunk));
-  return client;
-}
-
-async function waitForClientMarker(
-  client: ReturnType<typeof startClient>,
-  marker: string,
-  description: string,
-  timeoutMs = 15_000,
-): Promise<void> {
-  console.log(`Waiting up to ${Math.round(timeoutMs / 1000)} seconds for operator/client...`);
-  let buffer = "";
-  await new Promise<void>((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      cleanup();
-      reject(new Error(`Timed out waiting for ${description}.`));
-    }, timeoutMs);
-    const onData = (chunk: Buffer | string) => {
-      buffer += chunk.toString();
-      if (!buffer.includes(marker)) return;
-      cleanup();
-      resolve();
-    };
-    const onExit = (code: number | null) => {
-      cleanup();
-      reject(new Error(`Client helper exited with code ${code} before ${description}.`));
-    };
-    const cleanup = () => {
-      clearTimeout(timeout);
-      client.stdout?.off("data", onData);
-      client.off("exit", onExit);
-    };
-    client.stdout?.on("data", onData);
-    client.once("exit", onExit);
-  });
-  console.log("Operator confirmed client connected.");
-}
-
-async function waitForClientExit(client: ReturnType<typeof startClient>): Promise<void> {
-  const code = await new Promise<number | null>((resolve, reject) => {
-    client.once("exit", resolve);
-    client.once("error", reject);
-  });
-  if (code !== 0) throw new Error(`Real Bedrock client probe exited with code ${code}.`);
 }
 
 async function main(): Promise<void> {
@@ -233,15 +187,15 @@ async function main(): Promise<void> {
 
     const clientEnvironment = { JBGH_BDS_HOST: host, JBGH_BDS_PORT: String(bedrockPort), JBGH_BDS_XUID: xuid };
     const firstClient = startClient(clientCommand, { ...clientEnvironment, JBGH_BDS_ACCEPTANCE_PHASE: "initial" });
-    await waitForClientMarker(firstClient, "JBGH_CLIENT_READY", "operator client connection");
-    console.log("Checking GameHub active family session...");
-    await waitFor("active Bedrock family session", async () => {
-      const body = await fetchJson<{ sessions: Array<{ status: string }> }>(`${api}/api/children/${child.id}/sessions`);
-      return body.sessions.find((session) => session.status === "active");
+    await runAcceptanceClientPhase(firstClient, "initial", async () => {
+      console.log("Checking GameHub active family session...");
+      await waitFor("active Bedrock family session", async () => {
+        const body = await fetchJson<{ sessions: Array<{ status: string }> }>(`${api}/api/children/${child.id}/sessions`);
+        return body.sessions.find((session) => session.status === "active");
+      });
+      evidence.observed.clientJoined = true;
+      evidence.observed.sessionStarted = true;
     });
-    evidence.observed.clientJoined = true;
-    evidence.observed.sessionStarted = true;
-    await waitForClientExit(firstClient);
     await waitFor("ended initial Bedrock session", async () => {
       const body = await fetchJson<{ sessions: Array<{ status: string }> }>(`${api}/api/children/${child.id}/sessions`);
       return body.sessions.find((session) => session.status === "ended");
@@ -249,26 +203,28 @@ async function main(): Promise<void> {
     evidence.observed.clientLeft = true;
     evidence.observed.sessionClosed = true;
 
+    let accessRule: { id: string };
     const reconnectClient = startClient(clientCommand, { ...clientEnvironment, JBGH_BDS_ACCEPTANCE_PHASE: "reconnect" });
-    await waitForClientMarker(reconnectClient, "JBGH_CLIENT_RECONNECTED", "operator client reconnection");
-    console.log("Checking GameHub reconnected active family session...");
-    await waitFor("reconnected active Bedrock session", async () => {
-      const body = await fetchJson<{ sessions: Array<{ status: string }> }>(`${api}/api/children/${child.id}/sessions`);
-      return body.sessions.find((session) => session.status === "active");
+    await runAcceptanceClientPhase(reconnectClient, "reconnect", async () => {
+      console.log("Checking GameHub reconnected active family session...");
+      await waitFor("reconnected active Bedrock session", async () => {
+        const body = await fetchJson<{ sessions: Array<{ status: string }> }>(`${api}/api/children/${child.id}/sessions`);
+        return body.sessions.find((session) => session.status === "active");
+      });
+    }, async () => {
+      const beforeEnforcement = await fetchJson<{ sessions: Array<{ durationSeconds: number }> }>(`${api}/api/children/${child.id}/sessions`);
+      evidence.observed.reconnectUsagePersisted = beforeEnforcement.sessions.length >= 2;
+      accessRule = await fetchJson<{ id: string }>(`${api}/api/children/${child.id}/rules`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ type: "SERVER_ACCESS", enabled: true, config: { allowedServers: ["not-bedrock-main"] }, actor: "acceptance-test" }),
+      });
+      await fetchJson(`${api}/api/children/${child.id}/evaluate-access`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ providerId: "minecraft-bedrock", serverId: "bedrock-main", externalPlayerId: xuid, actor: "acceptance-test" }),
+      });
     });
-    const beforeEnforcement = await fetchJson<{ sessions: Array<{ durationSeconds: number }> }>(`${api}/api/children/${child.id}/sessions`);
-    evidence.observed.reconnectUsagePersisted = beforeEnforcement.sessions.length >= 2;
-    const accessRule = await fetchJson<{ id: string }>(`${api}/api/children/${child.id}/rules`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ type: "SERVER_ACCESS", enabled: true, config: { allowedServers: ["not-bedrock-main"] }, actor: "acceptance-test" }),
-    });
-    await fetchJson(`${api}/api/children/${child.id}/evaluate-access`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ providerId: "minecraft-bedrock", serverId: "bedrock-main", externalPlayerId: xuid, actor: "acceptance-test" }),
-    });
-    await waitForClientExit(reconnectClient);
     evidence.observed.enforcementKickObserved = true;
     await waitFor("ended enforced Bedrock session", async () => {
       const body = await fetchJson<{ sessions: Array<{ status: string }> }>(`${api}/api/children/${child.id}/sessions`);

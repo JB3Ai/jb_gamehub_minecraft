@@ -66,6 +66,7 @@ export class SyntheticProvider implements GameProvider {
     return {
       "server.provision.plan": true,
       "server.provision.preflight": true,
+      "server.provision.apply": true,
       "server.start": true,
       "server.stop": true,
       "server.restart": true,

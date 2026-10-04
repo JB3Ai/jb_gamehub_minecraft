@@ -1,3 +1,5 @@
+import { ProvisioningApplyService } from "../core/provisioning-apply-service";
+import type { ProvisioningApplyRepository, ProvisioningApplyRequest } from "../core/provisioning-apply-contracts";
 import { preflightProvisioning, type ProvisioningPreflightContext } from "../core/provisioning-preflight";
 import { parseProvisioningRequest, ProvisioningCapabilityError, type ProvisioningPlanner, type ServerProvisioningPlan } from "../core/provisioning";
 import type {
@@ -49,7 +51,7 @@ export interface OperationRef {
   status: OperationStatus;
 }
 
-export type OperationType = "server.start" | "server.stop" | "server.restart" | "world.validate";
+export type OperationType = "server.provision.apply" | "server.start" | "server.stop" | "server.restart" | "world.validate";
 
 export interface OperationError {
   code: string;
@@ -159,7 +161,8 @@ export interface ProviderEvent<T = unknown> {
     | "operation.started"
     | "operation.completed"
     | "operation.failed"
-    | "world.validation.completed";
+    | "world.validation.completed"
+    | "provisioning.step";
   timestamp: string;
   providerId: string;
   serverId?: string;
@@ -225,7 +228,8 @@ export interface AuditRecord {
     | "override.revoked"
     | "reward.granted"
     | "reward.redeemed"
-    | "reward.revoked";
+    | "reward.revoked"
+    | "provisioning.state.changed";
   providerId?: string;
   serverId?: string;
   operationId?: string;
@@ -274,6 +278,7 @@ export interface RetentionCleanupSummary {
 }
 
 export interface PersistenceRepository {
+  readonly provisioning?: ProvisioningApplyRepository;
   initialize(): Promise<void>;
   close(): Promise<void>;
   createOperation(operation: OperationRecord): Promise<void>;
@@ -915,7 +920,7 @@ export class InMemoryProviderManager {
 
   async getOperation(operationId: string): Promise<OperationRecord | undefined> {
     const fromCache = this.operations.get(operationId);
-    if (fromCache) {
+    if (fromCache && fromCache.type !== "server.provision.apply") {
       return fromCache;
     }
     return this.repository.getOperation(operationId);
@@ -1135,6 +1140,28 @@ export class InMemoryProviderManager {
   getCapabilities(providerId: string): CapabilityMap {
     return this.getProvider(providerId).getCapabilities();
   }
+
+  private provisioningApplyService(providerId: string) {
+    const provider = this.providers.get(providerId);
+    if (!provider?.getCapabilities()["server.provision.apply"] || !provider.provisioning?.executor || !this.repository.provisioning) throw new ProvisioningCapabilityError(providerId);
+    return new ProvisioningApplyService(this.repository.provisioning, provider.provisioning, provider.provisioning.executor);
+  }
+
+  async applyProvisioning(input: ProvisioningApplyRequest) {
+    return this.provisioningApplyService(input.plan.providerId).apply(input, this.defaultActor);
+  }
+
+  async recoverProvisioning(operationId: string) {
+    const operation = this.repository.provisioning?.get(operationId);
+    if (!operation) throw new Error("Provisioning operation not found.");
+    return this.provisioningApplyService(operation.plan.providerId).recover(operationId);
+  }
+
+  getProvisioningOperation(operationId: string) { return this.repository.provisioning?.get(operationId); }
+  listIncompleteProvisioning() { return this.repository.provisioning?.listIncomplete() ?? []; }
+  listProvisioningClaims(operationId?: string) { return this.repository.provisioning?.claims(operationId) ?? []; }
+  listProvisioningJournal(operationId: string) { return this.repository.provisioning?.journal(operationId) ?? []; }
+  listProvisioningEffects(operationId: string) { return this.repository.provisioning?.effects(operationId) ?? []; }
 
   getProvisioningProfile(providerId: string) {
     const provider = this.providers.get(providerId);

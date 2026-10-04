@@ -1,3 +1,4 @@
+import type { ProvisioningSimulationExecutor } from "./provisioning-apply-contracts";
 import type { ProvisioningProfileAdapter } from "./provisioning-profile";
 /** Planning-only contracts. This module has no filesystem, network or runtime dependencies. */
 export type ProvisioningJson = null | boolean | number | string | ProvisioningJson[] | { [key: string]: ProvisioningJson };
@@ -89,6 +90,7 @@ export interface ProvisioningResult {
   issues: ProvisioningIssue[];
 }
 export interface ProvisioningPlanner {
+  readonly executor?: ProvisioningSimulationExecutor;
   readonly profileAdapter?: ProvisioningProfileAdapter;
   plan(request: ServerProvisioningRequest): Promise<ServerProvisioningPlan>;
 }

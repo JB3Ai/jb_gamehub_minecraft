@@ -219,7 +219,7 @@ test("planning capability is optional and unsupported providers fail honestly", 
     await assert.rejects(manager.planProvisioning({ ...request(), providerId: "mismatch" }), ProvisioningCapabilityError);
     assert.equal(new MinecraftProvider({ serverDir: "unused-reference" }).getCapabilities()["server.provision.plan"], true);
     assert.equal(new BedrockProvider().getCapabilities()["server.provision.plan"], true);
-    assert.equal(new SyntheticProvider().getCapabilities()["server.provision.apply"], undefined);
+    assert.equal(new SyntheticProvider().getCapabilities()["server.provision.apply"], true);
   } finally { await manager.shutdown(); }
 });
 

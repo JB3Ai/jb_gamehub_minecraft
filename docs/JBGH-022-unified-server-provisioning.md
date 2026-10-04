@@ -1,8 +1,8 @@
 # JBGH-022A - Unified Server Provisioning Architecture
 
-Status: JBGH-022A architecture, JBGH-022B contracts and JBGH-022C read-only profiles/preflight implemented.
-Updated: 2026-10-04. JBGH-022C baseline: `e4fe504` on `dev/laptop-continuation`.
-JBGH-022 remains OPEN. Real provisioning and JBGH-022D onward remain unimplemented.
+Status: JBGH-022A architecture, JBGH-022B/C planning/preflight and JBGH-022D durable synthetic apply implemented.
+Updated: 2026-10-04. JBGH-022D baseline: `c37d257` on `dev/laptop-continuation`.
+JBGH-022 remains OPEN. Real provisioning and JBGH-022E onward remain unimplemented.
 
 ## JBGH-022B implementation boundary
 
@@ -581,6 +581,8 @@ below. This document does not declare JBGH-022 complete.
 
 ## JBGH-022C implementation: profiles and read-only preflight
 
+This section records the 022C boundary; the 022D additions are documented below.
+
 JBGH-022C adds profile discovery and resource inspection. JBGH-022 remains open;
 there is no apply route or runtime mutation in this slice.
 
@@ -669,3 +671,139 @@ plans and resource claims, operation journal, crash recovery/compensation, concu
 proof and provider attachment contracts. Real runtime writes/launches, REST exposure
 and imported-world support remain separate later slices. The known Content Library
 Bedrock import 422 failure is unchanged. No JBGH-022D work is implemented here.
+
+## JBGH-022D implementation: durable synthetic apply
+
+JBGH-022D implements internal, simulation-only apply. `server.provision.apply` is
+advertised by the synthetic provider only; Java/Paper and native Bedrock still
+have no apply capability. A manager backed only by the in-memory history repository
+rejects apply: a durable provisioning repository is required. No public REST route,
+real runtime attachment, binary/configuration write, process launch, socket bind,
+OS reservation or world import is implemented. FamilyService and Bedrock lifecycle
+behavior are unchanged. JBGH-022 remains OPEN.
+
+### Approval and execution model
+
+`ProvisioningApplyRequest` carries an immutable plan, `approved: true` and the
+`provisioningDigest(plan)` value. The digest includes the canonical plan except its
+creation timestamp, allowing the same adapter to reconstruct a plan after restart.
+The service regenerates the plan with the current adapter and rejects tampering or
+adapter drift. Actor identity comes from trusted manager configuration, not request
+options. The approved plan, digest, actor and steps are persisted before effects.
+This is an internal authorization boundary, not a public authentication mechanism.
+
+`ProvisioningApplyService` coordinates the optional repository extension and
+`SyntheticProvisioningExecutor`. The executor returns JSON descriptions; only the
+repository creates or removes simulated effects. Its injectable before/after step
+and compensation hooks support deterministic failures, barriers and crash tests.
+An interrupted worker leaves its durable state for recovery, rather than pretending
+to have completed cleanup.
+
+Only CREATE is executable in this slice. ADOPT, allocation requests and non-literal
+IP endpoint proposals fail explicitly. Synthetic apply validates the canonical plan
+and logical resource conflicts; it does not reuse filesystem preflight as proof of
+runtime safety. In particular, a logical root ID is not a resolved OS directory,
+and a logical endpoint claim is not evidence that an OS port is free. Physical
+preflight, trusted path resolution and mutation-time revalidation remain required
+before any future real apply.
+
+### Schema and repository boundary
+
+SQLite migration **v5** adds:
+
+- `provisioning_applies`: unique plan/apply identity, approved plan, actor, steps,
+  result, timestamps, recovery lease and fencing token.
+- `provisioning_claims`: owner operation/plan, resource key, kind, timestamps and
+  active/released state. A partial unique index permits only one active owner per
+  resource key. Released claim history remains queryable.
+- `provisioning_journal`: append-only, ordered step/status/timestamp/error records.
+- `provisioning_effects`: simulated directory, configuration, registration and
+  claim receipts, keyed by operation and step.
+
+`SqliteProvisioningRepository` owns all SQL and transaction boundaries. Service and
+provider code use repository methods. WAL remains enabled; synchronous mode is FULL
+for durable commits, with a bounded SQLite busy timeout. `BEGIN IMMEDIATE` serializes
+writers across repository connections. Simulation effects, claims and their completion
+journal entries commit atomically, eliminating an unjournaled external effect window
+for this synthetic implementation only.
+
+State projections reuse the existing `operations` table (`server.provision.apply`),
+`events` table and `audit_log`. These projections commit in the same transaction as
+state transitions. Journal entries also produce `provisioning.step` history events.
+There is no second audit store. Apply details remain available through manager
+operation/claim/journal/effect query methods after restart. Existing history retention
+continues to govern general events/audits; the provisioning journal is not pruned by
+that policy. Live WebSocket delivery/outbox semantics are not added in this slice.
+
+### Claims, concurrency and idempotency
+
+Claims use deterministic logical keys:
+
+| Resource | Exclusive key |
+|---|---|
+| Server | Server ID, across providers |
+| Managed path | Host ID + case-folded logical root ID + case-folded child directory |
+| TCP/UDP endpoint | Host ID + transport + numeric port |
+| Virtual endpoint | Host ID + server ID + endpoint ID |
+
+Endpoint claims conservatively cover the entire host/transport/port bucket, so
+wildcard/specific-address aliases cannot evade exclusion. TCP and UDP are independent.
+No OS socket is bound. Paths are logical names only: physical aliases between
+different root references must be resolved by future real-resource policy.
+
+Claims are acquired in stable step order. Competing requests receive structured
+`RESOURCE_CONFLICT` data including the resource and owning operation. A failed
+claimant rolls back only its own effects and claims. The successful owner retains
+its claims. Concurrent duplicate application of a live operation returns
+`APPLY_IN_PROGRESS`; completed replay returns the persisted result without new
+claims, resources, journals or audits. Failed/rolled-back plans likewise replay their
+recorded result; a new plan is needed for a new attempt.
+
+### Journal, rollback and recovery
+
+The implementation reuses `ProvisioningState`: PLANNED -> APPLYING -> PROVISIONED,
+or FAILED -> ROLLING_BACK -> ROLLED_BACK / PARTIALLY_ROLLED_BACK. Detailed results
+retain the original apply error and separate rollback errors. Every step records
+start and completion or failure. Compensation records start, completion or failure;
+original journal history is never overwritten.
+
+Rollback walks completed simulated resources in reverse order. If a compensation
+fails, remaining prerequisites and all claims are retained, and the result is
+PARTIALLY_ROLLED_BACK. A fully successful rollback atomically releases claims and
+records ROLLED_BACK. No unrelated operation's state is removed. Partial rollback is
+a terminal, inspectable outcome requiring a future explicit repair workflow; recovery
+does not silently release its claims or retry its failed compensation.
+
+Each operation has a worker lease (30 seconds by default) and monotonically increasing
+fencing token. Steps renew the lease before execution. A step that outlives its lease
+cannot commit; the worker must stop and permit recovery. There is no timer-based test
+synchronization or automatic takeover of an unexpired worker. After lease expiry,
+`recoverProvisioning(operationId)` atomically takes a new token. Old workers are
+fenced from both writes and rollback, even if they finish later.
+
+Recovery is explicit: callers enumerate `listIncompleteProvisioning()` after providers
+are registered, then recover eligible operations. A rebuilt service verifies the
+persisted plan against the current adapter, skips committed receipts and resumes
+unfinished steps. FAILED/ROLLING_BACK operations resume compensation. Successful or
+rolled-back operations return their persisted terminal result. SQLite rolls back an
+interrupted transaction; already committed receipts survive connection/process restart.
+These tests prove application/process-restart behavior, not physical power-loss testing.
+
+### Validation and next boundary
+
+The apply tests cover success, restart/replay, concurrent server/path/endpoint claims,
+TCP/UDP separation, active duplicate rejection, injected step failures, claim release,
+journal preservation, partial rollback, crashes after claims/configuration/registration,
+interrupted compensation, stale-worker fencing, approval/plan validation, manager gates,
+no runtime mutation, atomic effect/journal storage failure and v4 migration preservation.
+Concurrency uses latches and database transactions; lease tests advance an injected
+clock rather than sleeping.
+
+Recommended JBGH-022E scope is explicitly approved real managed apply/adoption:
+provider-owned multi-runtime attachment, approved artifact and license records,
+physical path/endpoint ownership, mutation-time checks, durable external-effect
+receipts and safe compensation. Synthetic transaction atomicity must not be assumed
+for filesystem or process effects. Resolve the separately tracked ContentImportPlanner
+Bedrock world gap before enabling that import path. Public API/authentication and
+live authoritative Paper/BDS acceptance remain later boundaries. No JBGH-022E work
+is implemented by this milestone.

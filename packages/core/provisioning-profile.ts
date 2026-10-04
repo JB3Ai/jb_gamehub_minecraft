@@ -12,7 +12,7 @@ export type ProvisioningProfile = ProvisioningReadonly<{
   configurationRequirements: string[];
   worldIntentSupport: string[];
   lifecycleCompatibility: string[];
-  capabilities: { planning: true; preflight: true; apply: false };
+  capabilities: { planning: true; preflight: true; apply: boolean };
   providerDefaults: Record<string, string | number | boolean>;
 }>;
 

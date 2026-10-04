@@ -1,3 +1,4 @@
+import { SqliteProvisioningRepository, provisioningMigration } from "./sqlite-provisioning-repository";
 import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -34,7 +35,7 @@ interface Migration {
   up: string;
 }
 
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 
 const migrations: Migration[] = [
   {
@@ -239,6 +240,7 @@ const migrations: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_reward_ledger_active ON reward_ledger(child_id, starts_at, expires_at);
     `,
   },
+  { version: 5, name: "durable_provisioning_simulation", up: provisioningMigration },
 ];
 
 function parseJson<T>(raw: unknown): T | undefined {
@@ -262,6 +264,7 @@ function utcCutoffIso(nowIso: string, retentionDays: number): string {
 }
 
 export class SqlitePersistenceRepository implements PersistenceRepository {
+  readonly provisioning = new SqliteProvisioningRepository(() => this.requireDb());
   private readonly filePath: string;
   private db: DatabaseSync | undefined;
 
@@ -275,7 +278,8 @@ export class SqlitePersistenceRepository implements PersistenceRepository {
 
     this.db = new DatabaseSync(this.filePath);
     this.db.exec("PRAGMA journal_mode = WAL;");
-    this.db.exec("PRAGMA synchronous = NORMAL;");
+    this.db.exec("PRAGMA synchronous = FULL;");
+    this.db.exec("PRAGMA busy_timeout = 5000;");
     this.db.exec("PRAGMA foreign_keys = OFF;");
 
     const currentVersion = Number(this.db.prepare("PRAGMA user_version;").get()?.user_version ?? 0);

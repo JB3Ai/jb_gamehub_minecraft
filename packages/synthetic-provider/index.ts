@@ -1,3 +1,4 @@
+import { SyntheticProvisioningPlanner } from "./provisioning";
 import {
   ConnectionEndpoint,
   CapabilityMap,
@@ -24,6 +25,7 @@ interface SyntheticProviderConfig {
 }
 
 export class SyntheticProvider implements GameProvider {
+  readonly provisioning: SyntheticProvisioningPlanner;
   private readonly providerId: string;
   private readonly providerName: string;
   private readonly providerVersion: string;
@@ -37,6 +39,7 @@ export class SyntheticProvider implements GameProvider {
 
   constructor(config: SyntheticProviderConfig = {}) {
     this.providerId = config.providerId || "synthetic";
+    this.provisioning = new SyntheticProvisioningPlanner(this.providerId);
     this.providerName = config.providerName || "Example Test Provider";
     this.providerVersion = config.providerVersion || "0.1.0";
     this.serverId = config.serverId || "synthetic-main";
@@ -61,6 +64,7 @@ export class SyntheticProvider implements GameProvider {
 
   getCapabilities(): CapabilityMap {
     return {
+      "server.provision.plan": true,
       "server.start": true,
       "server.stop": true,
       "server.restart": true,

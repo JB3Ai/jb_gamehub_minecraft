@@ -1,8 +1,59 @@
 # JBGH-022A - Unified Server Provisioning Architecture
 
-Status: architecture proposal; no provisioning implementation delivered.
+Status: JBGH-022A architecture with JBGH-022B planning-only contracts implemented.
 Date: 2026-10-03. Inspected baseline: `5952519` on `dev/laptop-continuation`.
-JBGH-022 remains OPEN. JBGH-022B requires a separate implementation task.
+JBGH-022 remains OPEN. Real provisioning and JBGH-022C onward remain unimplemented.
+
+## JBGH-022B implementation boundary
+
+`packages/core/provisioning.ts` defines request/plan/result/state, storage and
+endpoint descriptors, structured validation errors and the optional
+`ProvisioningPlanner.plan(request)` contract. Provider Manager exposes
+`planProvisioning(input)` and dispatches only when both the optional provider
+planner and `server.provision.plan` capability exist. Only synthetic advertises
+planning; no provider advertises apply/adoption execution through this change.
+Existing registration and lifecycle methods are unchanged.
+
+The implemented request is deliberately smaller than the future sketches below:
+schemaVersion, providerId, optional serverId/displayName, hostId, explicit
+create/adopt storage, endpoints and optional opaque `providerOptions`. World,
+content, startup, ownership, profiles and versioned extension schemas are deferred;
+unknown fields are rejected rather than silently ignored. Options are validated
+only as bounded JSON data (no functions, cycles, accessors, undefined, non-finite
+numbers or runtime objects). Their keys/meaning are not interpreted by core.
+Callers must not include credentials; synthetic does not inspect or redact option
+values. Real adapters must supply their own schema/secret-reference policy later.
+
+The synthetic adapter describes CREATE_MANAGED_DIRECTORY, WRITE_CONFIGURATION,
+RESERVE_ENDPOINT and REGISTER_SERVER. Adoption replaces directory/config creation
+with INSPECT_EXISTING_RUNTIME and labels ownership external. None of these steps
+executes. Paths remain unresolved root/location references and endpoints explicitly
+remain `unreserved`; structural validation does not prove filesystem containment,
+port availability, existence of an adoption target or exclusive server identity.
+No plan store migration, registration mutation, lifecycle operation, audit write,
+REST route, file write, socket bind or process start is introduced.
+
+Identity uses SHA-256 over the validated request with sorted object keys; array
+order remains significant. `requestId` identifies that request and `planId` also
+includes the synthetic adapter version. Missing server IDs use a hash-derived ID;
+missing directory names use a safe hash-derived leaf and display names default to
+the server ID. Explicit blank IDs/names are invalid, not treated as omissions.
+Distinct request payloads produce distinct plan IDs even if an explicit server ID
+matches: this slice does not claim/reserve IDs. Future apply must enforce uniqueness.
+
+Plans are detached, deeply frozen JSON snapshots at creation. The adapter's
+in-memory cache returns the same snapshot and createdAt for identical requests
+during its lifetime. Across adapters/restarts IDs and descriptive content are
+stable, but createdAt may differ; tests inject a clock for full equality. This is
+not durable idempotency, approval, plan expiry or resource reservation. Those
+require the later repository/claims work. The 022B plan uses explicit `planId`,
+flat serverId, descriptive operations and unresolved resource descriptors rather
+than pretending the future resolved-path/file/approval contract already exists.
+
+`tests/provisioning.test.ts` covers create/adopt plans, structural validation,
+opaque options, deterministic identities/replay, deep immutability/JSON, optional
+capabilities and guarded resource APIs proving planning does not mutate resources
+or provider lifecycle/history. The known Bedrock Content Library gap is unchanged.
 
 ## Scope and baseline
 
@@ -523,5 +574,7 @@ green full suite from contract-only results.
 - Reconcile the stale JBGH-021 overview with the newer 021A closure record in a
   separate documentation change. No new live acceptance is asserted here.
 
-Recommended next task: JBGH-022B as defined above. Approval of this architecture
-does not itself authorize JBGH-022B implementation or declare JBGH-022 complete.
+Recommended next task: JBGH-022C read-only Java/Bedrock planning and resource
+preflight as defined above, including provider-owned profile schemas and fixture
+tests. Do not add real apply, production allocation or runtime mutation in that
+slice. This document does not declare JBGH-022 complete.

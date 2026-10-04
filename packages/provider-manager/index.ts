@@ -1,3 +1,4 @@
+import { parseProvisioningRequest, ProvisioningCapabilityError, type ProvisioningPlanner, type ServerProvisioningPlan } from "../core/provisioning";
 import type {
   ChildProfile,
   Family,
@@ -331,6 +332,7 @@ export interface PersistenceRepository {
 }
 
 export interface GameProvider {
+  readonly provisioning?: ProvisioningPlanner;
   metadata(): ProviderMetadata;
   getCapabilities(): CapabilityMap;
   getDiagnostics(): Promise<ProviderDiagnostics>;
@@ -1131,6 +1133,15 @@ export class InMemoryProviderManager {
 
   getCapabilities(providerId: string): CapabilityMap {
     return this.getProvider(providerId).getCapabilities();
+  }
+
+  async planProvisioning(input: unknown): Promise<ServerProvisioningPlan> {
+    const request = parseProvisioningRequest(input);
+    const provider = this.providers.get(request.providerId);
+    if (!provider?.getCapabilities()["server.provision.plan"] || !provider.provisioning) {
+      throw new ProvisioningCapabilityError(request.providerId);
+    }
+    return provider.provisioning.plan(request);
   }
 
   async listServers(providerId?: string): Promise<ServerSummary[]> {

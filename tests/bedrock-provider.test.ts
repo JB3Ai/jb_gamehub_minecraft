@@ -14,6 +14,18 @@ async function fixtureRoot(name: string): Promise<string> {
   return mkdtemp(path.join(tmpdir(), `jbgh021-${name}-`));
 }
 
+async function waitFor<T>(description: string, read: () => Promise<T>, ready: (value: T) => boolean, timeoutMs = 5000): Promise<T> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const observed = await read();
+    if (ready(observed)) return observed;
+    if (Date.now() >= deadline) {
+      throw new Error(`Timed out after ${timeoutMs}ms waiting for ${description}. Last observed: ${JSON.stringify(observed)}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
 async function writeBedrockFixture(root: string): Promise<void> {
   await mkdir(path.join(root, "worlds", "city", "db"), { recursive: true });
   await mkdir(path.join(root, "resource_packs", PACK_UUID), { recursive: true });
@@ -46,9 +58,7 @@ test("native Bedrock provider validates a managed world and drives lifecycle eve
   ].join(" ");
   const provider = new BedrockProvider({ serverDir: root, startCommand: `node -e "${script.replace(/"/g, '\\"')}"` });
   const events: string[] = [];
-  let resolveJoined: (() => void) | undefined;
-  const joined = new Promise<void>((resolve) => { resolveJoined = resolve; });
-  const unsubscribe = provider.subscribePlayerEvents((event) => { events.push(event.type); if (event.type === "player.joined") resolveJoined?.(); });
+  const unsubscribe = provider.subscribePlayerEvents((event) => events.push(event.type));
   try {
     await provider.register();
     assert.equal(provider.metadata().status, "ready");
@@ -56,16 +66,14 @@ test("native Bedrock provider validates a managed world and drives lifecycle eve
     assert.deepEqual((await provider.getWorlds("bedrock-main")).map((world) => world.id), ["city"]);
     assert.equal((await provider.validateWorld("bedrock-main", "city")).valid, true);
     await provider.startServer("bedrock-main");
-    // Wait deterministically for the join event to be parsed rather than a fixed delay, so
-    // slower process spawns (e.g. CI/Windows) can't race disconnectPlayer's online-player check.
-    await Promise.race([joined, new Promise((_, reject) => setTimeout(() => reject(new Error("Timed out waiting for player.joined event.")), 5000))]);
+    await waitFor("managed fixture player.joined event", async () => events, (current) => current.includes("player.joined"));
     await provider.disconnectPlayer("bedrock-main", "2533274790000001", "Policy expired");
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await waitFor("managed fixture player.left event", async () => events, (current) => current.includes("player.left"));
     assert.deepEqual(events, ["player.joined", "player.left"]);
     assert.equal((await provider.getOnlinePlayers("bedrock-main")).length, 0);
   } finally {
     await provider.stopServer("bedrock-main").catch(() => undefined);
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await waitFor("fixture process to stop before cleanup", () => provider.getServerStatus("bedrock-main"), (status) => status.status === "offline");
     unsubscribe();
     await rm(root, { recursive: true, force: true });
   }
@@ -87,7 +95,7 @@ test("native Bedrock provider parses a player-joined lifecycle log line split ac
   try {
     await provider.register();
     await provider.startServer("bedrock-main");
-    await new Promise((resolve) => setTimeout(resolve, 250));
+    await waitFor("chunked player.joined event", async () => events, (current) => current.some((event) => event.type === "player.joined"));
     const joinEvents = events.filter((event) => event.type === "player.joined");
     assert.equal(joinEvents.length, 1);
     assert.equal(joinEvents[0].externalPlayerId, "2535416533732593");
@@ -97,7 +105,7 @@ test("native Bedrock provider parses a player-joined lifecycle log line split ac
     assert.equal(online[0].externalPlayerId, "2535416533732593");
   } finally {
     await provider.stopServer("bedrock-main").catch(() => undefined);
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await waitFor("fixture process to stop before cleanup", () => provider.getServerStatus("bedrock-main"), (status) => status.status === "offline");
     unsubscribe();
     await rm(root, { recursive: true, force: true });
   }
@@ -119,7 +127,7 @@ test("native Bedrock provider parses a player-left lifecycle log line split acro
   try {
     await provider.register();
     await provider.startServer("bedrock-main");
-    await new Promise((resolve) => setTimeout(resolve, 350));
+    await waitFor("chunked player.left event", async () => events, (current) => current.some((event) => event.type === "player.left"));
     const leaveEvents = events.filter((event) => event.type === "player.left");
     assert.equal(leaveEvents.length, 1);
     assert.equal(leaveEvents[0].externalPlayerId, "2535416533732593");
@@ -127,7 +135,7 @@ test("native Bedrock provider parses a player-left lifecycle log line split acro
     assert.equal((await provider.getOnlinePlayers("bedrock-main")).length, 0);
   } finally {
     await provider.stopServer("bedrock-main").catch(() => undefined);
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await waitFor("fixture process to stop before cleanup", () => provider.getServerStatus("bedrock-main"), (status) => status.status === "offline");
     unsubscribe();
     await rm(root, { recursive: true, force: true });
   }
@@ -152,9 +160,11 @@ test("native Bedrock provider issues a console kick using the player's display n
   try {
     await provider.register();
     await provider.startServer("bedrock-main");
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await waitFor("Alex to appear in the provider online-player map", () => provider.getOnlinePlayers("bedrock-main"),
+      (players) => players.some((player) => player.externalPlayerId === "2533274790000001"));
     await provider.disconnectPlayer("bedrock-main", "2533274790000001", "Policy expired");
-    await new Promise((resolve) => setTimeout(resolve, 150));
+    await waitFor("the kick to produce Alex's player.left event", async () => events.filter((event) => event.type === "player.left"),
+      (left) => left.some((event) => event.externalPlayerId === "2533274790000001"));
     const captured = await readFile(captureFile, "utf8");
     assert.match(captured, /^kick "Alex" Policy expired/);
     assert.equal(events.filter((event) => event.type === "player.left").length, 1);
@@ -162,7 +172,7 @@ test("native Bedrock provider issues a console kick using the player's display n
   } finally {
     delete process.env.JBGH_KICK_CAPTURE_FILE;
     await provider.stopServer("bedrock-main").catch(() => undefined);
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await waitFor("kick fixture process to stop before cleanup", () => provider.getServerStatus("bedrock-main"), (status) => status.status === "offline");
     unsubscribe();
     await rm(root, { recursive: true, force: true });
   }
@@ -180,11 +190,11 @@ test("native Bedrock provider fails honestly when enforcement targets a player t
   try {
     await provider.register();
     await provider.startServer("bedrock-main");
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await waitFor("offline-player fixture server readiness", () => provider.getServerStatus("bedrock-main"), (status) => status.status === "online");
     await assert.rejects(() => provider.disconnectPlayer("bedrock-main", "not-online-xuid", "Policy expired"), /not currently online/);
   } finally {
     await provider.stopServer("bedrock-main").catch(() => undefined);
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await waitFor("fixture process to stop before cleanup", () => provider.getServerStatus("bedrock-main"), (status) => status.status === "offline");
     await rm(root, { recursive: true, force: true });
   }
 });
@@ -207,8 +217,8 @@ test("native Bedrock lifecycle events create provider-neutral family sessions", 
   const script = [
     "console.log('Server started.');",
     "console.log('[2026-09-22 16:45:53:340 INFO] Player connected: JonoElite79231, xuid: 2535416533732593');",
-    "setTimeout(() => console.log('[2026-09-22 16:46:26:653 INFO] Player disconnected: JonoElite79231, xuid: 2535416533732593, pfid: 4210118A1E0D32D2'), 250);",
-    "process.stdin.on('data', data => { if (data.toString().startsWith('stop')) process.exit(0); });",
+    // Keep the player connected until the test has observed the durable active session.
+    "process.stdin.on('data', data => { if (data.toString().startsWith('stop')) process.stdout.write('[2026-09-22 16:46:26:653 INFO] Player disconnected: JonoElite79231, xuid: 2535416533732593, pfid: 4210118A1E0D32D2\\n', () => process.exit(0)); });",
     "setInterval(() => {}, 1000);",
   ].join(" ");
   const manager = await bootstrapCore({
@@ -219,6 +229,7 @@ test("native Bedrock lifecycle events create provider-neutral family sessions", 
   });
   const familyService = new FamilyService(manager);
   const unbind = familyService.bindPlayerLifecycle();
+  let stopRequested = false;
   try {
     const family = await familyService.createFamily({ name: "Bedrock Family", timezone: "UTC" });
     const child = await familyService.createChild({ familyId: family.id, name: "JonoElite79231", timezone: "UTC" });
@@ -232,19 +243,23 @@ test("native Bedrock lifecycle events create provider-neutral family sessions", 
     });
     const operation = await manager.startServer("bedrock-main");
     assert.equal((await manager.getOperation(operation.operationId))?.status, "completed");
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    const sessions = await familyService.listSessions(child.id);
+    const sessions = await waitFor("FamilyService to persist the active Bedrock session", () => familyService.listSessions(child.id),
+      (current) => current.some((session) => session.status === "active"));
     assert.equal(sessions.length, 1);
     assert.equal(sessions[0].providerId, "minecraft-bedrock");
     assert.equal(sessions[0].serverId, "bedrock-main");
     assert.equal(sessions[0].status, "active");
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    const endedSessions = await familyService.listSessions(child.id);
+    // Explicitly release the fixture's leave event only after checking the active session.
+    stopRequested = true;
+    const stop = await manager.stopServer("bedrock-main");
+    assert.equal((await manager.getOperation(stop.operationId))?.status, "completed");
+    const endedSessions = await waitFor("FamilyService to persist the same session as ended", () => familyService.listSessions(child.id),
+      (current) => current.some((session) => session.id === sessions[0].id && session.status === "ended"));
     assert.equal(endedSessions.length, 1);
     assert.equal(endedSessions[0].status, "ended");
   } finally {
-    await manager.stopServer("bedrock-main").catch(() => undefined);
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    if (!stopRequested) await manager.stopServer("bedrock-main").catch(() => undefined);
+    await waitFor("family fixture process to stop before cleanup", () => manager.getServerStatus("bedrock-main"), (status) => status.status === "offline");
     unbind();
     await manager.shutdown();
     await rm(root, { recursive: true, force: true });

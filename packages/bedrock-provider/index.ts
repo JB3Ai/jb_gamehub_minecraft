@@ -1,3 +1,4 @@
+import { BedrockProvisioningPlanner } from "./provisioning";
 import { ChildProcess, spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -51,6 +52,7 @@ function commandParts(command: string): { executable: string; args: string[] } {
 
 /** Native Bedrock Dedicated Server provider. It remains degraded until a BDS installation is configured. */
 export class BedrockProvider implements GameProvider {
+  readonly provisioning: BedrockProvisioningPlanner;
   private readonly config: Required<Pick<BedrockProviderConfig, "host" | "port" | "providerId" | "serverId">> & BedrockProviderConfig;
   private process?: ChildProcess;
   private ready = false;
@@ -62,6 +64,7 @@ export class BedrockProvider implements GameProvider {
   private stderrBuffer = "";
 
   constructor(config: BedrockProviderConfig = {}) {
+    this.provisioning = new BedrockProvisioningPlanner(config.providerId || "minecraft-bedrock");
     this.config = {
       host: config.host || "127.0.0.1",
       port: config.port ?? 19132,
@@ -78,6 +81,8 @@ export class BedrockProvider implements GameProvider {
   getCapabilities(): CapabilityMap {
     const configured = Boolean(this.config.serverDir);
     return {
+      "server.provision.plan": true,
+      "server.provision.preflight": true,
       "server.start": configured,
       "server.stop": configured,
       "server.restart": configured,

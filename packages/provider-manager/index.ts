@@ -1,3 +1,4 @@
+import { preflightProvisioning, type ProvisioningPreflightContext } from "../core/provisioning-preflight";
 import { parseProvisioningRequest, ProvisioningCapabilityError, type ProvisioningPlanner, type ServerProvisioningPlan } from "../core/provisioning";
 import type {
   ChildProfile,
@@ -1133,6 +1134,18 @@ export class InMemoryProviderManager {
 
   getCapabilities(providerId: string): CapabilityMap {
     return this.getProvider(providerId).getCapabilities();
+  }
+
+  getProvisioningProfile(providerId: string) {
+    const provider = this.providers.get(providerId);
+    if (!provider?.getCapabilities()["server.provision.plan"] || !provider.provisioning?.profileAdapter) throw new ProvisioningCapabilityError(providerId);
+    return provider.provisioning.profileAdapter.profile();
+  }
+
+  async preflightProvisioning(plan: ServerProvisioningPlan, context: ProvisioningPreflightContext) {
+    const provider = this.providers.get(plan.providerId);
+    const supported = provider?.getCapabilities()["server.provision.plan"] && provider.getCapabilities()["server.provision.preflight"];
+    return preflightProvisioning(plan, supported ? provider?.provisioning : undefined, context);
   }
 
   async planProvisioning(input: unknown): Promise<ServerProvisioningPlan> {

@@ -212,13 +212,13 @@ test("planning capability is optional and unsupported providers fail honestly", 
     await manager.register(unsupported);
     await manager.register(new MinecraftProvider({ serverDir: "tests/fixtures/minecraft-server" }));
     await manager.register(new BedrockProvider());
-    for (const providerId of ["legacy", "missing", "minecraft", "minecraft-bedrock"]) await assert.rejects(manager.planProvisioning({ ...request(), providerId }), ProvisioningCapabilityError);
+    for (const providerId of ["legacy", "missing"]) await assert.rejects(manager.planProvisioning({ ...request(), providerId }), ProvisioningCapabilityError);
     const mismatch = new SyntheticProvider({ providerId: "mismatch" });
     Object.defineProperty(mismatch, "provisioning", { value: undefined });
     await manager.register(mismatch);
     await assert.rejects(manager.planProvisioning({ ...request(), providerId: "mismatch" }), ProvisioningCapabilityError);
-    assert.equal(new MinecraftProvider({ serverDir: "unused-reference" }).getCapabilities()["server.provision.plan"], undefined);
-    assert.equal(new BedrockProvider().getCapabilities()["server.provision.plan"], undefined);
+    assert.equal(new MinecraftProvider({ serverDir: "unused-reference" }).getCapabilities()["server.provision.plan"], true);
+    assert.equal(new BedrockProvider().getCapabilities()["server.provision.plan"], true);
     assert.equal(new SyntheticProvider().getCapabilities()["server.provision.apply"], undefined);
   } finally { await manager.shutdown(); }
 });

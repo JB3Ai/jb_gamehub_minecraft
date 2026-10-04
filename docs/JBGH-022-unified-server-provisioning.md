@@ -1,10 +1,12 @@
 # JBGH-022A - Unified Server Provisioning Architecture
 
-Status: JBGH-022A architecture with JBGH-022B planning-only contracts implemented.
-Date: 2026-10-03. Inspected baseline: `5952519` on `dev/laptop-continuation`.
-JBGH-022 remains OPEN. Real provisioning and JBGH-022C onward remain unimplemented.
+Status: JBGH-022A architecture, JBGH-022B contracts and JBGH-022C read-only profiles/preflight implemented.
+Updated: 2026-10-04. JBGH-022C baseline: `e4fe504` on `dev/laptop-continuation`.
+JBGH-022 remains OPEN. Real provisioning and JBGH-022D onward remain unimplemented.
 
 ## JBGH-022B implementation boundary
+
+This section records the 022B boundary; the 022C additions are documented below.
 
 `packages/core/provisioning.ts` defines request/plan/result/state, storage and
 endpoint descriptors, structured validation errors and the optional
@@ -574,7 +576,96 @@ green full suite from contract-only results.
 - Reconcile the stale JBGH-021 overview with the newer 021A closure record in a
   separate documentation change. No new live acceptance is asserted here.
 
-Recommended next task: JBGH-022C read-only Java/Bedrock planning and resource
-preflight as defined above, including provider-owned profile schemas and fixture
-tests. Do not add real apply, production allocation or runtime mutation in that
-slice. This document does not declare JBGH-022 complete.
+The JBGH-022C implementation boundary and recommended next task are recorded
+below. This document does not declare JBGH-022 complete.
+
+## JBGH-022C implementation: profiles and read-only preflight
+
+JBGH-022C adds profile discovery and resource inspection. JBGH-022 remains open;
+there is no apply route or runtime mutation in this slice.
+
+`ProvisioningProfileAdapter` provides immutable, JSON-safe metadata and translates
+provider options into neutral artifact requirements and structured issues. The
+shared descriptive planner preserves the 022B plan shape, canonical identity and
+synthetic serialization. Java and Bedrock expose planning independently of their
+configured runtime readiness. Existing lifecycle capability flags and behavior
+are unchanged. `ProviderManager.getProvisioningProfile()` discovers profiles;
+`preflightProvisioning(plan, context)` returns a separate immutable PASS/WARN/FAIL
+result. It checks planning/preflight capabilities and compares the supplied plan
+with the current adapter's canonical plan, ignoring only its creation timestamp.
+No plan is enriched or rewritten by preflight.
+
+### Provider profiles
+
+| Profile | Endpoint hint | Provider options and artifact inspection |
+|---|---|---|
+| Java/Paper | `game`, protocol `java-paper`, TCP 25565, wildcard IPv4 | CREATE requires approved `artifactRef`; both modes require `javaRuntimeRef`. ADOPT inspects `artifactFile` (default `paper.jar`) and `server.properties`. Profile describes Java 21 and license acceptance requirements. |
+| Native Bedrock | `game`, protocol `native-bds`, UDP 19132, wildcard IPv4 | CREATE requires approved `artifactRef`. ADOPT inspects `artifactFile` (default Windows `bedrock_server.exe`; explicitly choose `bedrock_server` for Linux) and `server.properties`. |
+| Synthetic | Virtual `control` endpoint | No executable requirements; retains arbitrary JSON options as the reference planner. |
+
+Defaults are discovery hints, not implicit endpoint insertion or reservations.
+Real profiles require their named game endpoint with the matching protocol and
+transport; callers can choose ports and add explicitly described endpoints.
+`worldName` is an optional generic provider intent; no specific world name is
+assumed and no world/configuration is created. Unknown or unsafe provider options
+are rejected. `artifactRef` is create-only and `artifactFile` is adopt-only.
+Lifecycle compatibility describes existing start/stop/restart support, not a new
+multi-runtime attachment implementation.
+
+Artifact checks establish regular-file presence only. They do not execute binaries,
+verify Java versions, authenticate distributions, validate configuration contents,
+prove native dependencies, infer license consent or claim runtime readiness.
+License acceptance, artifact integrity, configuration rendering, imported worlds,
+allow-list rendering and platform compatibility remain prerequisites for future
+real apply, not guarantees of a preflight PASS.
+
+### Trusted path policy and ownership
+
+The caller supplies trusted, host-scoped maps of managed roots, adoption locations
+and runtime artifact references. Do not populate these maps from untrusted request
+paths. No default root points at the repository or an existing production install.
+CREATE requires an existing approved root and a new child target. Any existing
+target, including an empty directory or one containing an ownership marker, fails:
+this slice has no durable receipt authorizing resume or destructive reuse. ADOPT
+requires an explicitly approved existing directory and required provider artifacts;
+its plan retains external ownership. No marker is created and adoption confers no
+cleanup authority.
+
+Paths must be absolute in operator policy. Traversal is rejected by request parsing
+and containment checks. Every existing ancestor is inspected; symlink/junction
+paths fail conservatively. Targets overlapping operator-configured protected paths
+fail. Unknown references, inaccessible paths and missing artifacts fail with
+machine-readable issues. Inspections cannot eliminate filesystem substitution
+races; future apply must revalidate under its own resource claim immediately before
+any effect. Preflight never creates, deletes, moves or changes a file.
+
+### Endpoint inventory and result semantics
+
+The optional injected inventory returns host-scoped TCP/UDP bindings and an explicit
+completeness flag. No sockets are bound, no DNS lookup is performed, and no port is
+reserved. The default absent/incomplete inventory yields WARN for concrete network
+endpoints. A PASS requires a complete trusted inventory and successful applicable
+path/artifact checks; it is a point-in-time observation, not a reservation.
+
+TCP and UDP with the same numeric port are independent. Overlapping requests and
+existing bindings fail. Wildcards (including IPv6 wildcard and mapped IPv4 forms)
+are treated conservatively; distinct hosts are independent. Requests require literal
+IP addresses for deterministic inspection. Allocation requests remain unresolved
+and produce WARN; there is no pool allocator. Inventory errors or invalid entries
+fail honestly rather than being interpreted as free ports. An occupied adoption
+endpoint is not silently exempted without authoritative ownership evidence.
+
+Results contain deterministic issue codes, fields and warning/blocking severity;
+no timestamp is added. Identical plans, policy and inventory produce identical JSON.
+Tests cover provider defaults, neutral core, create/adopt differences, artifact
+presence, collisions, path containment/junctions, unsupported capabilities, malformed
+requests, immutable plans, serialization and absence of filesystem/network/process
+mutation. These fixture checks are not live Paper/BDS acceptance.
+
+### Next scope
+
+Recommended JBGH-022D scope remains durable **synthetic** apply: repository-backed
+plans and resource claims, operation journal, crash recovery/compensation, concurrency
+proof and provider attachment contracts. Real runtime writes/launches, REST exposure
+and imported-world support remain separate later slices. The known Content Library
+Bedrock import 422 failure is unchanged. No JBGH-022D work is implemented here.

@@ -1,3 +1,4 @@
+import { JavaProvisioningPlanner } from "./provisioning";
 import fs from "fs/promises";
 import { readFileSync } from "fs";
 import path from "path";
@@ -102,6 +103,7 @@ function parsePackRefs(raw: string, source: string): Array<{ uuid: string; versi
 }
 
 export class MinecraftProvider implements GameProvider {
+  readonly provisioning: JavaProvisioningPlanner;
   private readonly config: Required<
     Pick<MinecraftProviderConfig, "providerId" | "name" | "version" | "serverId" | "serverName" | "host" | "javaPort" | "bedrockPort">
   > &
@@ -117,6 +119,7 @@ export class MinecraftProvider implements GameProvider {
   private readonly paperRcon?: PaperRconAdapter;
 
   constructor(config: MinecraftProviderConfig) {
+    this.provisioning = new JavaProvisioningPlanner(config.providerId || "minecraft");
     this.config = {
       providerId: config.providerId || "minecraft",
       name: config.name || "Minecraft",
@@ -148,6 +151,8 @@ export class MinecraftProvider implements GameProvider {
 
   getCapabilities(): CapabilityMap {
     return {
+      "server.provision.plan": true,
+      "server.provision.preflight": true,
       "server.start": true,
       "server.stop": true,
       "server.restart": true,

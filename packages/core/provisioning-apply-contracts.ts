@@ -8,7 +8,7 @@ export class ProvisioningApplyException extends Error {
 }
 /** Test-only crash boundary: leaves durable state untouched for lease-based recovery. */
 export class ProvisioningInterrupted extends Error {}
-export type ProvisioningStepKind = "CLAIM_SERVER_ID" | "CLAIM_MANAGED_PATH" | "CLAIM_ENDPOINT" | "CREATE_MANAGED_DIRECTORY" | "WRITE_CONFIGURATION" | "REGISTER_SERVER";
+export type ProvisioningStepKind = "CLAIM_SERVER_ID" | "CLAIM_MANAGED_PATH" | "CLAIM_ENDPOINT" | "CREATE_MANAGED_DIRECTORY" | "WRITE_CONFIGURATION" | "REGISTER_SERVER" | "ATTACH_RUNTIME";
 export interface ProvisioningApplyStep { id: string; kind: ProvisioningStepKind; resourceKey: string }
 export interface ProvisioningClaim {
   resourceKey: string; operationId: string; planId: string; kind: ProvisioningStepKind;
@@ -21,6 +21,8 @@ export interface ProvisioningJournalEntry {
 }
 export interface ProvisioningEffect { operationId: string; step: ProvisioningApplyStep; value: ProvisioningJson }
 export interface ProvisioningApplyOperation {
+  executionKind?: "attachment";
+  attachment?: import("./runtime-attachment").RuntimeAttachmentDescriptor;
   operationId: string; plan: ServerProvisioningPlan; digest: string; actor: string;
   steps: ProvisioningApplyStep[]; result: ProvisioningResult;
   error?: ProvisioningApplyError; rollbackErrors: ProvisioningApplyError[];

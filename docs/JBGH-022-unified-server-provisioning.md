@@ -1,8 +1,8 @@
 # JBGH-022A - Unified Server Provisioning Architecture
 
-Status: JBGH-022A architecture, JBGH-022B/C planning/preflight and JBGH-022D durable synthetic apply implemented.
-Updated: 2026-10-04. JBGH-022D baseline: `c37d257` on `dev/laptop-continuation`.
-JBGH-022 remains OPEN. Real provisioning and JBGH-022E onward remain unimplemented.
+Status: JBGH-022A architecture, JBGH-022B/C planning/preflight, JBGH-022D synthetic apply and JBGH-022E existing-runtime attachment implemented.
+Updated: 2026-10-05. JBGH-022E baseline: `a0c2d1c` on `dev/laptop-continuation`.
+JBGH-022 remains OPEN. Fresh-runtime provisioning and JBGH-022F remain unimplemented.
 
 ## JBGH-022B implementation boundary
 
@@ -674,6 +674,8 @@ Bedrock import 422 failure is unchanged. No JBGH-022D work is implemented here.
 
 ## JBGH-022D implementation: durable synthetic apply
 
+This section records the 022D boundary; the 022E additions are documented below.
+
 JBGH-022D implements internal, simulation-only apply. `server.provision.apply` is
 advertised by the synthetic provider only; Java/Paper and native Bedrock still
 have no apply capability. A manager backed only by the in-memory history repository
@@ -807,3 +809,164 @@ for filesystem or process effects. Resolve the separately tracked ContentImportP
 Bedrock world gap before enabling that import path. Public API/authentication and
 live authoritative Paper/BDS acceptance remain later boundaries. No JBGH-022E work
 is implemented by this milestone.
+
+## JBGH-022E implementation: existing-runtime attachment
+
+JBGH-022E adds internal attachment of approved existing Java/Paper and native BDS
+runtimes. It does not create fresh runtimes, download binaries, rewrite configuration,
+launch processes, or grant destructive ownership. JBGH-022 remains OPEN.
+
+### Contracts and provider ownership
+
+`RuntimeAttachmentPreview` combines the existing adoption plan with an immutable
+`RuntimeAttachmentDescriptor` and approval digest. `RuntimeAttachmentRequest` adds
+explicit approval. The digest covers the canonical plan and observed descriptor,
+including artifact hashes, canonical root and filesystem identity; observation time
+and diagnostic warnings do not change identity. Attach re-verifies this evidence
+before claiming resources and again immediately before publishing the reference.
+
+Each Java/Bedrock provider owns a `runtimeAttachments` collection. Its adapter
+interprets provider configuration and adds/removes only attachment metadata. It does
+not register another provider or modify the existing single-runtime lifecycle path.
+Attached references are inspectable through `listRuntimeAttachments()` and the
+provider collection; they are not silently added to the legacy `listServers()`
+lifecycle dispatch. Starting/stopping newly attached runtimes requires a later,
+explicit provider-owned lifecycle routing implementation.
+
+Both providers now advertise `server.provision.attach`. They still do not advertise
+`server.provision.apply` or full create support. Synthetic apply remains unchanged.
+The manager exposes preview, attach, recovery, attachment listing and external-intent
+inspection as internal methods; no new REST routes are introduced.
+
+### Approved roots and physical verification
+
+`RuntimeAttachmentPolicy` extends the read-only preflight context with explicit
+`adoptionRoots` and optional expected SHA-256 values keyed by artifact name. Policy
+is trusted operator configuration, never derived from an untrusted attachment body.
+The plan uses an approved adoption-location reference rather than an arbitrary path.
+
+Canonicalization rejects traversal and symlink/junction components. The existing
+runtime must be readable, lie within an approved adoption root, and not overlap any
+managed or protected root. Managed-root approval does not imply adoption permission.
+World/artifact paths must remain inside the runtime; external runtime references
+(such as Java) must resolve through the approved artifact-reference map. Physical
+claims use canonical paths and reject both equal and nested active runtime roots.
+Windows claim keys are case-folded. Operators must include legacy installations and
+other externally managed storage in protected-root policy where appropriate.
+
+Ownership is always `ADOPTED`, with `destructiveOwnership: false`. No ownership marker
+is written. Existing MANAGED roots retain their separate policy; this slice neither
+promotes adopted storage to managed nor authorizes overwriting/deleting it.
+
+The immutable artifact manifest records logical name, relative path or approved
+reference, file/directory type, required/optional status, size, observed SHA-256 and
+optional expected hash. Required files are opened read-only and streamed for hashing.
+Configuration interpretation is checked against the hashed bytes, followed by another
+artifact/root check to detect substitutions during verification. Missing optional world
+directories are explicitly recorded. Directory verification establishes readable
+structure; it does not hash an entire world or attest its contents.
+
+These are point-in-time checks, not a filesystem lock or proof of an active process's
+loaded configuration. Hashes prove observed bytes, not distribution authenticity,
+binary compatibility or executable behavior. No binary is executed to determine its
+version. The Java runtime reference and Java 21 requirement are represented and its
+file presence/readability/hash are checked; a Java version execution probe is deferred.
+
+### Java and Bedrock interpretation
+
+Java attachment checks the approved Paper/server artifact, Java executable reference
+and `server.properties`. Its TCP endpoint must match `server-port` and `server-ip`.
+Enabled RCON/query listeners are explicitly unsupported in this slice. Bedrock checks
+the approved native executable and `server.properties`; both IPv4 and IPv6 UDP
+endpoints must be declared and match configured values (provider defaults 19132 and
+19133 when absent). Port hints remain provider-owned, not global core constants.
+
+Both adapters require an explicit `level-name`; Java inspects that relative directory,
+and Bedrock inspects `worlds/<level-name>`. No specific world name is assumed or changed.
+Configuration parsing accepts explicit, unescaped `key=value` lines and rejects
+unsupported syntax rather than silently overlooking listener settings. A runtime with
+unsupported configuration needs a future parser/capability extension, not a rewrite.
+
+JBGH-022C preflight is reused for plan/profile/artifact and endpoint structure checks.
+The attachment verifier adds canonical containment, hashes and provider interpretation.
+Absent socket inventory remains a warning, not a claim that ports are free. Transactional
+GameHub endpoint claims reject incompatible attachments at attach time and retain the
+existing host/transport/port namespace, including conflicts with synthetic logical
+claims. No sockets are bound or persistently reserved at the OS level.
+
+### Durable intent, effect and receipt
+
+SQLite migration **v6** adds two tables:
+
+- `runtime_attachments`: unique effect/server identity and durable reference containing
+  provider/server/host, canonical root, manifest, endpoints, ownership, timestamps and
+  fencing token.
+- `provisioning_external_intents`: stable effect identity, approved digest/descriptor,
+  current fencing token, reconciliation state and optional completion receipt.
+
+The existing provisioning applies, claims, journal, general operations/events/audit
+infrastructure are reused. Attachment operations project as `server.provision.attach`.
+Service/provider code does not execute SQL.
+
+The protocol is:
+
+1. Persist the approved operation and effect intent under the current lease/token.
+2. Acquire server, canonical physical-path and endpoint claims.
+3. Reverify the runtime, then commit the durable attachment reference.
+4. Populate the provider-owned collection using a synchronous fencing check.
+5. Commit the external receipt and journal completion in a separate transaction.
+6. Mark the operation PROVISIONED.
+
+The reference publication and receipt intentionally do not share one transaction.
+This creates a tested recovery boundary for an effect whose durable evidence exists
+before its journal completion. The first external effect is metadata attachment,
+not modification of the runtime. Provider collection insertion is idempotent by
+stable effect identity/digest; this protocol does not claim exactly-once arbitrary
+filesystem or process effects.
+
+### Reconciliation and rollback
+
+Recovery is explicit after the provider is registered and trusted policy is available.
+`recoverRuntimeAttachment()` revalidates approved evidence and acquires an expired
+operation lease with an increased fencing token. It inspects the durable attachment
+record before acting:
+
+- Claims with no record: publish the missing approved reference.
+- Record/provider attachment with no receipt: reuse the compatible record, hydrate the
+  provider collection, and record reconciliation rather than creating another server.
+- Receipt with incomplete final status: reconcile existing evidence and finalize.
+- Completed operation after restart: verify the record and rehydrate the provider-owned
+  collection without adding claims, journal entries or another attachment.
+- Changed artifacts during an incomplete operation: fail and roll back references,
+  preserving the externally changed runtime bytes.
+- Changed evidence for a completed identity: require reapproval/explicit future repair;
+  do not silently replace the approved manifest.
+
+Unexpired workers are not taken over. Stale tokens cannot publish references, change
+the provider collection, commit receipts or remove attachments. Repeated identical
+requests reuse the completed result; incompatible identity reuse fails explicitly.
+Physical root overlap checks and claims run in SQLite write transactions, including
+across independent repository connections.
+
+Rollback removes only this operation's provider reference, durable attachment record
+and safe claims. Intent and journal history remain inspectable. Runtime files and
+configuration are never deleted, overwritten or moved. Rollback failure retains claims
+and reports PARTIALLY_ROLLED_BACK through the existing result model. No destructive
+cleanup of adopted content is implemented.
+
+### Acceptance and next scope
+
+Fixture tests cover both providers, approved/protected roots, traversal/junctions,
+missing/unreadable/wrong-type artifacts, immutable/hash manifests, endpoint/configuration
+mismatch, duplicate/conflicting attachment, nested roots, concurrent claims, rollback
+byte preservation, crashes after claims/record/provider attachment/receipt, stale workers,
+restart rehydration, artifact drift, capability boundaries and absence of runtime
+writes, process launches and socket binding. Fixtures are disposable under `tests/tmp`;
+no authoritative Java or BDS runtime is used.
+
+Recommended JBGH-022F scope: authenticated API exposure, operational provider routing
+for attached runtimes, single-forwarded lifecycle events and explicitly authorized
+runtime acceptance. Fresh-runtime creation, download/licensing workflows and real
+external-file mutation need separately reviewed execution/compensation boundaries.
+The known ContentImportPlanner Bedrock world gap remains separately tracked and
+unchanged. No JBGH-022F implementation or live runtime acceptance is included here.

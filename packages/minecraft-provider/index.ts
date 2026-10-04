@@ -1,3 +1,4 @@
+import { JavaRuntimeAttachments } from "./runtime-attachment";
 import { JavaProvisioningPlanner } from "./provisioning";
 import fs from "fs/promises";
 import { readFileSync } from "fs";
@@ -103,6 +104,7 @@ function parsePackRefs(raw: string, source: string): Array<{ uuid: string; versi
 }
 
 export class MinecraftProvider implements GameProvider {
+  readonly runtimeAttachments = new JavaRuntimeAttachments();
   readonly provisioning: JavaProvisioningPlanner;
   private readonly config: Required<
     Pick<MinecraftProviderConfig, "providerId" | "name" | "version" | "serverId" | "serverName" | "host" | "javaPort" | "bedrockPort">
@@ -153,6 +155,7 @@ export class MinecraftProvider implements GameProvider {
     return {
       "server.provision.plan": true,
       "server.provision.preflight": true,
+      "server.provision.attach": true,
       "server.start": true,
       "server.stop": true,
       "server.restart": true,

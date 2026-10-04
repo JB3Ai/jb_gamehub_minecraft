@@ -1,3 +1,4 @@
+import { BedrockRuntimeAttachments } from "./runtime-attachment";
 import { BedrockProvisioningPlanner } from "./provisioning";
 import { ChildProcess, spawn } from "node:child_process";
 import fs from "node:fs/promises";
@@ -52,6 +53,7 @@ function commandParts(command: string): { executable: string; args: string[] } {
 
 /** Native Bedrock Dedicated Server provider. It remains degraded until a BDS installation is configured. */
 export class BedrockProvider implements GameProvider {
+  readonly runtimeAttachments = new BedrockRuntimeAttachments();
   readonly provisioning: BedrockProvisioningPlanner;
   private readonly config: Required<Pick<BedrockProviderConfig, "host" | "port" | "providerId" | "serverId">> & BedrockProviderConfig;
   private process?: ChildProcess;
@@ -83,6 +85,7 @@ export class BedrockProvider implements GameProvider {
     return {
       "server.provision.plan": true,
       "server.provision.preflight": true,
+      "server.provision.attach": true,
       "server.start": configured,
       "server.stop": configured,
       "server.restart": configured,

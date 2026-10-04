@@ -1,3 +1,5 @@
+import { RuntimeAttachmentService } from "../core/runtime-attachment-service";
+import type { RuntimeAttachmentAdapter, RuntimeAttachmentPolicy, RuntimeAttachmentRepository, RuntimeAttachmentRequest } from "../core/runtime-attachment";
 import { ProvisioningApplyService } from "../core/provisioning-apply-service";
 import type { ProvisioningApplyRepository, ProvisioningApplyRequest } from "../core/provisioning-apply-contracts";
 import { preflightProvisioning, type ProvisioningPreflightContext } from "../core/provisioning-preflight";
@@ -51,7 +53,7 @@ export interface OperationRef {
   status: OperationStatus;
 }
 
-export type OperationType = "server.provision.apply" | "server.start" | "server.stop" | "server.restart" | "world.validate";
+export type OperationType = "server.provision.attach" | "server.provision.apply" | "server.start" | "server.stop" | "server.restart" | "world.validate";
 
 export interface OperationError {
   code: string;
@@ -278,7 +280,7 @@ export interface RetentionCleanupSummary {
 }
 
 export interface PersistenceRepository {
-  readonly provisioning?: ProvisioningApplyRepository;
+  readonly provisioning?: ProvisioningApplyRepository & Partial<RuntimeAttachmentRepository>;
   initialize(): Promise<void>;
   close(): Promise<void>;
   createOperation(operation: OperationRecord): Promise<void>;
@@ -338,6 +340,7 @@ export interface PersistenceRepository {
 }
 
 export interface GameProvider {
+  readonly runtimeAttachments?: RuntimeAttachmentAdapter;
   readonly provisioning?: ProvisioningPlanner;
   metadata(): ProviderMetadata;
   getCapabilities(): CapabilityMap;
@@ -920,7 +923,7 @@ export class InMemoryProviderManager {
 
   async getOperation(operationId: string): Promise<OperationRecord | undefined> {
     const fromCache = this.operations.get(operationId);
-    if (fromCache && fromCache.type !== "server.provision.apply") {
+    if (fromCache && fromCache.type !== "server.provision.apply" && fromCache.type !== "server.provision.attach") {
       return fromCache;
     }
     return this.repository.getOperation(operationId);
@@ -1140,6 +1143,29 @@ export class InMemoryProviderManager {
   getCapabilities(providerId: string): CapabilityMap {
     return this.getProvider(providerId).getCapabilities();
   }
+
+  private runtimeAttachmentService(providerId: string) {
+    const provider = this.providers.get(providerId);
+    if (!provider?.getCapabilities()["server.provision.attach"] || !provider.provisioning || !provider.runtimeAttachments || !this.repository.provisioning?.intendAttachment) throw new ProvisioningCapabilityError(providerId);
+    return new RuntimeAttachmentService(this.repository.provisioning as ProvisioningApplyRepository & RuntimeAttachmentRepository, provider.provisioning, provider.runtimeAttachments);
+  }
+
+  async previewRuntimeAttachment(plan: ServerProvisioningPlan, policy: RuntimeAttachmentPolicy) {
+    return this.runtimeAttachmentService(plan.providerId).preview(plan, policy);
+  }
+
+  async attachRuntime(input: RuntimeAttachmentRequest, policy: RuntimeAttachmentPolicy) {
+    return this.runtimeAttachmentService(input.plan.providerId).attach(input, policy, this.defaultActor);
+  }
+
+  async recoverRuntimeAttachment(operationId: string, policy: RuntimeAttachmentPolicy) {
+    const operation = this.repository.provisioning?.get(operationId);
+    if (!operation || operation.executionKind !== "attachment") throw new Error("Attachment operation not found.");
+    return this.runtimeAttachmentService(operation.plan.providerId).recover(operationId, policy);
+  }
+
+  listRuntimeAttachments(providerId?: string) { return this.repository.provisioning?.attachmentRecords?.(providerId) ?? []; }
+  getExternalEffectIntent(operationId: string) { return this.repository.provisioning?.attachmentIntent?.(operationId); }
 
   private provisioningApplyService(providerId: string) {
     const provider = this.providers.get(providerId);

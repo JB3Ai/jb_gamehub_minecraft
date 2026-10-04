@@ -207,7 +207,7 @@ test("v4 migration preserves existing operations and adds durable provisioning t
   await repo.createOperation({ operationId: "legacy", providerId: "synthetic", type: "server.start", status: "completed", createdAt: f.now().toISOString() });
   await repo.close();
   const database = new DatabaseSync(path.join(f.root, "state.sqlite"));
-  database.exec("DROP TABLE provisioning_applies; DROP TABLE provisioning_claims; DROP TABLE provisioning_journal; DROP TABLE provisioning_effects; PRAGMA user_version=4;");
+  database.exec("DROP TABLE runtime_attachments; DROP TABLE provisioning_external_intents; DROP TABLE provisioning_applies; DROP TABLE provisioning_claims; DROP TABLE provisioning_journal; DROP TABLE provisioning_effects; PRAGMA user_version=4;");
   database.close();
   const migrated = await f.open();
   assert.equal((await migrated.getOperation("legacy"))?.status, "completed");

@@ -37,6 +37,8 @@ export interface ProvisioningSimulationExecutor {
 }
 /** Atomic, synchronous repository operations; service code never opens SQL transactions. */
 export interface ProvisioningApplyRepository {
+  savePlan(plan: ServerProvisioningPlan, preview?: import("./runtime-attachment").RuntimeAttachmentPreview): void;
+  getPlan(planId: string): { plan: ServerProvisioningPlan; preview?: import("./runtime-attachment").RuntimeAttachmentPreview } | undefined;
   begin(operation: ProvisioningApplyOperation): { operation: ProvisioningApplyOperation; acquired: boolean };
   acquire(operationId: string, owner: string, now: string, expiresAt: string): ProvisioningApplyOperation;
   get(operationId: string): ProvisioningApplyOperation | undefined;

@@ -155,6 +155,10 @@ export class BedrockProvider implements GameProvider {
     this.runtimeReady = false;
     this.process.once("exit", () => { this.process = undefined; this.startedAt = undefined; this.runtimeReady = false; this.stdoutBuffer = ""; this.stderrBuffer = ""; });
     this.startedAt = Date.now();
+    await new Promise<void>((resolve, reject) => {
+      this.process!.once("spawn", resolve);
+      this.process!.once("error", (error) => { this.process = undefined; this.startedAt = undefined; this.runtimeReady = false; reject(error); });
+    });
     return { message: "Bedrock Dedicated Server process started." };
   }
 

@@ -23,7 +23,9 @@
     "minecraft:test:content-import": "tsx integration/minecraft/scripts/run-content-import-acceptance.ts",
     "bedrock:test:native-acceptance": "tsx integration/bedrock/scripts/run-native-bds-acceptance.ts",
     "minecraft-bedrock:test:live": "tsx integration/bedrock/scripts/run-native-bds-acceptance.ts",
-    "validate:lifecycle:evidence": "tsx integration/minecraft/scripts/validate-lifecycle-evidence.ts"
+    "validate:lifecycle:evidence": "tsx integration/minecraft/scripts/validate-lifecycle-evidence.ts",
+    "provisioning:test:java-attachment": "tsx integration/provisioning/scripts/attached-runtime-acceptance.ts java",
+    "provisioning:test:bedrock-attachment": "tsx integration/provisioning/scripts/attached-runtime-acceptance.ts bedrock"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

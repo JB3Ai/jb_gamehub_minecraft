@@ -1,3 +1,4 @@
+import { provisioningRouter, provisioningApiOptionsFromEnvironment, authorizeProvisioning, type ProvisioningApiOptions } from "./packages/core/provisioning-api";
 import "dotenv/config";
 import express from "express";
 import http from "http";
@@ -21,6 +22,7 @@ import fs from "node:fs/promises";
 const app = express();
 const PORT = Number.parseInt(process.env.PORT || "3000", 10) || 3000;
 let providerManager: InMemoryProviderManager;
+let provisioningOptions: ProvisioningApiOptions = { authorize: () => undefined, policies: {} };
 let wsServer: WebSocketServer | undefined;
 let activeRuntimeConfig: RuntimeConfig | undefined;
 let analyticsService: AnalyticsService;
@@ -102,6 +104,41 @@ async function readContentAudit(): Promise<unknown[]> {
 }
 
 app.use(express.json());
+app.use(async (req, res, next) => {
+  const protectedHistory = /^\/api\/(operations|events|history)(\/|$)/.test(req.path) || /^\/api\/servers\/[^/]+\/[^/]+\/history$/.test(req.path);
+  if (protectedHistory && (Object.keys(provisioningOptions.policies).length > 0 || providerManager?.listRuntimeAttachments().length)) {
+    try { if (!await authorizeProvisioning(req, res, providerManager, provisioningOptions)) return; }
+    catch { res.status(503).json({ error: { code: "AUTHORIZATION_UNAVAILABLE" } }); return; }
+  }
+  next();
+});
+app.use("/api/provisioning", provisioningRouter(() => providerManager, () => provisioningOptions));
+// Legacy lifecycle URLs must not become an authorization bypass for attached servers.
+app.use("/api/servers/:id", async (req, res, next) => {
+  try {
+    if (providerManager.listRuntimeAttachments().some((record) => record.descriptor.serverId === req.params.id)) {
+      const principal = await authorizeProvisioning(req, res, providerManager, provisioningOptions);
+      if (!principal) return;
+      res.locals.principal = principal;
+    }
+    next();
+  } catch { res.status(503).json({ error: { code: "AUTHORIZATION_UNAVAILABLE", message: "Authorization unavailable." } }); }
+});
+app.all("/api/providers/:providerId/servers/:serverId/:action", async (req, res) => {
+  try {
+    const principal = await authorizeProvisioning(req, res, providerManager, provisioningOptions); if (!principal) return;
+    const { providerId, serverId, action } = req.params;
+    const server = await providerManager.getServer(serverId, providerId); if (!server) { res.status(404).json({ error: { code: "NOT_FOUND" } }); return; }
+    if (req.method === "POST" && ["start", "stop", "restart"].includes(action)) {
+      const operation = action === "start" ? await providerManager.startServer(serverId, providerId, principal.actor) : action === "stop" ? await providerManager.stopServer(serverId, providerId, principal.actor) : await providerManager.restartServer(serverId, providerId, principal.actor);
+      res.status(202).json(operation); return;
+    }
+    if (req.method === "GET" && action === "status") { res.json(await providerManager.getServerStatus(serverId, providerId)); return; }
+    if (req.method === "GET" && action === "endpoints") { res.json({ endpoints: await providerManager.getServerConnectionEndpoints(serverId, providerId) }); return; }
+    if (req.method === "GET" && action === "worlds") { res.json({ worlds: (await providerManager.getWorlds(serverId, providerId)).map(({ id, name }) => ({ id, name })) }); return; }
+    res.status(405).json({ error: { code: "METHOD_NOT_ALLOWED" } });
+  } catch { res.status(422).json({ error: { code: "RUNTIME_REQUEST_FAILED", message: "Runtime request failed." } }); }
+});
 
 function handleApiError(res: express.Response, err: unknown) {
   const message = err instanceof Error ? err.message : "Unknown error";
@@ -272,7 +309,7 @@ app.get("/api/servers/:id", async (req, res) => {
 
 app.post("/api/servers/:id/start", async (req, res) => {
   try {
-    const operation = await providerManager.startServer(req.params.id);
+    const operation = await providerManager.startServer(req.params.id, undefined, res.locals.principal?.actor);
     res.status(202).json(operation);
   } catch (err) {
     handleApiError(res, err);
@@ -281,7 +318,7 @@ app.post("/api/servers/:id/start", async (req, res) => {
 
 app.post("/api/servers/:id/stop", async (req, res) => {
   try {
-    const operation = await providerManager.stopServer(req.params.id);
+    const operation = await providerManager.stopServer(req.params.id, undefined, res.locals.principal?.actor);
     res.status(202).json(operation);
   } catch (err) {
     handleApiError(res, err);
@@ -290,7 +327,7 @@ app.post("/api/servers/:id/stop", async (req, res) => {
 
 app.post("/api/servers/:id/restart", async (req, res) => {
   try {
-    const operation = await providerManager.restartServer(req.params.id);
+    const operation = await providerManager.restartServer(req.params.id, undefined, res.locals.principal?.actor);
     res.status(202).json(operation);
   } catch (err) {
     handleApiError(res, err);
@@ -1143,7 +1180,14 @@ Be concise, witty, and directly execute the requested changes for the user!`;
 });
 
 function wireWebSocket(httpServer: http.Server) {
-  wsServer = new WebSocketServer({ server: httpServer, path: "/ws" });
+  wsServer = new WebSocketServer({ server: httpServer, path: "/ws", verifyClient: (info, done) => {
+    if (!Object.keys(provisioningOptions.policies).length && !providerManager.listRuntimeAttachments().length) { done(true); return; }
+    const request = Object.assign(info.req, { get: (name: string) => info.req.headers[name.toLowerCase()] }) as unknown as express.Request;
+    Promise.resolve().then(() => provisioningOptions.authorize(request)).then(async (principal) => {
+      await providerManager.writeAudit({ actor: principal?.actor ?? "anonymous", action: "provisioning.authorization", result: principal?.admin ? "completed" : "failed", metadata: { transport: "websocket", authorized: principal?.admin === true } });
+      done(principal?.admin === true, principal ? 403 : 401);
+    }).catch(() => done(false, 401));
+  } });
 
   wsServer.on("connection", (socket) => {
     socket.send(
@@ -1168,7 +1212,8 @@ function wireWebSocket(httpServer: http.Server) {
   });
 }
 
-export async function startServer(port = PORT, overrides: Partial<RuntimeConfig> = {}) {
+export async function startServer(port = PORT, overrides: Partial<RuntimeConfig> = {}, adminOptions?: ProvisioningApiOptions) {
+  provisioningOptions = adminOptions ?? await provisioningApiOptionsFromEnvironment();
   const config = {
     ...loadRuntimeConfig(process.env),
     ...overrides,
@@ -1190,6 +1235,12 @@ export async function startServer(port = PORT, overrides: Partial<RuntimeConfig>
     eventRetentionDays: config.eventRetentionDays,
     auditRetentionDays: config.auditRetentionDays,
   });
+  for (const record of providerManager.listRuntimeAttachments()) {
+    const policy = provisioningOptions.policies[record.descriptor.providerId];
+    if (!policy || providerManager.getProvisioningOperation(record.operationId)?.result.state !== "PROVISIONED") continue;
+    try { await providerManager.recoverRuntimeAttachment(record.operationId, policy); }
+    catch { await providerManager.writeAudit({ actor: "system/recovery", action: "provisioning.state.changed", operationId: record.operationId, result: "failed", metadata: { code: "ATTACHMENT_RECOVERY_REQUIRED" } }); }
+  }
   analyticsService = new AnalyticsService(providerManager);
   familyService = new FamilyService(providerManager);
   unbindFamilyLifecycle = familyService.bindPlayerLifecycle();

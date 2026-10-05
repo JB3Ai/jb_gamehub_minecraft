@@ -3,7 +3,7 @@ import type { RuntimeAttachmentRepository, RuntimeAttachmentDescriptor, RuntimeA
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { ProvisioningApplyException, terminalProvisioningState, type ProvisioningApplyRepository, type ProvisioningApplyOperation, type ProvisioningApplyStep, type ProvisioningApplyError, type ProvisioningClaim, type ProvisioningEffect, type ProvisioningJournalEntry } from "./provisioning-apply-contracts";
-import type { ProvisioningJson, ProvisioningResult } from "./provisioning";
+import type { ProvisioningJson, ProvisioningResult, ServerProvisioningPlan } from "./provisioning";
 
 export const provisioningMigration = `
 CREATE TABLE provisioning_applies (id TEXT PRIMARY KEY, plan_id TEXT NOT NULL UNIQUE, state TEXT NOT NULL, data TEXT NOT NULL);
@@ -21,6 +21,14 @@ export class SqliteProvisioningRepository implements ProvisioningApplyRepository
     const db = this.database(); db.exec("BEGIN IMMEDIATE;");
     try { const result = run(); db.exec("COMMIT;"); return result; }
     catch (error) { db.exec("ROLLBACK;"); throw error; }
+  }
+  savePlan(plan: ServerProvisioningPlan, preview?: import("./runtime-attachment").RuntimeAttachmentPreview): void {
+    const existing = this.getPlan(plan.planId);
+    this.database().prepare("INSERT INTO provisioning_plans(id,data) VALUES (?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data").run(plan.planId, JSON.stringify({ plan, ...(preview ? { preview } : existing?.preview ? { preview: existing.preview } : {}) }));
+  }
+  getPlan(planId: string): { plan: ServerProvisioningPlan; preview?: import("./runtime-attachment").RuntimeAttachmentPreview } | undefined {
+    const row = this.database().prepare("SELECT data FROM provisioning_plans WHERE id=?").get(planId);
+    return row ? JSON.parse(String(row.data)) : undefined;
   }
   get(id: string): ProvisioningApplyOperation | undefined {
     const row = this.database().prepare("SELECT data FROM provisioning_applies WHERE id = ?").get(id);

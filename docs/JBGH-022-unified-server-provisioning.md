@@ -1,8 +1,8 @@
 # JBGH-022A - Unified Server Provisioning Architecture
 
-Status: JBGH-022A architecture, JBGH-022B/C planning/preflight, JBGH-022D synthetic apply and JBGH-022E existing-runtime attachment implemented.
-Updated: 2026-10-05. JBGH-022E baseline: `a0c2d1c` on `dev/laptop-continuation`.
-JBGH-022 remains OPEN. Fresh-runtime provisioning and JBGH-022F remain unimplemented.
+Status: JBGH-022A-E foundations and JBGH-022F authenticated API/routing/harnesses implemented; live 022F acceptance unverified.
+Updated: 2026-10-05. JBGH-022F baseline: `230f883` on `dev/laptop-continuation`.
+JBGH-022 remains OPEN. Fresh-runtime provisioning is unimplemented; live acceptance remains separate.
 
 ## JBGH-022B implementation boundary
 
@@ -812,6 +812,8 @@ is implemented by this milestone.
 
 ## JBGH-022E implementation: existing-runtime attachment
 
+This section records the 022E boundary; the 022F additions are documented below.
+
 JBGH-022E adds internal attachment of approved existing Java/Paper and native BDS
 runtimes. It does not create fresh runtimes, download binaries, rewrite configuration,
 launch processes, or grant destructive ownership. JBGH-022 remains OPEN.
@@ -970,3 +972,175 @@ runtime acceptance. Fresh-runtime creation, download/licensing workflows and rea
 external-file mutation need separately reviewed execution/compensation boundaries.
 The known ContentImportPlanner Bedrock world gap remains separately tracked and
 unchanged. No JBGH-022F implementation or live runtime acceptance is included here.
+
+## JBGH-022F implementation: authenticated API and scoped lifecycle
+
+JBGH-022F adds authenticated internal-admin REST surfaces, provider-scoped attached
+runtime lifecycle routing and opt-in acceptance harnesses. Fresh-runtime CREATE,
+downloads, installation, destructive ownership and JBGH-022G are not implemented.
+Live Java/BDS acceptance has **not** been performed as part of fixture validation.
+JBGH-022 remains OPEN.
+
+### Authorization and trusted configuration
+
+There was no complete authentication system in this checkout. The new
+`ProvisioningApiOptions.authorize(request)` abstraction returns a trusted actor and
+admin decision; applications/tests may inject it. The minimal default uses an exact
+Bearer token comparison via constant-time SHA-256 comparison. Configure
+`GAMEHUB_ADMIN_TOKEN` with at least 32 characters. Missing/short configuration disables
+access, missing/invalid credentials return 401, and authenticated non-admin principals
+return 403. No account subsystem or frontend-visibility authorization is introduced.
+Use a TLS-terminated/private deployment; this slice does not implement HTTPS itself.
+
+`GAMEHUB_PROVISIONING_POLICY_FILE` points to a trusted JSON file mapping provider IDs
+to JBGH-022E policies (hostId, managedRoots, adoptionRoots, adoptionLocations,
+artifactLocations and optional protectedPaths/expectedHashes). There are no default
+adoption paths. Alternatively inject options as the third argument to `startServer`.
+Clients cannot submit root policy, executables, shell commands, actor identities or
+arbitrary attachment descriptors through the attachment endpoint.
+
+Authorization outcomes use the existing audit trail with trusted actor, method or
+transport, and outcome. Tokens/authorization headers are never written to audit.
+All provisioning reads and writes require admin authorization. Scoped lifecycle routes
+also require it. Legacy `/api/servers/:id/...` routes require it for attached IDs,
+preventing an alternate-URL bypass. When policies or durable attachments exist,
+operation/event/history routes and WebSocket upgrades require admin authorization
+because operation errors can contain runtime details. WebSocket clients supply an
+Authorization header; URL query tokens are not supported. General provider/server
+list discovery remains read-only. This is not authentication of every unrelated
+legacy API; those surfaces retain their existing behavior.
+
+### REST contract
+
+| Route | Request | Response |
+|---|---|---|
+| POST `/api/provisioning/plans` | Existing `ServerProvisioningRequest` | 201: `{plan, digest, profile}`; digest is the existing provisioning digest |
+| GET `/api/provisioning/plans/:id` | Plan ID | `{plan, digest, attachment?}` |
+| POST `/api/provisioning/preflight` | `{planId}` | `{status, issues, attachment?}`; adoption attachment preview includes manifest and approval digest |
+| POST `/api/provisioning/attachments` | `{planId, digest, approved:true}` | 200: safe attachment metadata; identical replay reuses identity/result |
+| GET `/api/provisioning/attachments` | None | `{attachments:[...]}` |
+| GET `/api/provisioning/attachments/:id` | Attachment ID | Safe attachment metadata |
+| POST `/api/provisioning/attachments/:id/reconcile` | Empty object | `{operationId,state}`; an incomplete operation ID is also accepted when no record exists yet |
+
+The initial plan digest and the verified attachment digest are distinct. Approval
+must use the attachment digest returned by preflight. It binds the observed root,
+manifest and plan even though the absolute root is not returned publicly. The service
+reruns verification immediately before attachment. Preflight changes no runtime
+resources; its preview is persisted for later approval.
+
+Responses omit canonical filesystem roots, inode/device data, raw errors and launch
+configuration. They deliberately expose approved reference names, relative artifact
+paths, hashes, endpoint/world metadata and ownership. Invalid requests return 400,
+missing records 404, incompatible/conflicting state 409, and unsupported provider or
+verification failures 422. Errors use `{error:{code,message}}` without raw filesystem
+exception text. No destructive DELETE or public fresh-runtime apply endpoint exists.
+
+SQLite migration **v7** adds `provisioning_plans` behind the repository abstraction,
+including the last verified preview. Plans and previews survive restart. HTTP handlers
+use ProviderManager and existing services, not duplicated planning/attachment logic.
+
+### Runtime routing and ownership
+
+`scopeRuntimeProvider` keeps one registry provider identity and one independent
+provider instance for each attached server. Provider-owned Java and Bedrock factories
+construct those instances using durable attachment metadata and trusted artifact
+references; they do not copy the default runtime's commands/configuration. The default
+configured server remains supported.
+
+The existing `GameProvider` lifecycle methods, ProviderManager operation tracking,
+events, audit and persistence are reused. Scoped runtime factories are injectable for
+fixture tests. Attachment activation is idempotent, player events are subscribed and
+forwarded once, and per-server lifecycle queues serialize concurrent start/stop/restart.
+Different servers retain separate process handles, state, roots and listeners.
+
+Normal server discovery now includes activated attachment IDs, `ownership: ADOPTED`
+and attachment ID. Scoped REST routes are:
+
+- GET `/api/providers/:providerId/servers/:serverId/status`
+- GET `/api/providers/:providerId/servers/:serverId/endpoints`
+- GET `/api/providers/:providerId/servers/:serverId/worlds`
+- POST `/api/providers/:providerId/servers/:serverId/start`, `/stop`, `/restart`
+
+Lifecycle mutations return the existing operation reference (202); inspect its status
+and normal operation retrieval for failures. The authenticated actor is recorded.
+Provider ID plus server ID selects the runtime. Legacy unscoped lookup rejects
+ambiguous IDs. World validation rejects traversal rather than passing it to a provider.
+
+Java attachments use an argument-array Java process launch with the approved Java
+reference and server artifact, without a shell. Pre-existing `eula=true` is required;
+GameHub never writes acceptance. Stop uses the console of the process this instance
+started. Existing world/log/player behavior is delegated to MinecraftProvider.
+Bedrock attachments instantiate the existing BedrockProvider with an approved absolute
+executable and scoped root/endpoint. Log parsing, numeric XUID handling and display-name
+kick targeting are unchanged. Spawn errors now reject start and reset process state,
+so failed launches are recorded instead of becoming unhandled child-process errors.
+Bedrock restart waits for stop to become observable before starting again.
+
+Start/restart reverify the approved attachment manifest. Metadata/configuration drift
+fails closed and is recorded as a failed lifecycle operation. GameHub does not rewrite
+configuration, replace binaries, delete worlds or elevate adopted ownership. Running
+the game server itself can update worlds/logs/configuration; start is therefore an
+explicit administrative action, not a read-only operation.
+
+### Restart and recovery limits
+
+At startup, completed attachments with available trusted policy are reverified and
+activated without starting external processes. Failed verification leaves the attachment
+durable but unroutable and records a recovery-required audit outcome. Incomplete
+operations remain recoverable through the reconcile route and existing lease/fencing
+rules. Newly registered child runtimes need not be online for metadata recovery.
+
+Process-console ownership is not reconstructed after a GameHub process restart. An
+externally running Java process cannot be stopped through a lost console handle, and
+native Bedrock's managed-process status is not external-process discovery. Do not treat
+metadata restoration as proof that an external process was found or can be controlled.
+The acceptance harnesses require initially stopped test runtimes and probe their
+explicit ports before launching. General process adoption requires additional design.
+
+### Controlled acceptance harnesses (not run by `npm test`)
+
+Commands:
+
+- `npm run provisioning:test:java-attachment`
+- `npm run provisioning:test:bedrock-attachment`
+
+Both fail closed unless these variables are explicitly supplied:
+
+- `JBGH_ATTACHMENT_ACCEPTANCE_CONFIRM=START_STOP_EXISTING_TEST_RUNTIME`
+- `JBGH_ATTACHMENT_RUNTIME_ROOT`: absolute existing test-runtime root
+- `JBGH_ATTACHMENT_EVIDENCE_DIR`: separate absolute evidence directory with an existing parent
+- `JBGH_ATTACHMENT_SERVER_ID`: explicit safe server identity
+- `JBGH_ATTACHMENT_ARTIFACT`: existing executable/artifact filename
+- `JBGH_ATTACHMENT_GAME_PORT`: explicit configured game port
+- Java only: `JBGH_ATTACHMENT_JAVA_EXECUTABLE`: approved absolute Java executable
+- Bedrock only: `JBGH_ATTACHMENT_IPV6_PORT`: explicit configured IPv6 port
+
+The operator must separately place `.jbgh-022f-acceptance.json` in the test runtime:
+
+```json
+{"purpose":"JBGH-022F","runtimeRoot":"<absolute test runtime root>","allowStartStop":true,"allowWorldWrites":true}
+```
+
+The harness never creates this approval marker or chooses a production runtime by
+default. It rejects overlapping evidence/source paths, uses short-lived port probes,
+attaches through ProviderManager, checks status, starts, waits for readiness, discovers
+provider endpoints/world IDs, stops, verifies required source artifact/config hashes
+and world existence, and records operation/event evidence separately. Cleanup attempts
+a graceful stop only for a process started by the harness; it never deletes the source
+or force-restores changed files. Evidence explicitly records `playerAcceptance:false`.
+A changed source configuration causes acceptance failure rather than silently repairing
+it. World writes are acknowledged in the marker and are not claimed byte-identical.
+
+### Validation and remaining closure work
+
+Fixture/API coverage includes authorization outcomes, safe responses, digest approval,
+duplicate/conflicting attachment, unsupported providers, durable retrieval, legacy URL
+and WebSocket authorization, restart activation, separate synthetic/Java/Bedrock routing,
+world/root isolation, single event forwarding, unknown IDs, artifact drift, EULA and
+spawn failures, ownership preservation and fail-closed harness configuration. No real
+Java/BDS runtime or human client is used by these tests.
+
+Before JBGH-022 can close, obtain explicitly authorized live attached-runtime evidence,
+complete any remaining documented API/auth deployment acceptance and separately scope
+fresh-runtime creation/artifact/licensing/external-effect recovery. The known Bedrock
+ContentImportPlanner 422 failure remains separate and unchanged. JBGH-022G has not begun.

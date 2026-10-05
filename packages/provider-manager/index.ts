@@ -1,5 +1,5 @@
 import { RuntimeAttachmentService } from "../core/runtime-attachment-service";
-import type { RuntimeAttachmentAdapter, RuntimeAttachmentPolicy, RuntimeAttachmentRepository, RuntimeAttachmentRequest } from "../core/runtime-attachment";
+import type { RuntimeAttachmentAdapter, RuntimeAttachmentPolicy, RuntimeAttachmentRepository, RuntimeAttachmentRequest, RuntimeAttachmentRecord } from "../core/runtime-attachment";
 import { ProvisioningApplyService } from "../core/provisioning-apply-service";
 import type { ProvisioningApplyRepository, ProvisioningApplyRequest } from "../core/provisioning-apply-contracts";
 import { preflightProvisioning, type ProvisioningPreflightContext } from "../core/provisioning-preflight";
@@ -106,6 +106,8 @@ export interface ConnectionEndpoint {
 export type CapabilityMap = Record<string, boolean>;
 
 export interface ServerSummary {
+  ownership?: "ADOPTED";
+  attachmentId?: string;
   id: string;
   providerId: string;
   name: string;
@@ -231,7 +233,8 @@ export interface AuditRecord {
     | "reward.granted"
     | "reward.redeemed"
     | "reward.revoked"
-    | "provisioning.state.changed";
+    | "provisioning.state.changed"
+    | "provisioning.authorization";
   providerId?: string;
   serverId?: string;
   operationId?: string;
@@ -340,6 +343,7 @@ export interface PersistenceRepository {
 }
 
 export interface GameProvider {
+  activateAttachment?(record: RuntimeAttachmentRecord, policy: RuntimeAttachmentPolicy, verify: () => Promise<void>): Promise<void>;
   readonly runtimeAttachments?: RuntimeAttachmentAdapter;
   readonly provisioning?: ProvisioningPlanner;
   metadata(): ProviderMetadata;
@@ -1154,14 +1158,31 @@ export class InMemoryProviderManager {
     return this.runtimeAttachmentService(plan.providerId).preview(plan, policy);
   }
 
-  async attachRuntime(input: RuntimeAttachmentRequest, policy: RuntimeAttachmentPolicy) {
-    return this.runtimeAttachmentService(input.plan.providerId).attach(input, policy, this.defaultActor);
+  async attachRuntime(input: RuntimeAttachmentRequest, policy: RuntimeAttachmentPolicy, actor = this.defaultActor) {
+    const existing = await this.getServer(input.plan.serverId);
+    if (existing && !this.listRuntimeAttachments().some((record) => record.descriptor.serverId === input.plan.serverId)) throw new Error("Attachment identity conflicts with configured server.");
+    const result = await this.runtimeAttachmentService(input.plan.providerId).attach(input, policy, actor);
+    if (result.result.state === "PROVISIONED") await this.activateRuntimeAttachment(result.operationId, policy);
+    return result;
   }
 
   async recoverRuntimeAttachment(operationId: string, policy: RuntimeAttachmentPolicy) {
     const operation = this.repository.provisioning?.get(operationId);
     if (!operation || operation.executionKind !== "attachment") throw new Error("Attachment operation not found.");
-    return this.runtimeAttachmentService(operation.plan.providerId).recover(operationId, policy);
+    const result = await this.runtimeAttachmentService(operation.plan.providerId).recover(operationId, policy);
+    if (result.result.state === "PROVISIONED") await this.activateRuntimeAttachment(operationId, policy);
+    return result;
+  }
+
+  private async activateRuntimeAttachment(operationId: string, policy: RuntimeAttachmentPolicy) {
+    const record = this.listRuntimeAttachments().find((item) => item.operationId === operationId);
+    if (!record) throw new Error("Attachment not found.");
+    const provider = this.getProvider(record.descriptor.providerId);
+    await provider.activateAttachment?.(record, policy, async () => {
+      const operation = this.getProvisioningOperation(operationId)!;
+      const preview = await this.previewRuntimeAttachment(operation.plan, policy);
+      if (preview.digest !== record.digest) throw new Error("Runtime changed since approval; lifecycle start denied.");
+    });
   }
 
   listRuntimeAttachments(providerId?: string) { return this.repository.provisioning?.attachmentRecords?.(providerId) ?? []; }
@@ -1201,6 +1222,12 @@ export class InMemoryProviderManager {
     return preflightProvisioning(plan, supported ? provider?.provisioning : undefined, context);
   }
 
+  saveProvisioningPlan(plan: ServerProvisioningPlan, preview?: import("../core/runtime-attachment").RuntimeAttachmentPreview) {
+    if (!this.repository.provisioning) throw new Error("Durable provisioning storage unavailable.");
+    this.repository.provisioning.savePlan(plan, preview);
+  }
+  getProvisioningPlan(planId: string) { return this.repository.provisioning?.getPlan(planId); }
+
   async planProvisioning(input: unknown): Promise<ServerProvisioningPlan> {
     const request = parseProvisioningRequest(input);
     const provider = this.providers.get(request.providerId);
@@ -1219,18 +1246,19 @@ export class InMemoryProviderManager {
     return serverGroups.flat();
   }
 
-  async getServer(serverId: string): Promise<ServerSummary | undefined> {
-    const servers = await this.listServers();
-    return servers.find((server) => server.id === serverId);
+  async getServer(serverId: string, providerId?: string): Promise<ServerSummary | undefined> {
+    const servers = (await this.listServers(providerId)).filter((server) => server.id === serverId);
+    if (servers.length > 1) throw new Error("Ambiguous server identity; supply providerId.");
+    return servers[0];
   }
 
-  async getServerConnectionEndpoints(serverId: string): Promise<ConnectionEndpoint[]> {
-    const server = await this.requireServer(serverId);
+  async getServerConnectionEndpoints(serverId: string, providerId?: string): Promise<ConnectionEndpoint[]> {
+    const server = await this.requireServer(serverId, providerId);
     return this.getProvider(server.providerId).getServerConnectionEndpoints(serverId);
   }
 
-  async startServer(serverId: string): Promise<OperationRef> {
-    const server = await this.requireServer(serverId);
+  async startServer(serverId: string, providerId?: string, actor = this.defaultActor): Promise<OperationRef> {
+    const server = await this.requireServer(serverId, providerId);
     const operation = await this.service.createOperation({
       type: "server.start",
       providerId: server.providerId,
@@ -1242,7 +1270,7 @@ export class InMemoryProviderManager {
       const result = await this.getProvider(server.providerId).startServer(serverId);
       const completed = await this.service.completeOperation(started, result ?? { simulated: true, message: "No start command configured" });
       await this.service.writeAudit({
-        actor: this.defaultActor,
+        actor,
         action: "server.start.requested",
         providerId: server.providerId,
         serverId,
@@ -1256,7 +1284,7 @@ export class InMemoryProviderManager {
         message: err instanceof Error ? err.message : "Unknown start error",
       });
       await this.service.writeAudit({
-        actor: this.defaultActor,
+        actor,
         action: "server.start.requested",
         providerId: server.providerId,
         serverId,
@@ -1268,8 +1296,8 @@ export class InMemoryProviderManager {
     }
   }
 
-  async stopServer(serverId: string): Promise<OperationRef> {
-    const server = await this.requireServer(serverId);
+  async stopServer(serverId: string, providerId?: string, actor = this.defaultActor): Promise<OperationRef> {
+    const server = await this.requireServer(serverId, providerId);
     const operation = await this.service.createOperation({
       type: "server.stop",
       providerId: server.providerId,
@@ -1281,7 +1309,7 @@ export class InMemoryProviderManager {
       const result = await this.getProvider(server.providerId).stopServer(serverId);
       const completed = await this.service.completeOperation(started, result ?? { simulated: true, message: "No stop command configured" });
       await this.service.writeAudit({
-        actor: this.defaultActor,
+        actor,
         action: "server.stop.requested",
         providerId: server.providerId,
         serverId,
@@ -1295,7 +1323,7 @@ export class InMemoryProviderManager {
         message: err instanceof Error ? err.message : "Unknown stop error",
       });
       await this.service.writeAudit({
-        actor: this.defaultActor,
+        actor,
         action: "server.stop.requested",
         providerId: server.providerId,
         serverId,
@@ -1307,8 +1335,8 @@ export class InMemoryProviderManager {
     }
   }
 
-  async restartServer(serverId: string): Promise<OperationRef> {
-    const server = await this.requireServer(serverId);
+  async restartServer(serverId: string, providerId?: string, actor = this.defaultActor): Promise<OperationRef> {
+    const server = await this.requireServer(serverId, providerId);
     const operation = await this.service.createOperation({
       type: "server.restart",
       providerId: server.providerId,
@@ -1320,7 +1348,7 @@ export class InMemoryProviderManager {
       const result = await this.getProvider(server.providerId).restartServer(serverId);
       const completed = await this.service.completeOperation(started, result ?? { simulated: true, message: "No restart command configured" });
       await this.service.writeAudit({
-        actor: this.defaultActor,
+        actor,
         action: "server.restart.requested",
         providerId: server.providerId,
         serverId,
@@ -1334,7 +1362,7 @@ export class InMemoryProviderManager {
         message: err instanceof Error ? err.message : "Unknown restart error",
       });
       await this.service.writeAudit({
-        actor: this.defaultActor,
+        actor,
         action: "server.restart.requested",
         providerId: server.providerId,
         serverId,
@@ -1346,8 +1374,8 @@ export class InMemoryProviderManager {
     }
   }
 
-  async getServerStatus(serverId: string): Promise<ServerStatus> {
-    const server = await this.requireServer(serverId);
+  async getServerStatus(serverId: string, providerId?: string): Promise<ServerStatus> {
+    const server = await this.requireServer(serverId, providerId);
     const current = await this.getProvider(server.providerId).getServerStatus(serverId);
     const key = `${server.providerId}::${serverId}`;
     const previous = this.lastStatuses.get(key);
@@ -1375,8 +1403,8 @@ export class InMemoryProviderManager {
     return current;
   }
 
-  async getWorlds(serverId: string): Promise<WorldSummary[]> {
-    const server = await this.requireServer(serverId);
+  async getWorlds(serverId: string, providerId?: string): Promise<WorldSummary[]> {
+    const server = await this.requireServer(serverId, providerId);
     return this.getProvider(server.providerId).getWorlds(serverId);
   }
 
@@ -1457,8 +1485,8 @@ export class InMemoryProviderManager {
     }
   }
 
-  private async requireServer(serverId: string): Promise<ServerSummary> {
-    const server = await this.getServer(serverId);
+  private async requireServer(serverId: string, providerId?: string): Promise<ServerSummary> {
+    const server = await this.getServer(serverId, providerId);
     if (!server) {
       throw new Error(`Server not found: ${serverId}`);
     }

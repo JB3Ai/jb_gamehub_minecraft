@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import net from "node:net";
 import dgram from "node:dgram";
-import { createHash } from "node:crypto";
+import { assertAcceptanceArtifactIntact } from "./attachment-acceptance-integrity";
 import { attachmentAcceptanceConfig, attachmentAcceptanceEndpoint } from "./attachment-acceptance-config";
 import { canonicalAttachmentPath, pathContains } from "../../../packages/core/runtime-attachment-verification";
 import { InMemoryProviderManager } from "../../../packages/provider-manager";
@@ -63,6 +63,14 @@ async function main() {
     evidence.attachmentOperation = result.operationId;
     evidence.initialStatus = await manager.getServerStatus(config.serverId, providerId);
     if ((evidence.initialStatus as { status: string }).status !== "offline") throw new Error("Acceptance requires an initially stopped test runtime.");
+    let javaConfiguration: Buffer | undefined;
+    if (config.kind === "java") {
+      const configuration = preview.descriptor.manifest.find((item) =>
+        item.name === "configuration" && item.relativePath === "server.properties" && item.artifactType === "file");
+      if (!configuration) throw new Error("Verified Java configuration manifest entry required.");
+      javaConfiguration = await fs.readFile(await canonicalAttachmentPath(path.join(root, "server.properties")));
+      assertAcceptanceArtifactIntact("java", configuration, javaConfiguration, javaConfiguration);
+    }
     const operation = await manager.startServer(config.serverId, providerId); if (operation.status !== "completed") throw new Error("Start dispatch failed; inspect persisted operation."); started = true;
     const deadline = Date.now() + 120_000;
     while ((await manager.getServerStatus(config.serverId, providerId)).status !== "online") {
@@ -76,7 +84,7 @@ async function main() {
     await waitForRuntimeStopped(manager.getProvider(providerId), config.serverId); started = false;
     for (const artifact of preview.descriptor.manifest.filter((item) => item.relativePath && item.artifactType === "file")) {
       const bytes = await fs.readFile(path.join(root, artifact.relativePath!));
-      if (createHash("sha256").update(bytes).digest("hex") !== artifact.observedHash) throw new Error(`Source artifact changed during acceptance: ${artifact.name}`);
+      assertAcceptanceArtifactIntact(config.kind, artifact, bytes, javaConfiguration);
     }
     for (const world of worlds) await fs.access(world.path);
     evidence.sourceArtifactsIntact = true; evidence.finalStatus = await manager.getServerStatus(config.serverId, providerId); evidence.status = "PASS";

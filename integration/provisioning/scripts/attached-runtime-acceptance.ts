@@ -3,7 +3,7 @@ import path from "node:path";
 import net from "node:net";
 import dgram from "node:dgram";
 import { createHash } from "node:crypto";
-import { attachmentAcceptanceConfig } from "./attachment-acceptance-config";
+import { attachmentAcceptanceConfig, attachmentAcceptanceEndpoint } from "./attachment-acceptance-config";
 import { canonicalAttachmentPath, pathContains } from "../../../packages/core/runtime-attachment-verification";
 import { InMemoryProviderManager } from "../../../packages/provider-manager";
 import { SqlitePersistenceRepository } from "../../../packages/core/sqlite-repository";
@@ -33,7 +33,11 @@ async function main() {
   const marker = JSON.parse(await fs.readFile(markerPath, "utf8"));
   if (marker.purpose !== "JBGH-022F" || marker.allowStartStop !== true || marker.allowWorldWrites !== true || path.resolve(marker.runtimeRoot ?? "") !== root) throw new Error("Runtime-bound approval marker with explicit world-write acknowledgement required.");
   const transport = config.kind === "java" ? "tcp" : "udp";
-  await assertEndpointFree(transport, config.port, "0.0.0.0");
+  const endpoint = await attachmentAcceptanceEndpoint(config, async () => {
+    const propertiesPath = await canonicalAttachmentPath(path.join(root, "server.properties"));
+    return fs.readFile(propertiesPath, "utf8");
+  });
+  await assertEndpointFree(transport, endpoint.port, endpoint.bindAddress);
   if (config.ipv6Port) await assertEndpointFree("udp", config.ipv6Port, "::");
   const evidenceParent = await canonicalAttachmentPath(path.dirname(config.evidence));
   if (pathContains(root, evidenceParent)) throw new Error("Evidence parent resolves inside the source runtime.");
@@ -50,7 +54,7 @@ async function main() {
     await manager.register(scopeRuntimeProvider(base, config.kind === "java" ? createAttachedJavaRuntime : createAttachedBedrockRuntime));
     manager.onEvent((event) => (evidence.events as unknown[]).push(event));
     const policy: RuntimeAttachmentPolicy = { hostId: "acceptance-host", managedRoots: {}, adoptionRoots: [root], adoptionLocations: { runtime: root }, artifactLocations: config.java ? { java: config.java } : {} };
-    const endpoints = [{ id: "game", protocol: config.kind === "java" ? "java-paper" : "native-bds", transport, bindAddress: "0.0.0.0", port: { mode: "fixed" as const, value: config.port } }];
+    const endpoints = [{ id: "game", protocol: config.kind === "java" ? "java-paper" : "native-bds", transport, bindAddress: endpoint.bindAddress, port: { mode: "fixed" as const, value: endpoint.port } }];
     if (config.ipv6Port) endpoints.push({ id: "game-v6", protocol: "native-bds", transport: "udp", bindAddress: "::", port: { mode: "fixed", value: config.ipv6Port } });
     const plan = await manager.planProvisioning({ schemaVersion: 1, providerId, serverId: config.serverId, hostId: "acceptance-host", storage: { mode: "adopt", locationRef: "runtime" }, endpoints, providerOptions: { artifactFile: config.artifact, ...(config.java ? { javaRuntimeRef: "java" } : {}) } });
     const preview = await manager.previewRuntimeAttachment(plan, policy);

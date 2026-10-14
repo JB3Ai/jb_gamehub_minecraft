@@ -1,8 +1,8 @@
 # JBGH-022A - Unified Server Provisioning Architecture
 
-Status: JBGH-022A-E foundations and JBGH-022F authenticated API/routing/harnesses implemented; live 022F acceptance unverified.
-Updated: 2026-10-05. JBGH-022F baseline: `230f883` on `dev/laptop-continuation`.
-JBGH-022 remains OPEN. Fresh-runtime provisioning is unimplemented; live acceptance remains separate.
+Status: JBGH-022A-E foundations implemented; JBGH-022F: CLOSED / PASS.
+Updated: 2026-10-14. JBGH-022F acceptance fixes through `355b572` on `dev/laptop-continuation`.
+JBGH-022 remains OPEN. Fresh-runtime provisioning is unimplemented; existing-runtime live attachment acceptance has passed for Java and Bedrock.
 
 ## JBGH-022B implementation boundary
 
@@ -1124,12 +1124,50 @@ The operator must separately place `.jbgh-022f-acceptance.json` in the test runt
 The harness never creates this approval marker or chooses a production runtime by
 default. It rejects overlapping evidence/source paths, uses short-lived port probes,
 attaches through ProviderManager, checks status, starts, waits for readiness, discovers
-provider endpoints/world IDs, stops, verifies required source artifact/config hashes
-and world existence, and records operation/event evidence separately. Cleanup attempts
+provider endpoints/world IDs, stops, verifies source integrity and world existence,
+and records operation/event evidence separately. Ordinary artifacts and all Bedrock
+configuration remain SHA-256 exact. Java `server.properties` uses a manifest-hash-verified
+pre-start snapshot and a post-stop active-property map comparison: comments and blank
+lines may change; literal active values must match, with added/removed keys, changed
+values, malformed active lines and duplicate keys rejected. Cleanup attempts
 a graceful stop only for a process started by the harness; it never deletes the source
 or force-restores changed files. Evidence explicitly records `playerAcceptance:false`.
-A changed source configuration causes acceptance failure rather than silently repairing
-it. World writes are acknowledged in the marker and are not claimed byte-identical.
+A changed active Java configuration or byte-changed Bedrock configuration causes
+acceptance failure rather than silently repairing it. Production attachment verification
+remains unchanged. World writes are acknowledged in the marker and are not claimed byte-identical.
+
+### JBGH-022F: CLOSED / PASS
+
+Authorized existing-runtime live attachment acceptance passed for both providers:
+Java on 2026-10-12 and Bedrock on 2026-10-14. Both runs attached the runtime,
+started it, reached online, discovered endpoints and worlds, stopped cleanly,
+and verified source integrity. These results cover runtime attachment/lifecycle;
+player acceptance was not performed.
+
+Java live acceptance:
+
+- provider: `minecraft`
+- server: `java-022f-live`
+- endpoint: `127.0.0.1:25565`
+- world: `jb3-integration-test-world`
+- sourceArtifactsIntact: `true`
+- playerAcceptance: `false`
+
+Bedrock live acceptance:
+
+- provider: `minecraft-bedrock`
+- server: `bedrock-022f-live`
+- IPv4: `0.0.0.0:19132`
+- IPv6: `:::19133`
+- world: `Bedrock level`
+- sourceArtifactsIntact: `true`
+- playerAcceptance: `false`
+
+Acceptance-driven fixes:
+
+- `c3297bd` — accept unrelated escaped Java properties
+- `12ceb25` — honor Java attachment bind address
+- `355b572` — tolerate Java config comment rewrites
 
 ### Validation and remaining closure work
 
@@ -1140,7 +1178,7 @@ world/root isolation, single event forwarding, unknown IDs, artifact drift, EULA
 spawn failures, ownership preservation and fail-closed harness configuration. No real
 Java/BDS runtime or human client is used by these tests.
 
-Before JBGH-022 can close, obtain explicitly authorized live attached-runtime evidence,
+JBGH-022F live attached-runtime evidence is complete. Before JBGH-022 can close,
 complete any remaining documented API/auth deployment acceptance and separately scope
 fresh-runtime creation/artifact/licensing/external-effect recovery. The known Bedrock
 ContentImportPlanner 422 failure remains separate and unchanged. JBGH-022G has not begun.

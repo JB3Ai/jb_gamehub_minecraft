@@ -1181,4 +1181,822 @@ Java/BDS runtime or human client is used by these tests.
 JBGH-022F live attached-runtime evidence is complete. Before JBGH-022 can close,
 complete any remaining documented API/auth deployment acceptance and separately scope
 fresh-runtime creation/artifact/licensing/external-effect recovery. The known Bedrock
-ContentImportPlanner 422 failure remains separate and unchanged. JBGH-022G has not begun.
+ContentImportPlanner 422 failure remains separate and unchanged. JBGH-022G implementation has not begun.
+
+## JBGH-022G — Managed Fresh-Runtime Provisioning
+
+Status: ARCHITECTURE PROPOSED / NOT IMPLEMENTED. Reviewed against the checkout at
+`ae7f3b2` on 2026-10-14. The sections above retain their historical implementation
+boundaries. This section specifies the narrower first fresh-CREATE implementation;
+it does not enable a capability, apply endpoint, migration or acceptance harness.
+JBGH-022F remains CLOSED / PASS and overall JBGH-022 remains OPEN.
+
+### Scope and recommendation
+
+Recommend **A: synthetic contract coverage plus Java/Paper fresh creation first**.
+Use an approved local profile, create a new directory beneath an approved managed
+root, copy its explicitly enumerated artifacts, generate provider configuration,
+persist a managed definition, and activate it in the existing scoped collection.
+Finish **PROVISIONED, initially stopped**, with no process launch or first boot.
+
+Synthetic exercises the neutral creation service, repository and effect gateway
+with deterministic fixtures; it does not substitute simulated effects for proof
+that Java filesystem creation works. Keep the existing 022D simulation executor
+and its tests unchanged. Add fixture-backed real filesystem tests for the new
+gateway and Java adapter before enabling Java's managed-create capability.
+
+| Choice | Benefit | Additional cost / decision |
+|---|---|---|
+| A: synthetic + Java | One local-file manifest, one configuration renderer, one TCP listener and explicit Java/EULA references; materially advances CREATE while reusing the 022F routing path. | Java first boot/readiness and Bedrock fresh-create remain separate gates. |
+| B: synthetic + Java + Bedrock | Both production providers could create managed storage together. | Requires a complete approved BDS runtime-tree manifest, executable/platform dependencies, permissions and dual UDP endpoint handling, increasing copy/recovery cases before the first filesystem executor is proven. |
+
+Choose A. Native BDS CREATE must remain unavailable, even though its existing
+planner describes create and attached-runtime acceptance passed. Bedrock planning,
+attachment, source verification and lifecycle behavior remain unchanged.
+
+The exact first implementation boundary is:
+
+1. Local host only; `storage.mode="create"`; approved existing local managed root.
+2. Stable generated or explicitly validated single directory leaf and server ID.
+3. A versioned, operator-approved local Java profile, artifact hashes, trusted Java
+   executable reference and a scoped prior EULA-acceptance record.
+4. Exactly one fixed literal-IPv4 TCP game endpoint. No allocation, RCON, query,
+   Geyser or additional listeners. Provider-owned configuration represents exactly
+   the approved endpoint and safe level name.
+5. All-or-nothing transactional server/path/endpoint claims, explicit approved
+   create preview, journaled filesystem effects, managed definition persistence,
+   guarded activation, recovery and ownership-limited compensation.
+6. No start during apply or recovery. Explicit subsequent lifecycle commands use
+   the existing authenticated routes/queues; their success is a separate operation.
+7. The distinct approved-create API below and safe operation/discovery projections.
+   No installer UI, batch creation or deletion API.
+
+A missing generated world is a declared deferred validation, not a provisioning
+failure. Do not require `level.dat`, claim a discovered world or mark READY before
+first boot. Approved artifact bytes and configuration can be verified while stopped;
+runtime compatibility, boot-time resource requirements and world readiness cannot.
+
+### Strict non-goals
+
+No internet downloads, Paper acquisition API, Mojang/BDS acquisition automation,
+automatic license/EULA acceptance, upgrades, general destructive deletion,
+firewall/NAT changes, containers, remote agents/hosts, arbitrary shell commands,
+content import expansion, or changes to FamilyService, AI, rewards or analytics.
+The known Bedrock ContentImportPlanner 422 gap remains separate. No existing Java
+or BDS installation is copied as an implicit template or used as a destination.
+
+GameHub-managed ownership authorizes narrowly recorded provisioning compensation,
+not a DELETE endpoint. This slice does not reclaim running processes after restart,
+install Java, execute a binary to infer acceptance/compatibility, start a server to
+discover defaults, or silently reapprove changed artifacts/configuration.
+
+### Repository fit and required additions
+
+The inspected contracts impose these concrete constraints:
+
+- `ProvisioningApplyService` requires `executionMode="simulation"`. Do not remove
+  that guard or place real effects in the 022D executor. Introduce a focused
+  managed-creation service and optional provider adapter behind ProviderManager.
+- Existing create preflight checks file presence and point-in-time inventory;
+  it does not pin artifact bytes, generate config or attest EULA acceptance.
+  Managed-create preflight must produce a separate verified preview.
+- Existing claims are acquired one step at a time. Managed CREATE needs a new
+  repository method to acquire its complete claim set in one write transaction.
+- Existing attachment descriptors require `ADOPTED`, and scoped discovery currently
+  hard-codes that label. Do not fabricate an adopted record or call the adoption
+  verifier against a fresh-created directory.
+- Existing schema is v7. Completed attachment recovery and legacy bootstrap must
+  continue to work without converting their rows, roots or verification policies.
+- Existing activation contains awaits before publishing a child. Managed activation
+  needs a final current-definition/fence check at publication and a lifecycle
+  admission check, not just a check before constructing a runtime.
+
+These are proposed implementation changes, not changes made by this document.
+
+### Ownership and provider/core responsibilities
+
+A managed definition records `ownership="MANAGED"`, `mode="create"`, origin operation,
+approved create digest, canonical private runtime identity, definition version and
+an explicit per-effect ownership ledger. Public `destructiveOwnership=false` remains
+the default: compensation is an internal, operation-specific permission, never a
+general storage-deletion grant. ADOPTED definitions retain their existing semantics.
+
+| Owner | Responsibility |
+|---|---|
+| Core / creation service | Approval, state transitions, claims, dependency order, effect intents/receipts, fencing and recovery, ownership checks, compensation coordination, safe result projections. |
+| Repository | SQL transactions, operation/definition identity, claim exclusion, lease CAS, effect records, transition/audit/history persistence and retention protection. |
+| Neutral filesystem gateway | Constrained create/open/copy/publish/remove primitives, containment/identity checks, exclusive creation, durability checks, access to the host mutation guard; no provider configuration interpretation. |
+| Java adapter | Profile/options schema, Paper and Java artifact requirements, safe file layout, configuration/EULA rendering, launch metadata and managed-start verification. It supplies declarative entries, not arbitrary filesystem callbacks or shell text. |
+| Bedrock adapter, later | Approved expanded runtime-tree requirements, platform/layout/permissions, native configuration and UDP endpoints; no acquisition or license automation. |
+| Scoped provider collection | One provider registry identity, per-server children, queues, one event subscription per child, definition-aware activation/deactivation and restart rehydration. |
+| Operator | Approved roots/profiles/source hashes, service access policy, host identity, explicit license acceptance and supported filesystem environment. |
+
+A provider creation manifest is bounded data: safe relative file destinations,
+`copy-approved-reference` or `write-rendered-bytes` entries, required hashes/sizes,
+dependency ordering and immutable versus generated configuration roles. Core
+rejects unknown entry kinds, paths escaping the new root, duplicate/case-aliased
+destinations and entries targeting reserved ownership metadata. Providers cannot
+choose another operation's root or remove resources directly.
+
+### Artifact/profile and EULA model
+
+Keep the existing schema-v1 create storage/endpoints fields. For executable Java
+CREATE, introduce provider-owned, validated `providerOptions.profileRef` and
+`providerOptions.eulaAcceptanceRef`; they are opaque safe references. A trusted
+profile resolves the local artifact and Java references. Do not require a broad
+top-level request-schema rewrite or expose absolute artifact locations.
+
+Existing `artifactRef` / `javaRuntimeRef` create descriptions remain valid planning
+data, but do not become executable through the new endpoint without an approved
+profile. Reject mixed conflicting profile/direct-ref options; no fallback from an
+unknown profile to a caller-supplied path. Adopt options and behavior stay compatible.
+
+The trusted profile is versioned and binds provider/adapter/config-template versions,
+OS/filesystem support, approved artifact reference names, byte sizes and SHA-256,
+destination filenames, Java reference, endpoint policy and level-name policy.
+Only the operator policy maps references to absolute locations. The approved Java
+executable is verified as a read-only external reference, not copied/modified.
+The first profile normally copies one approved Paper JAR; any other required local
+files must be explicitly enumerated. No recursive cache/install-tree copy or archive
+extraction is implied. A hash proves approved bytes, not executable safety or offline
+first-boot readiness; the operator must attest compatibility of the chosen profile.
+
+Preflight hashes source handles and verifies regular-file type, identity, size and
+stable content. Reopen/reverify under apply guard before copying; compare copied
+bytes with the approved hash. Refuse changed sources, symbolic links/junctions,
+unsupported file types and files with unapproved hard-link aliases. Sources and Java
+references are protected from destination overlap and compensation.
+
+Prior Java EULA acceptance is a durable trusted record, not an HTTP `eula:true`
+flag. Record acceptance ID, trusted operator actor/time, provider, pinned profile
+revision, operator-supplied terms reference/revision, and allowed scope (specific
+server ID or explicit profile/host scope). Bind its ID and revision into approval.
+The creation adapter may render `eula.txt` with `eula=true` **only** when that
+pre-existing record explicitly authorizes writing acceptance for this fresh runtime.
+Ordinary provisioning approval cannot create or widen that record. Missing,
+revoked, stale or out-of-scope acceptance blocks apply before filesystem mutation.
+No acquisition/consent UI or legal interpretation is implemented in 022G.
+
+Recommended first policy: require valid prior acceptance even for stopped creation.
+This keeps PROVISIONED meaningful as launch-eligible subject to a later lifecycle
+action. Rendering `eula=true` records explicit prior acceptance; it is not silent
+acceptance. Existing adopted EULA files are never rewritten. First boot retains the
+Java factory's acceptance check and adds managed policy/reference verification.
+
+Deferred BDS model: an operator-pre-expanded, approved read-only runtime bundle,
+with a bounded manifest of every copied file, relative directory, hash, platform and
+required executable permission. Exclude existing worlds/logs/identity/config from
+implicit copying; generate new configuration. Handle auxiliary files and empty
+directories explicitly. A single executable reference is insufficient to attest a
+complete native runtime. No downloader or automatic license decision is designed.
+
+### Managed-create preview, paths and approval
+
+Retain read-only planning and existing adoption preflight. For supported CREATE,
+persist a `ManagedCreatePreview` in a separate tagged plan-preview slot. Its private
+snapshot includes plan, stable server ID/leaf, provider/profile/template revisions,
+policy revision, canonical root/parent identities, proposed final path, source
+manifest hashes, rendered config/file hashes, endpoint claims, EULA record revision
+and `startup="remain-stopped"`. Times and diagnostic warnings are excluded from its
+stable approval digest; all executable decisions and preconditions are included.
+
+The public projection exposes reference IDs, ownership, safe leaf, relative files,
+hashes, endpoint proposals, EULA acceptance reference and deferred world validation.
+It never exposes absolute roots, inode/device identities, executable paths, command
+arguments, policy secrets or raw filesystem errors. Persisting a plan/preview is
+allowed; planning/preflight must not mutate runtime/artifact files, claim resources,
+bind probes, publish definitions, start processes or accept licensing.
+
+Resolve the trusted managed root through every existing ancestor. Require an
+existing local directory and reject symlinks, junctions, unsupported reparse/mount
+aliases, UNC/device/drive-relative paths and unsupported filesystem behavior.
+The destination is a strict direct child, with a safe single leaf: no separators,
+traversal, alternate streams, reserved Windows devices, trailing dots/spaces or
+case-equivalent reserved metadata names. Derive omitted ID/leaf once using the
+existing deterministic plan identity and persist them; retries never pick new names.
+
+Protected paths must include all legacy/adopted runtime trees, artifact sources,
+approved Java installations, evidence locations and other operator-protected roots.
+Reject either-direction overlap, including nested/aliased managed roots, and pin
+root/parent identity. Managed-root references that alias the same directory share
+physical claims. No destination may already exist, even empty; a matching marker
+alone is not resume permission. Recovery uses the original operation/effect journal,
+not a new plan that adopts a leftover directory.
+
+Revalidate profile, EULA record, root identity, sources, claims and final absence
+under apply guard. Drift invalidates approval; return PLAN_STALE / ARTIFACT_DRIFT
+and require new preflight/review. Do not substitute a newer source/version, port,
+directory name, Java reference or acceptance record behind an old digest.
+
+### Claims and endpoint safety
+
+Before the first directory/file effect, one repository transaction records the
+approved operation/actor and acquires the entire resource set or none:
+
+- Global server ID, shared with legacy servers and adopted/managed definitions.
+- Canonical physical path: host + normalized root identity/path + direct child;
+  equal and ancestor/descendant overlap exclusion with existing attachment claims.
+- Existing conservative endpoint bucket: host + transport + numeric port.
+  Bind address is still recorded in the approved manifest/configuration, but
+  different IPv4 addresses cannot bypass the shared port claim.
+- Any reserved operation-local temporary names beneath the new runtime.
+
+Inventory legacy identities/roots/endpoints before enabling mutation and prevent
+registry changes from bypassing the shared admission policy. Keep compatibility
+with existing synthetic/attachment claim namespaces; do not introduce a separate
+CREATE namespace that permits the same server or port twice. Claims persist after
+successful stopped provisioning and through partial/uncertain rollback.
+
+Network endpoints require complete trusted inventory during verified preflight.
+Apply rechecks persisted reservations and uses a bounded exclusive bind probe under
+the claimed endpoint before the first filesystem effect. Synthetic virtual endpoints
+need no socket. Probe success is point-in-time, not an OS reservation. Stop/release
+the probe without launching a runtime. An external process may later occupy the
+port; a subsequent explicit start must revalidate availability and report an honest
+lifecycle failure without deleting an already provisioned runtime. No auto allocation
+or hidden bind-address rewrite is permitted.
+
+### Create/apply state machine and visibility
+
+Use existing operation states for the new service; keep new per-effect recovery
+detail separate rather than pretending it is an existing exported state.
+
+```text
+stored PLANNED -> verified preview -> explicit approval
+  -> atomic operation + all claims -> APPLYING
+  -> owned directory + files -> verified creation manifest
+  -> durable PENDING_ACTIVATION definition -> guarded provider activation
+  -> atomic definition ACTIVE + PROVISIONED result
+failure -> FAILED -> ROLLING_BACK -> ROLLED_BACK
+                                -> PARTIALLY_ROLLED_BACK (retained resources/claims)
+```
+
+The operation type remains `server.provision.apply` with a new internal
+`executionKind="managed-create"`, distinct from simulation and attachment.
+No STARTING or READY transition occurs in 022G. Approval includes remain-stopped;
+a request for start-after-apply is rejected, not ignored.
+
+Create directly into an exclusively created final runtime directory under the
+private managed root; whole-directory staging/rename is not required in this first
+slice. The directory is incomplete until journal verification and definition
+completion. Individual files use intent-owned temporary siblings and non-overwriting
+publication. No provider discovery or lifecycle operation exposes an incomplete
+server, even if its directory already exists.
+
+Persist a PENDING_ACTIVATION definition only after all required creation receipts and
+read-only validation pass. Instantiate/register the provider child without starting it,
+then perform a current-token/current-definition check at final collection publication.
+A published-but-unfinalized child is quarantined from lifecycle admission/discovery.
+Commit ACTIVE definition, successful result and durable audit/event projection in
+one transaction. Only then expose normal discovery and authenticated lifecycle.
+Failed final commits leave a recoverable pending definition, never a reported success.
+
+Share the existing provider collection, queues, endpoint projection and event forwarding,
+but generalize its internal runtime record as a discriminated ADOPTED / MANAGED
+definition. Do not turn CREATE into an ADOPTED descriptor or repeatedly register a
+second `minecraft` provider. Preserve existing attachment IDs and adopted projections;
+managed discovery reports MANAGED with its managed definition/operation identity.
+The Java factory can reuse its launch/console implementation behind a managed
+descriptor resolver; it must not inherit legacy shell commands.
+
+Managed verification distinguishes immutable executable/profile/ownership facts
+from provider-generated mutable runtime data. Before first exposure, generated
+configuration must match its approved bytes. Later explicit start/restart checks
+the managed provider's safe config schema, approved endpoint/level name, disabled
+auxiliary listeners, current EULA record and immutable runtime/Java artifacts.
+It must not silently approve effective configuration changes. Comment-only Paper
+rewrites are not a reason to weaken the adopted-runtime verifier. Worlds/logs
+created by a separately approved lifecycle action are not provisioning rollback
+resources. The Java-start contract and its drift tests must be documented before
+enabling lifecycle for MANAGED children.
+
+### Filesystem effect journal
+
+There is no transaction atomically committing SQLite and the filesystem and no
+claim of exactly-once filesystem mutation. Every mutating primitive has durable
+intent before execution and a separately committed observed receipt afterward.
+
+An intent includes operation/effect/attempt IDs, phase/direction, approval digest,
+fencing token, parent/root identity, safe relative target, expected prior state,
+source reference/hash or generated byte hash/size, dependencies and allowed
+compensation. A receipt records observed object identity, type/hash/size, completion
+time and evidence used to reconcile. Internal ownership metadata is not publicly
+returned. Attempts use token-specific temporary names; recovery cannot replace
+another attempt's file merely because it has the same desired hash.
+
+| Effect | Preconditions and exact mutation | Receipt and recovery | Compensation |
+|---|---|---|---|
+| Create runtime directory | Directory intent committed; claims/current token/host guard; verified parent, final leaf absent. Exclusive non-recursive mkdir of that one child. | Record returned directory identity. If a crash occurs before identity/ownership evidence is durable, do not infer ownership from existence: retain path/claims for review. If still absent, recovery may execute the same intent. | Only empty removal of the recorded same object after all proven children are removed. Never recursively remove the managed root. |
+| Write ownership marker | Separate marker intent; owned directory identity; reserved marker path absent. Exclusive create of fixed schema bytes binding operation, create digest, root and definition identity; flush before receipt. | Marker hash and identity plus directory receipt. Match SQLite intent/receipts and root identity; marker alone grants no authority. Truncated/missing ambiguous marker requires safe reconciliation or quarantine. | Remove only the proven marker after all other owned files; retain it if a dependent effect cannot be removed. |
+| Create temporary file | Intent for one approved file/attempt; owned marked parent, temp/final names absent, no links. Exclusive open of token-specific temp, record object identity before streaming bytes. | Durable open/identity observation distinguishes a known partial file from an unknown object. Crash before that observation is an ownership ambiguity, not permission to delete. | Remove a known partial temp only if its identity/type/parent still match. |
+| Copy approved artifact | Copy intent references source identity/hash and owned temp receipt; source read-only, regular, stable and disjoint. Bounded streaming copy into that handle, hash copied bytes, flush/close. | Record copied size/hash; recheck source identity/content. Recovery accepts a fully matching temp or removes a proven partial temp and starts a new journaled attempt. It never edits the source. | Remove only owned destination/temp objects matching receipts; preserve sources/shared caches. |
+| Render/write configuration or EULA | Write intent specifies exact provider-rendered bytes/hash and scoped acceptance record; owned temp handle, current profile/EULA revision. Write, verify, flush/close. | File hash/identity plus renderer/acceptance revisions. Recovery cannot regenerate different bytes or widen acceptance without reapproval. | Remove only the operation's unchanged generated file; changed active content is retained for review. |
+| Publish file | Publish intent; complete temp receipt; owned parent; final absent. A supported same-filesystem no-clobber publication primitive, followed by identity/hash verification. | Reconcile temp/final observed identities. Matching final + intent can be receipted if provenance is proven. A same-hash foreign file is still a collision. | Remove only proven final/temp objects. Never overwrite an existing destination with ordinary rename. |
+| Remove owned file/temp/marker | Compensation intent references exact creation receipt, current identity/type, parent and dependents; runtime not exposed/running. Identity-guarded unlink; marker last. | Record absence and compensate receipt. If already absent, reconcile under original ownership evidence; substitutions or unknown children remain retained. | No restoration of foreign or adopted bytes; interruption resumes compensation, not creation. |
+| Remove owned runtime directory | All child removals receipted; recorded identity still matches; directory empty and inactive. Non-recursive rmdir. | Absence receipt allows final rollback/claim release. Unknown files, aliases or changed identity block removal. | No parent-root removal or recursive force cleanup. |
+
+All file flush/publication/directory-durability assumptions must be established for
+the supported local filesystem/platform. If safe exclusive/no-follow/no-clobber
+primitives or identity checks cannot be provided, CREATE stays disabled there.
+Ordinary rename is not a portable no-overwrite primitive. Do not claim power-loss
+atomicity from process-crash tests or SQL durability alone.
+
+### Fencing, restart recovery and crash boundaries
+
+A monotonic SQLite lease token fences repository updates but cannot cancel an
+already issued filesystem call. Require a **host-wide exclusive mutation guard**
+shared by all GameHub CREATE/compensation/recovery workers using this database and
+its approved roots. The guard must have OS-backed interprocess exclusivity and
+release on proven owner exit; a timestamp lockfile is insufficient. Hold it across
+an operation's mutation/compensation session, including outstanding async I/O.
+
+Takeover requires both expired lease eligibility and acquisition of the guard after
+the old executor has exited or acknowledged cancellation and drained all I/O.
+A suspended holder blocks recovery rather than allowing two writers. Do not force
+unlock because a heartbeat expired. Check current token/policy before each mutation,
+after each await and at receipt/definition/collection publication. Loss of lease
+stops new work; a late effect is reconciled, not blindly compensated by the stale
+worker. Fenced workers cannot begin an unlink or publish an in-memory child.
+
+The implementation must choose and test a Windows-capable guard/no-follow gateway
+before enabling production CREATE. In-process queues alone do not satisfy this
+contract. Trusted-root ACLs exclude uncoordinated writers, with read/write identity
+checks covering accidental operator interference. This is not protection against
+a malicious administrator replacing service-owned files or a second independent
+GameHub database claiming the same root: prohibit that policy arrangement.
+
+Recovery loads trusted policy and current provider adapters before admitting lifecycle
+traffic. It verifies durable operation, all claims and effect evidence; rehashing and
+reconciliation do not create a new approval. Resumption is allowed only with the
+same executable decisions and still-valid acceptance/profile. Changed/revoked policy
+blocks forward work; only explicitly authorized ownership-safe compensation may
+proceed. An unavailable root or ambiguous effect remains recovery-required with
+claims retained, not falsely completed or erased.
+
+| Crash boundary | Required outcome after guard acquisition |
+|---|---|
+| Before directory creation | No object means execute the original durable intent; existing unproven object means collision/quarantine. |
+| After mkdir, before ownership receipt/marker | Missing durable provenance means retain orphan/path claim and surface ownership ambiguity; do not guess or recursively clean up. |
+| After directory/marker receipts | Revalidate root, object identities and matching journal; continue missing approved file intents. |
+| During artifact copy | Known partial temp may be compensated and copied under a new attempt; unknown identity is retained; complete matching bytes can receive a reconciled receipt. |
+| After configuration write, before receipt/publication | Inspect known temp/final identity/hash and current acceptance revision; reconcile the same bytes or compensate proven partial work. Never substitute a new template. |
+| After definition persistence | PENDING_ACTIVATION is durable but not routable; verify receipts and hydrate the missing scoped child without starting it. |
+| After provider activation | Reuse compatible definition/digest; one child/subscription. Old-process in-memory state is not a durable receipt; reconstruct after restart. |
+| Before final operation completion | Complete ACTIVE + PROVISIONED once the pending definition, activation and claims agree; do not repeat filesystem work. |
+| During compensation | Remain ROLLING_BACK, replay removal intents by receipt/identity, and stop if ownership changed. |
+| After PROVISIONED / GameHub restart | Reverify managed definition/launch-critical facts and hydrate through the scoped collection without a process start. Incompatible/missing policy leaves a durable unavailable server and safe diagnosis. |
+
+No process was started by CREATE, so recovery need not stop one. If external process
+use or later lifecycle exposure is detected during incomplete compensation, retain
+storage and require operator review. Existing 022F limits on lost process-console
+handles and external-process adoption remain in force.
+
+### Rollback, retry and compensation rules
+
+Reverse dependencies: quarantine/detach only this operation's unpublished child,
+remove/tombstone its pending definition, compensate owned published files and temps,
+remove marker, remove empty owned directory, then atomically release claims and
+record ROLLED_BACK. Write compensation intents/receipts with the current token.
+Do not remove prerequisites while a dependent compensation is unresolved.
+
+Any unknown ownership, substituted path, modified file, unexpected child, active
+runtime, unavailable storage or failed cleanup produces PARTIALLY_ROLLED_BACK with
+safe residual summaries and **all claims retained**. Unknown objects without a
+completed effect receipt must also be recorded as residuals; rollback must not
+inspect only the completed-effects table and mistakenly release their claims.
+Store private remediation detail in the journal; return safe references/codes publicly.
+
+PROVISIONED is a durable success boundary. No later start failure or client use
+automatically deletes its runtime. Compensation permission ends at successful
+publication; cleanup thereafter requires separately reviewed scope. Managed world
+data is never disposable by implication.
+
+Identical apply retries bind stored plan/create digest to one operation and return
+that operation, in-flight or terminal, without a second directory, activation or
+EULA write. Deterministic plan IDs survive restart. Changed approval is a conflict.
+ROLLED_BACK and PARTIALLY_ROLLED_BACK are terminal recorded results, not implicit
+permission to re-execute. A fresh attempt needs a new reviewed plan identity
+(for example a different explicit server ID/leaf); a retained leaf is blocked.
+No general repair/delete endpoint is introduced. Recovery of incomplete operations
+continues the existing operation and original approved decisions.
+
+### SQLite and repository proposal
+
+Propose the next versioned migration after v7 (v8 if still available at implementation).
+Leave adopted rows and 022D simulation effects unchanged; do not repurpose
+`provisioning_external_intents`' one-row-per-attachment contract as a filesystem journal.
+
+| Addition / extension | Required durable data and constraint |
+|---|---|
+| Tagged create-preview storage alongside `provisioning_plans` | Immutable executable snapshot, create digest, policy/profile/EULA revisions, source/config hashes and private path identities; distinguish from attachment preview. |
+| `managed_runtime_definitions` | Unique server ID and origin operation; provider/host/profile, canonical private runtime identity, manifest, MANAGED ownership, version and PENDING_ACTIVATION / ACTIVE / RECOVERY_REQUIRED status. Shared claims enforce exclusion with adopted/legacy IDs. |
+| `provisioning_file_intents` | Operation/effect/attempt/direction keys, current token, precondition, target/reference, approval hash, observed object evidence, mutation/reconciliation/compensation phase. Unique stable effect plus attempt identity; append history retained. |
+| `provisioning_file_receipts` | Creation/open/copy/publication/removal evidence, identity/hash/size and current reconciliation token; no receipt without matching durable intent. |
+| Trusted EULA acceptance records | Acceptance ID/revision, actor/time, terms reference, profile/host/server scope and revocation state; supplied through trusted operator policy/repository administration, never self-asserted by the HTTP body. |
+| Existing applies/claims/journal projections | Discriminated managed-create execution, atomic multi-claim acquisition, definition publication CAS and finalization/release; reuse operations/events/audit, without SQL in routes/providers. |
+
+Focused repository methods should persist preview, approve-and-claim-all, begin/observe/
+receipt an effect, update leases/fences, persist pending definition, finalize active
+definition plus result, and finish complete/partial rollback. Preserve the current
+synchronous SQL transaction abstraction: no SQL transaction is held across artifact
+streaming or a provider await. The host guard supplies external-effect serialization;
+SQL commits separately protect intent, approval, claims and public transition facts.
+
+Protect active definitions, acceptance provenance, ownership ledger and unresolved
+effects/claims from ordinary operation/event retention. A display-only server_state
+snapshot is not a reconstructable definition. DB failure after an effect retains a
+recoverable intent; DB failure before an intent prohibits that effect. Persist safe
+event/audit projections transactionally; WebSocket delivery is notification, not a
+completion guarantee. Avoid promising a general exactly-once outbox subsystem here.
+
+### API proposal
+
+Reuse the authenticated internal-admin policy and existing plan/read routes.
+Extend CREATE preflight with a safe `creation` projection while keeping `attachment`
+and existing adopted responses unchanged. Do not overload `/attachments` to copy or
+create files: its reference-only ownership contract remains ADOPTED.
+
+| Route | Proposed managed-create behavior |
+|---|---|
+| POST `/api/provisioning/plans` | Existing schema-v1 create request, provider-validated profile/acceptance references; durable descriptive plan. No raw paths, profile bodies, commands or acceptance booleans. |
+| POST `/api/provisioning/preflight` | Existing `{planId}`; persist/return safe `creation:{digest,ownership,profileRef,files,endpoints,deferredValidations}` for executable CREATE, never a fabricated attachment preview. Initial plan digest is insufficient for approval. |
+| GET `/api/provisioning/plans/:id` | Stored plan and safe creation preview/revision, preserving existing adoption projection. |
+| POST `/api/provisioning/plans/:id/apply` | Distinct new route; `{approved:true,digest}` approves the stored managed-create preview. Trusted principal supplies actor. Reject ADOPT or absent/unsupported create capability. |
+| GET `/api/operations/:id` | Existing operation API with sanitized managed-create result/phase/residual summaries; no parallel operations store. |
+| Existing discovery/scoped lifecycle/history/WebSocket routes | Expose completed managed definitions and keep 022F authorization, per-server queues and provider identity. Pending/quarantined children cannot bypass admission through legacy URLs. |
+
+Return 202 plus the existing operation reference for queued/in-flight accepted apply,
+200 for terminal replay with its truthful state, 400 for schema/approval syntax errors,
+401/403 for existing auth outcomes, 404 for absent plan, 409 for stale/conflicting
+approval or claims, and 422 for unsupported provider/profile/license/creation policy.
+Once accepted, effect failure is an operation result, not a fabricated HTTP success
+claim; poll the operation state. Duplicate in-flight callers receive the same ID.
+
+Add an explicit supported-mode/policy gate (for example `server.provision.create`)
+alongside apply capability. Existing Java plan/preflight/adopt capability does not
+authorize CREATE. Native Bedrock returns unsupported here; synthetic simulation
+cannot masquerade as real Java creation. Missing policies/root access/guard support
+disable mutation. Authentication is checked before resolving trusted references.
+
+All HTTP/body/plan/profile/error/event projections require allow-listed fields.
+Never serialize private definitions, raw exceptions, host-lock metadata, absolute
+artifact/root/Java paths, tokens or launch arguments. Keep operation/history/WebSocket
+authorization and add tests for managed IDs through both scoped and legacy routes.
+A reference string that happens to contain a filesystem path must fail schema
+validation, not be looked up or passed to the gateway.
+
+### Deterministic implementation test gates
+
+Use node:test fixtures, temporary databases and injected clocks/barriers; no live
+Paper/BDS runtime or network download is part of these tests. These gates are
+proposed coverage, not tests executed in this architecture task.
+
+| Gate | Required proof |
+|---|---|
+| Plan/preflight isolation | Stable generated ID/leaf and hashes; no runtime/artifact writes, claims, bind probes, process starts, EULA changes or provider activation; persisted previews allowed. |
+| Paths and collisions | Root equality, traversal, separator/device/ADS names, case aliases, symlinks/junctions/reparse points, protected/source/adopted overlap, pre-existing empty targets and substitution all fail safely. |
+| Atomic claims | Two DB connections compete for server/path/port; exactly one full claim set wins, loser has none; legacy/adopted/synthetic aliases conflict; disjoint TCP/UDP namespaces remain compatible. |
+| Artifact/config correctness | Exact approved source/copy hash and size, source drift/short copy/unreadable file/hard-link alias rejection, no source mutation; generated endpoint/level/EULA bytes match the provider manifest. |
+| Licensing | Missing/revoked/out-of-scope record and forged body booleans fail before effects; accepted record is audited/pinned; adopted EULA bytes stay untouched. |
+| Ownership | MANAGED discovery versus ADOPTED, marker + DB identity required, same-hash foreign objects never imply ownership, no delete capability granted. |
+| Effect crashes | Interrupt before and after every intent/open/mkdir/marker/copy/config/publication/receipt/definition/activation/finalization boundary; reconcile known effects, quarantine unknown provenance. |
+| Fencing | Suspended old worker with outstanding I/O retains host guard; lease expiry alone cannot authorize another writer; stale token cannot mutate/receipt/activate/remove; termination releases guard for reconciliation. |
+| Compensation | Reverse-order owned cleanup, repeated removal reconciliation, altered files/unknown children/permission or DB failure produce honest partial rollback retaining all claims and prerequisites. |
+| Retry/restart | Same approval returns one operation/definition; completed replay never writes files; incomplete restart resumes/reconciles safely; partial rollback stays terminal and blocks reuse. |
+| Provider collection | Multiple Java managed children and adopted/legacy servers coexist, one subscription/event, guarded pending activation, correct ownership, unknown/wrong provider ID refused. |
+| Remain stopped | Mock every spawn/start/shell function to fail during create/recovery; fresh success is offline/PROVISIONED, worlds deferred, never READY. |
+| Later lifecycle boundary | Managed start verification rejects artifact/endpoint/EULA drift; restart hydration starts no process; a failed explicit start retains successful created storage. |
+| API security | Admin auth, unknown fields/path/profile/actor injection, stale digest and unsupported Bedrock CREATE; all public error/history/WebSocket/discovery responses omit paths/secrets/launch details. |
+| Backward compatibility | Run existing attachment, config/parser/integrity, routing/API, contracts and simulation suites unchanged; adopted verification stays exact and the known Bedrock content failure remains isolated. |
+| Storage/platform | Supported exclusive/no-clobber/no-follow/durability primitives verified on Windows; fault injection plus real second-process guard test, beyond an in-process mock. |
+
+The implementation validation baseline is lint, focused creation and existing
+attachment/provisioning/routing tests, contracts, full suite with the known unrelated
+failure explicitly reported, build and diff checks. This design adds no tests and
+does not assert any fresh-create validation is already green.
+
+### Later opt-in live acceptance
+
+Define a new managed-CREATE acceptance harness later; do not implement or run it
+during this task. Use an operator-approved **disposable managed root**, separate
+from the authoritative Java/BDS installs, their worlds and the 022F adopted roots.
+Approved artifact inputs are read-only; evidence lives outside the managed root.
+Require explicit admin/profile/EULA approval and a disposable-root marker/policy,
+never pick the repository cwd as an implicit destination.
+
+First Java managed-CREATE acceptance must record:
+
+1. Real CREATE plan/preflight/approval through the API, pinned local profile and
+   explicit prior EULA-acceptance reference; no downloads or arbitrary shell input.
+2. New directory, exact copied hashes, provider-generated config/EULA, durable
+   intent/effect/receipt history and retained claims; source artifacts unchanged.
+3. MANAGED provider-scoped discovery, correct endpoint/level intent, operation
+   PROVISIONED and offline, with no process launch, `playerAcceptance=false`,
+   `firstBootPerformed=false` and world readiness explicitly deferred.
+4. GameHub restart restores that definition, claims and scoped child without starting;
+   identical apply replay creates no additional files/servers.
+5. A second distinct managed runtime is isolated; ID/path/endpoint collisions refuse
+   mutation. Existing adopted/legacy runtimes and source installation hashes remain
+   unchanged.
+6. Controlled incomplete-operation fault/restart proves ownership-limited compensation
+   and truthful residual claims, using only disposable resources.
+7. Cleanup evidence names only operation-owned disposable resources. Completed-server
+   teardown is a separate explicit test cleanup authorization, not a new DELETE API
+   or an automatic rollback of successful provisioning.
+
+Any later opt-in first boot is a separate lifecycle acceptance, requiring explicit
+start/world-write permission and declared boot-time resources. Only that run may
+claim real startup/readiness/world discovery; human/player acceptance remains separate.
+Failure of a later start does not rewrite the successful CREATE result or silently
+remove the managed runtime. Bedrock fresh-create gets its own later bundle/dual-stack
+acceptance once that adapter is implemented, without rerunning or relabeling adopted
+BDS acceptance as proof of CREATE.
+
+### Remaining work and operator decisions
+
+Before 022G implementation can begin safely, the operator must choose:
+
+- The local service-owned managed root(s), disjoint protected installations/sources,
+  access controls and supported filesystem; no default production path is inferred.
+- The Java profile, pinned local files/hashes, approved Java reference and compatibility
+  attestation; whether any additional local boot resources must be enumerated.
+- The prior EULA-acceptance record, terms reference/revision and its server/profile
+  scope. Recommended stopped-create policy requires acceptance before apply.
+- The allowed fixed IPv4 bind/port and safe world-name defaults, plus trusted endpoint
+  inventory; no address/port migration or pool allocation is inferred.
+- The evidence/disposable acceptance root and separate cleanup/start permission when
+  the later live harness is authorized.
+
+Implementation must select/prove the host mutation guard and safe filesystem gateway;
+this is a technical release blocker, not a new request to authorize this document.
+Missing operator inputs keep CREATE disabled. The recommended Java-first/Bedrock-later
+boundary is a design decision; expand it only through a separately reviewed scope.
+
+Overall JBGH-022 still needs implementation/migration/API/auth/guard/compensation tests
+and authorized stopped-CREATE acceptance. Java-first completion alone does not close
+the whole two-provider provisioning goal. Native BDS managed creation, its approved
+runtime-bundle/license model and live acceptance remain explicit follow-up work.
+Any claims of first-boot readiness, content import integration, general process adoption
+or player lifecycle acceptance need their own scoped evidence. The Bedrock
+ContentImportPlanner 422 gap is neither fixed nor a hidden prerequisite for
+content-free Java CREATE; it remains separately tracked. Downloads, upgrades and
+deletion are not silently added to the closure criteria.
+
+## JBGH-022G-A implementation — Synthetic and Java managed CREATE
+
+Status: IMPLEMENTED / DISPOSABLE LIVE ACCEPTANCE DEFERRED.
+Implementation validation: 2026-10-14. Overall JBGH-022 remains OPEN.
+This record specifies the implemented boundary; earlier 022G text remains the
+broader architecture proposal. No fresh-runtime live acceptance has been run.
+
+### Implemented boundary and provider responsibilities
+
+The new `ManagedCreationService` creates a stopped, durable MANAGED runtime for
+supported scoped synthetic and Java providers. It does not replace the 022D
+simulation executor or change the adopted-runtime verifier. Native Bedrock has
+no managed-create adapter/capability and no CREATE filesystem path.
+
+Core resolves trusted root/profile references, verifies preview approval, acquires
+all server/canonical-path/endpoint claims transactionally, coordinates intents,
+filesystem receipts, definition activation, recovery and compensation. The narrow
+`ManagedFilesystem` gateway accepts only the resolved operation target and
+declarative file intents; providers receive no arbitrary mutation callback.
+
+`JavaManagedCreation` owns the Paper destination, exact minimal configuration,
+safe level name, Java-21 compatibility metadata and license rendering. It supports
+one fixed IPv4 TCP `java-paper` game endpoint whose bind address matches the trusted
+profile. RCON/query are false; Geyser, extra listeners, allocation, installation
+and downloads are unsupported. It copies only the explicitly approved local Paper
+file, never the Java executable or a source installation tree.
+
+Generated files are `paper.jar`, `server.properties` and `eula.txt`, plus neutral
+GameHub operation-ownership metadata. Deterministic properties contain exactly
+server-port, server-ip, level-name, enable-rcon=false and enable-query=false.
+EULA bytes are exactly `eula=true\n`. A world directory is not created by apply:
+world readiness and first boot are explicitly deferred.
+
+Synthetic uses the same new creation/journal/recovery/compensation mechanism with
+virtual endpoints and a neutral deterministic `runtime.json` manifest. Existing
+synthetic simulation and its SQLite-only effects remain unchanged.
+
+Success is `state=PROVISIONED`, `outcome=applied`, with no lifecycle start operation.
+It never reports READY. Scoped provider construction/registration starts no process.
+Pending definitions/children cannot be discovered or addressed through lifecycle
+routes until finalization. Existing queues, provider identity and single-forwarded
+player-event subscriptions are reused, with MANAGED discovery distinct from ADOPTED.
+
+### Trusted policy and explicit prior license authorization
+
+Operator policy extends `RuntimeAttachmentPolicy` with optional `managedCreate`.
+CREATE is disabled unless it selects `filesystem="local-exclusive"`: the operator
+must provide local, service-exclusive managed roots belonging to this SQLite
+database, disjoint from protected installations and artifact sources. Network/UNC
+storage and separate databases sharing a managed root are outside this contract.
+
+Clients submit only a safe `profileRef`, optional safe `worldName`, a managed
+`rootId`/leaf and the approved endpoint request. Direct launch/artifact/hash/EULA
+options cannot be combined with a profile-based Java CREATE. The old descriptive
+artifact-reference plans remain planning data, not a bypass to the new apply route.
+
+A trusted profile pins provider/revision, one artifact reference/hash, Java
+reference/hash with `compatibility="java-21"`, acceptance reference and
+configuration bind/world policy. Artifact locations remain private operator maps.
+Hashing checks regular-file identity/type, single-link sources, stable size/content,
+and a bounded maximum (default/cap 256 MiB); generated files are bounded to 64 KiB.
+Copied bytes are verified before atomic no-overwrite publication.
+
+Example trusted configuration fragment (operator-supplied references/paths/hashes,
+never a request body):
+
+```json
+{
+  "managedCreate": {
+    "filesystem": "local-exclusive",
+    "profiles": {
+      "java-local-v1": {
+        "providerId": "minecraft",
+        "revision": "1",
+        "artifacts": [{"reference": "approved-paper", "sha256": "<approved SHA-256>"}],
+        "runtime": {
+          "reference": "approved-java",
+          "sha256": "<approved SHA-256>",
+          "compatibility": "java-21"
+        },
+        "acceptanceRef": "prior-operator-acceptance",
+        "configuration": {"bindAddress": "127.0.0.1", "worldName": "managed-world"}
+      }
+    },
+    "acceptances": {
+      "prior-operator-acceptance": {
+        "revision": "1",
+        "actor": "<trusted accepting operator>",
+        "acceptedAt": "<explicit acceptance timestamp>",
+        "termsRef": "<operator-reviewed terms reference>",
+        "hostId": "<configured local host>",
+        "profileId": "java-local-v1",
+        "profileRevision": "1",
+        "authorizeGeneratedAcceptance": true
+      }
+    },
+    "endpointInventory": {"complete": true, "bindings": []}
+  }
+}
+```
+
+The surrounding trusted policy supplies `managedRoots`, `artifactLocations`,
+protected paths and host identity. The policy-file loader converts the optional
+JSON inventory into a read-only inventory callback; injected policies may supply
+their own callback. A complete inventory is required for concrete CREATE endpoints,
+and apply also performs a short-lived TCP availability probe. Inventory is not an
+OS reservation; claims conservatively retain the shared host/transport/port bucket.
+
+Prior acceptance requires a nonblank trusted actor, valid timestamp, terms reference,
+record revision, matching host/profile revision and optional exact server scope.
+Missing/revoked/out-of-scope acceptance blocks preflight. Profile/acceptance fingerprints
+are rechecked before effects, receipts and finalization. A request-body boolean
+cannot grant acceptance. Policy records are not created or widened by provisioning;
+the approved fingerprint is durable in the preview/operation. Java compatibility is
+operator-attested/pinned metadata, not a binary version probe or first-boot proof.
+
+Java configured roots, adopted runtime roots and bootstrap Java/BDS installations
+are protected automatically for CREATE. Explicit protected-root and artifact-source
+overlap also fail. This additional bootstrap protection is held in CREATE policy,
+so the existing ADOPT preflight/acceptance behavior remains unchanged.
+
+### API and ownership
+
+POST `/api/provisioning/plans` remains descriptive and requires existing admin auth.
+Profile-based CREATE preflight persists a separate verified preview and returns a
+safe `creation` projection with its own digest. No directories, claims, bind probes
+or runtime activation occur during planning/preflight.
+
+The new distinct route is:
+
+```text
+POST /api/provisioning/applies
+{ "planId": "<stored plan>", "digest": "<verified creation digest>", "approved": true }
+```
+
+It rejects ADOPT, missing approval, digest/profile/policy drift, unknown fields,
+untrusted paths, unavailable CREATE capability and conflicts. Actor identity comes
+from the existing authorization principal. The first slice awaits completion and
+returns HTTP 200 with the truthful terminal operation/result metadata, including
+failed/partial outcomes; it does not claim asynchronous 202 queuing is implemented.
+Identical terminal replay returns the same result without another effect or journal.
+
+Responses expose operation/provider/server IDs, state/outcome, MANAGED ownership,
+safe relative file/leaf/hash/endpoint previews, and safe residual directory/claim
+summaries. They omit absolute root/source/Java paths, generated license contents,
+terms data, raw filesystem exceptions, tokens and launch arguments.
+`/attachments` retains ADOPTED semantics. Existing operation/history/WebSocket
+authorization and legacy lifecycle URL checks also cover managed servers.
+
+Managed ownership keeps `destructiveOwnership=false`. Successful definitions
+retain their claims while stopped. No DELETE, decommissioning or automatic cleanup
+of successful runtimes is introduced. A later start is a separate explicit lifecycle
+operation and must verify managed files/profile/license; effective drift fails
+closed. Paper first-boot rewriting and offline boot dependencies are not validated
+by this stopped-CREATE slice.
+
+### Schema v8 and the implemented external-effect protocol
+
+Migration v8 adds:
+
+- `provisioning_create_previews`: separately tagged, hash-pinned executable previews.
+- `managed_runtime_definitions`: unique server/origin operation, MANAGED descriptor,
+  private canonical identity/manifest and PENDING_ACTIVATION / ACTIVE status.
+- `provisioning_file_intents`: stable operation/effect identity, safe relative target,
+  effect kind, expected hash, original fence and compensation direction.
+- `provisioning_file_receipts`: observed device/inode/hash/size, current fence and
+  compensation outcome.
+
+Existing plans/applies/claims/journal/operation/event/audit tables are reused.
+The new operation kind is `executionKind="managed-create"`, projected through
+`server.provision.apply`. Existing attachment tables and simulation effects are
+not repurposed. The approved private snapshot binds profile/acceptance fingerprint,
+canonical root identity, sources, config hashes, fixed endpoints and generated leaf.
+
+Intent commits precede mkdir, temp creation, artifact/config write, file publication
+and temp removal. Definition, activation and finalization have journaled intent
+boundaries; pending definition persistence and final ACTIVE/result publication use
+repository transactions. Each file has an operation-owned temp, a checked write
+receipt, atomic same-filesystem hard-link publication without overwriting, and a
+journaled temp removal. Files are flushed before completed receipts.
+
+Device/inode identities are read with bigint filesystem stats and persisted as
+exact decimal strings. Unsafe numeric identities fail closed; this avoids rounding
+large NTFS file IDs when proving ownership during recovery and compensation.
+
+**Implemented fencing refinement:** `managedGuard` holds SQLite BEGIN IMMEDIATE
+around a current lease/token check, synchronous constrained primitive and receipt
+observation/commit. A second database process cannot acquire the writer lock or
+advance the fence during that primitive. There is no filesystem await beneath the
+lock and async callbacks are forbidden. This substitutes a per-primitive SQLite
+writer-lock protocol for the proposed long-lived OS host mutex. SQL does not make
+the filesystem effect transactional: a crash can still leave an effect without
+its committed observation. Large artifact copies use bounded chunks synchronously
+under the guard and can temporarily block writes; the profile size cap is enforced.
+
+Provider construction may await, but final child insertion is synchronously guarded
+again. Pending children are quarantined; final ACTIVE definition and PROVISIONED
+result commit together. Completed restart hydration checks current durable definition
+identity before publication and never starts a process.
+
+### Recovery and compensation limits
+
+Recovery supports crashes after claims/directory intent, receipted directory creation,
+artifact write/publication/temp removal, config/EULA write, pending definition,
+provider activation and immediately before finalization. It also handles an
+interrupted copy and a lost publication receipt by checking the previously recorded
+temp inode/hash. It never adopts a same-hash foreign file or overwrites a destination.
+
+A directory created before its identity/ownership receipt committed is ambiguous:
+retain that path and all claims, return PARTIALLY_ROLLED_BACK and require operator
+review. Do not infer cleanup authority from an existing path or marker. An active
+unexpired worker cannot be taken over; expired recovery increments the token.
+Stale workers cannot mutate files, commit receipts, publish a child or compensate.
+
+Rollback removes only the operation's activation/definition, identity/hash-proven
+created files and an empty owned directory. Removal intents are durable before
+unlink/rmdir, and removal receipts permit interrupted rollback to resume safely.
+Unknown directory contents are retained; modified files, changed identities or
+failed cleanup preserve prerequisites and claims with explicit residual summaries.
+No recursive deletion, source mutation, adopted-file cleanup or general repair API
+is implemented. Partial rollback is terminal and requires explicit future review.
+
+Once PROVISIONED, later lifecycle failure does not roll back created storage.
+Restart restoration is metadata/runtime rehydration, not running-process recovery.
+File/SQLite durability and cross-process exclusion were fixture-tested on this host;
+power-loss atomicity, network filesystems and uncoordinated/malicious root writers
+are not claimed.
+
+### Validation and next gate
+
+Added 77 focused CREATE tests across managed apply, preflight/security and API suites,
+plus a disposable fixture helper. They cover deterministic Java/synthetic output,
+offline/no-start behavior, ownership, source preservation, path/profile/license
+failures, atomic cross-connection claims, the real second-process SQLite lock,
+stale async activation, every supported crash boundary, compensation interruption,
+foreign/modified data preservation, API authorization/redaction, completed hydration,
+exact large-file identity handling, private managed world-path redaction,
+and real v7-to-v8 adopted-row preservation. The existing v4 migration fixture now
+removes every post-v4 table before testing forward migration.
+
+Validation results:
+
+- Lint: PASS.
+- Contracts: 5/5 PASS.
+- Focused provisioning/apply/attachment/API/provider tests: 226/226 PASS.
+- Full suite, twice: 311/312 PASS in each run. The sole failure remains
+  "Content Library API maps Bedrock plans to the configured native provider root",
+  expected 201, received 422. No new failure is excluded.
+- Build: PASS with the existing CJS `import.meta` warning.
+- Diff checks: PASS.
+
+No live runtime or acceptance harness was run. No commit or push was performed.
+Ready for a separately authorized **disposable, local, exclusive-root Java CREATE**
+acceptance with pinned artifacts and explicit prior EULA authorization, checking the
+PROVISIONED/offline boundary. This is not first-boot/readiness or player acceptance.
+Native Bedrock CREATE and its expanded-runtime bundle model remain deferred.
+Overall JBGH-022 stays OPEN until the required CREATE implementation/live gates and
+separately scoped remaining work are completed.

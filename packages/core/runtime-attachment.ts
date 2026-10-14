@@ -5,6 +5,7 @@ import type { ProvisioningApplyOperation } from "./provisioning-apply-contracts"
 
 /** Trusted operator policy. Locations are references, never client-supplied absolute paths. */
 export interface RuntimeAttachmentPolicy extends ProvisioningPreflightContext {
+  managedCreate?: import("./managed-create").ManagedCreationPolicy;
   adoptionRoots: string[];
   expectedHashes?: Record<string, string>;
 }

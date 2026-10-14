@@ -35,7 +35,7 @@ interface Migration {
   up: string;
 }
 
-const SCHEMA_VERSION = 7;
+const SCHEMA_VERSION = 8;
 
 const migrations: Migration[] = [
   {
@@ -246,6 +246,12 @@ const migrations: Migration[] = [
     CREATE TABLE provisioning_external_intents (operation_id TEXT PRIMARY KEY, data TEXT NOT NULL);
   ` },
   { version: 7, name: "provisioning_api_plans", up: "CREATE TABLE provisioning_plans (id TEXT PRIMARY KEY, data TEXT NOT NULL);" },
+  { version: 8, name: "managed_runtime_creation", up: `
+    CREATE TABLE provisioning_create_previews (plan_id TEXT PRIMARY KEY, data TEXT NOT NULL);
+    CREATE TABLE managed_runtime_definitions (server_id TEXT PRIMARY KEY, operation_id TEXT NOT NULL UNIQUE, data TEXT NOT NULL);
+    CREATE TABLE provisioning_file_intents (operation_id TEXT NOT NULL, effect_id TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY(operation_id,effect_id));
+    CREATE TABLE provisioning_file_receipts (operation_id TEXT NOT NULL, effect_id TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY(operation_id,effect_id));
+  ` },
 ];
 
 function parseJson<T>(raw: unknown): T | undefined {

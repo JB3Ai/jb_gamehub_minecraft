@@ -1,5 +1,6 @@
 import { JavaRuntimeAttachments } from "./runtime-attachment";
 import { JavaProvisioningPlanner } from "./provisioning";
+import { JavaManagedCreation } from "./managed-create";
 import fs from "fs/promises";
 import { readFileSync } from "fs";
 import path from "path";
@@ -104,6 +105,7 @@ function parsePackRefs(raw: string, source: string): Array<{ uuid: string; versi
 }
 
 export class MinecraftProvider implements GameProvider {
+  readonly managedCreation = new JavaManagedCreation();
   readonly runtimeAttachments = new JavaRuntimeAttachments();
   readonly provisioning: JavaProvisioningPlanner;
   private readonly config: Required<
@@ -150,6 +152,7 @@ export class MinecraftProvider implements GameProvider {
       status: this.ready ? "ready" : "degraded",
     };
   }
+  managedProtectedPaths(): string[] { return this.config.serverDir ? [path.resolve(this.config.serverDir)] : []; }
 
   getCapabilities(): CapabilityMap {
     return {

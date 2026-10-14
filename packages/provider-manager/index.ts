@@ -1,7 +1,10 @@
 import { RuntimeAttachmentService } from "../core/runtime-attachment-service";
+import { ManagedCreationService, type ManagedCreationOptions } from "../core/managed-create-service";
+import type { ManagedCreationAdapter, ManagedCreationRepository, ManagedCreatePreview, ManagedRuntimeDefinition } from "../core/managed-create";
 import type { RuntimeAttachmentAdapter, RuntimeAttachmentPolicy, RuntimeAttachmentRepository, RuntimeAttachmentRequest, RuntimeAttachmentRecord } from "../core/runtime-attachment";
 import { ProvisioningApplyService } from "../core/provisioning-apply-service";
-import type { ProvisioningApplyRepository, ProvisioningApplyRequest } from "../core/provisioning-apply-contracts";
+import { ProvisioningApplyException, type ProvisioningApplyRepository, type ProvisioningApplyRequest } from "../core/provisioning-apply-contracts";
+import { pathOverlaps as pathOverlapsManaged } from "../core/managed-filesystem";
 import { preflightProvisioning, type ProvisioningPreflightContext } from "../core/provisioning-preflight";
 import { parseProvisioningRequest, ProvisioningCapabilityError, type ProvisioningPlanner, type ServerProvisioningPlan } from "../core/provisioning";
 import type {
@@ -106,7 +109,8 @@ export interface ConnectionEndpoint {
 export type CapabilityMap = Record<string, boolean>;
 
 export interface ServerSummary {
-  ownership?: "ADOPTED";
+  ownership?: "ADOPTED" | "MANAGED";
+  managedDefinitionId?: string;
   attachmentId?: string;
   id: string;
   providerId: string;
@@ -283,7 +287,7 @@ export interface RetentionCleanupSummary {
 }
 
 export interface PersistenceRepository {
-  readonly provisioning?: ProvisioningApplyRepository & Partial<RuntimeAttachmentRepository>;
+  readonly provisioning?: ProvisioningApplyRepository & Partial<RuntimeAttachmentRepository & ManagedCreationRepository>;
   initialize(): Promise<void>;
   close(): Promise<void>;
   createOperation(operation: OperationRecord): Promise<void>;
@@ -343,6 +347,10 @@ export interface PersistenceRepository {
 }
 
 export interface GameProvider {
+  managedProtectedPaths?(): string[];
+  readonly managedCreation?: ManagedCreationAdapter;
+  activateManagedRuntime?(record: ManagedRuntimeDefinition, policy: RuntimeAttachmentPolicy, verify: () => Promise<void>, admit: () => boolean, publish: (mutation: () => void) => void): Promise<void>;
+  deactivateManagedRuntime?(effectId: string, fence: (mutation: () => void) => void): void;
   activateAttachment?(record: RuntimeAttachmentRecord, policy: RuntimeAttachmentPolicy, verify: () => Promise<void>): Promise<void>;
   readonly runtimeAttachments?: RuntimeAttachmentAdapter;
   readonly provisioning?: ProvisioningPlanner;
@@ -900,6 +908,14 @@ export class InMemoryProviderManager {
   }
 
   async register(provider: GameProvider): Promise<void> {
+    const managedClaims = (this.repository.provisioning?.claims() ?? []).filter((claim) => claim.state === "active" && this.repository.provisioning?.get(claim.operationId)?.executionKind === "managed-create");
+    for (const server of await provider.getServers()) {
+      for (const claim of managedClaims) {
+        const key: string[] = JSON.parse(claim.resourceKey);
+        if (key[0] === "server" && key[1] === server.id) throw new ProvisioningApplyException({ code: "RESOURCE_CONFLICT", message: "Configured identity conflicts with managed creation." });
+        if (key[0] === "endpoint" && (await provider.getServerConnectionEndpoints(server.id)).some((endpoint) => endpoint.transport === key[2] && String(endpoint.port) === key[3])) throw new ProvisioningApplyException({ code: "RESOURCE_CONFLICT", message: "Configured endpoint conflicts with managed creation." });
+      }
+    }
     await provider.register();
     this.providers.set(provider.metadata().id, provider);
     if (provider.subscribePlayerEvents) {
@@ -1186,6 +1202,52 @@ export class InMemoryProviderManager {
   }
 
   listRuntimeAttachments(providerId?: string) { return this.repository.provisioning?.attachmentRecords?.(providerId) ?? []; }
+  listManagedRuntimes() { return this.repository.provisioning?.managedDefinitions?.() ?? []; }
+  getManagedCreatePreview(planId: string) { return this.repository.provisioning?.getManagedPreview?.(planId); }
+  private managedCreationService(providerId: string, policy: RuntimeAttachmentPolicy, options: ManagedCreationOptions = {}) {
+    const provider = this.getProvider(providerId), repository = this.repository.provisioning;
+    if (!provider.getCapabilities()["server.provision.create"] || !provider.provisioning || !provider.managedCreation || !provider.activateManagedRuntime || !provider.deactivateManagedRuntime || !repository?.beginManaged) throw new ProvisioningCapabilityError(providerId);
+    return new ManagedCreationService(repository as ProvisioningApplyRepository & ManagedCreationRepository, provider.provisioning, provider.managedCreation, {
+      activate: (record, verify, admit, publish) => provider.activateManagedRuntime!(record, policy, verify, admit, publish),
+      detach: (id, fence) => provider.deactivateManagedRuntime!(id, fence),
+    }, options);
+  }
+  async previewManagedCreation(plan: ServerProvisioningPlan, policy: RuntimeAttachmentPolicy) {
+    policy = this.protectedCreationPolicy(policy);
+    const existing = await this.getServer(plan.serverId);
+    if (existing) throw new ProvisioningCapabilityError("conflicting-server");
+    const preview = await this.managedCreationService(plan.providerId, policy).preview(plan, policy);
+    const canonical = process.platform === "win32" ? preview.runtimePath.toLowerCase() : preview.runtimePath;
+    for (const claim of this.repository.provisioning?.claims() ?? []) {
+      if (claim.state !== "active") continue;
+      const key: string[] = JSON.parse(claim.resourceKey);
+      if (key[0] === "server" && key[1] === plan.serverId || key[0] === "physical-path" && key[1] === plan.request.hostId && pathOverlapsManaged(key[2], canonical)) throw new ProvisioningApplyException({ code: "RESOURCE_CONFLICT", message: "Managed resource already claimed." });
+      if (key[0] === "endpoint" && key[1] === plan.request.hostId && plan.request.endpoints.some((endpoint) => endpoint.transport !== "virtual" && endpoint.port.mode === "fixed" && key[2] === endpoint.transport && key[3] === String(endpoint.port.value))) throw new ProvisioningApplyException({ code: "RESOURCE_CONFLICT", message: "Managed endpoint already claimed." });
+    }
+    for (const server of await this.listServers()) for (const endpoint of await this.getServerConnectionEndpoints(server.id, server.providerId)) {
+      if (plan.request.endpoints.some((requested) => requested.transport !== "virtual" && requested.port.mode === "fixed" && endpoint.transport === requested.transport && endpoint.port === requested.port.value)) throw new ProvisioningApplyException({ code: "RESOURCE_CONFLICT", message: "Configured endpoint already exists." });
+    }
+    this.repository.provisioning!.saveManagedPreview!(preview); return preview;
+  }
+  async applyManagedCreation(input: { planId: string; digest: string; approved: true }, policy: RuntimeAttachmentPolicy, actor = this.defaultActor, options: ManagedCreationOptions = {}) {
+    policy = this.protectedCreationPolicy(policy);
+    const preview = this.getManagedCreatePreview(input.planId);
+    if (!preview) throw new ProvisioningApplyException({ code: "APPROVAL_REQUIRED", message: "Verified managed preview required." });
+    if (!this.repository.provisioning?.get(`create_${input.planId}`)) await this.assertCreateServerAvailable(preview);
+    return this.managedCreationService(preview.plan.providerId, policy, options).apply(input, policy, actor);
+  }
+  private async assertCreateServerAvailable(preview: ManagedCreatePreview) {
+    if (await this.getServer(preview.plan.serverId)) throw new ProvisioningApplyException({ code: "RESOURCE_CONFLICT", message: "Server identity already exists." });
+  }
+  async recoverManagedCreation(operationId: string, policy: RuntimeAttachmentPolicy, options: ManagedCreationOptions = {}) {
+    policy = this.protectedCreationPolicy(policy);
+    const operation = this.repository.provisioning?.get(operationId);
+    if (!operation || operation.executionKind !== "managed-create") throw new Error("Managed operation not found.");
+    return this.managedCreationService(operation.plan.providerId, policy, options).recover(operationId, policy);
+  }
+  private protectedCreationPolicy(policy: RuntimeAttachmentPolicy): RuntimeAttachmentPolicy {
+    return { ...policy, protectedPaths: [...policy.protectedPaths ?? [], ...[...this.providers.values()].flatMap((provider) => provider.managedProtectedPaths?.() ?? []), ...this.listRuntimeAttachments().map((record) => record.descriptor.runtimeRoot)] };
+  }
   getExternalEffectIntent(operationId: string) { return this.repository.provisioning?.attachmentIntent?.(operationId); }
 
   private provisioningApplyService(providerId: string) {

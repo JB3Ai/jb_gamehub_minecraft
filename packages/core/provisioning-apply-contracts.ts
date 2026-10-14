@@ -21,7 +21,8 @@ export interface ProvisioningJournalEntry {
 }
 export interface ProvisioningEffect { operationId: string; step: ProvisioningApplyStep; value: ProvisioningJson }
 export interface ProvisioningApplyOperation {
-  executionKind?: "attachment";
+  executionKind?: "attachment" | "managed-create";
+  creation?: import("./managed-create").ManagedCreatePreview;
   attachment?: import("./runtime-attachment").RuntimeAttachmentDescriptor;
   operationId: string; plan: ServerProvisioningPlan; digest: string; actor: string;
   steps: ProvisioningApplyStep[]; result: ProvisioningResult;

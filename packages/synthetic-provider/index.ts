@@ -1,4 +1,5 @@
 import { SyntheticProvisioningPlanner } from "./provisioning";
+import { SyntheticManagedCreation } from "./managed-create";
 import {
   ConnectionEndpoint,
   CapabilityMap,
@@ -25,6 +26,7 @@ interface SyntheticProviderConfig {
 }
 
 export class SyntheticProvider implements GameProvider {
+  readonly managedCreation = new SyntheticManagedCreation();
   readonly provisioning: SyntheticProvisioningPlanner;
   private readonly providerId: string;
   private readonly providerName: string;

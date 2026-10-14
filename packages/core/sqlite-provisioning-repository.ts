@@ -1,4 +1,5 @@
 import path from "node:path";
+import type { ManagedCreationRepository, ManagedCreatePreview, ManagedRuntimeDefinition, FileEffectIntent, FileEffectReceipt } from "./managed-create";
 import type { RuntimeAttachmentRepository, RuntimeAttachmentDescriptor, RuntimeAttachmentRecord, ExternalEffectIntent } from "./runtime-attachment";
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
@@ -15,12 +16,115 @@ CREATE TABLE provisioning_effects (operation_id TEXT NOT NULL, step_id TEXT NOT 
 `;
 
 /** All logical effects, claims and journal receipts share one SQLite transaction boundary. */
-export class SqliteProvisioningRepository implements ProvisioningApplyRepository, RuntimeAttachmentRepository {
+export class SqliteProvisioningRepository implements ProvisioningApplyRepository, RuntimeAttachmentRepository, ManagedCreationRepository {
+  private managedScope = false;
   constructor(private readonly database: () => DatabaseSync) {}
   private tx<T>(run: () => T): T {
     const db = this.database(); db.exec("BEGIN IMMEDIATE;");
     try { const result = run(); db.exec("COMMIT;"); return result; }
     catch (error) { db.exec("ROLLBACK;"); throw error; }
+  }
+
+  saveManagedPreview(preview: ManagedCreatePreview): void {
+    this.database().prepare("INSERT INTO provisioning_create_previews(plan_id,data) VALUES (?,?) ON CONFLICT(plan_id) DO UPDATE SET data=excluded.data").run(preview.plan.planId, JSON.stringify(preview));
+  }
+  getManagedPreview(planId: string): ManagedCreatePreview | undefined {
+    const row = this.database().prepare("SELECT data FROM provisioning_create_previews WHERE plan_id=?").get(planId);
+    return row ? JSON.parse(String(row.data)) : undefined;
+  }
+  beginManaged(op: ProvisioningApplyOperation, steps: ProvisioningApplyStep[]) {
+    return this.tx(() => {
+      const existing = this.get(op.operationId);
+      if (existing) {
+        if (existing.digest !== op.digest || existing.executionKind !== "managed-create") throw new ProvisioningApplyException({ code: "APPROVAL_MISMATCH", message: "Managed approval differs." });
+        return { operation: existing, acquired: false };
+      }
+      for (const step of steps) {
+        const key: string[] = JSON.parse(step.resourceKey);
+        const claims = this.claims().filter((claim) => claim.state === "active");
+        if (claims.some((claim) => claim.resourceKey === step.resourceKey)) throw new ProvisioningApplyException({ code: "RESOURCE_CONFLICT", message: "Resource is already claimed." });
+        if (key[0] === "physical-path") for (const claim of claims) {
+          const other: string[] = JSON.parse(claim.resourceKey);
+          const inside = (a: string, b: string) => { const relative = path.relative(a, b); return !relative || (relative !== ".." && !relative.startsWith(".." + path.sep) && !path.isAbsolute(relative)); };
+          if (other[0] === "physical-path" && other[1] === key[1] && (inside(other[2], key[2]) || inside(key[2], other[2]))) throw new ProvisioningApplyException({ code: "RESOURCE_CONFLICT", message: "Runtime roots overlap." });
+        }
+        const claim: ProvisioningClaim = { resourceKey: step.resourceKey, operationId: op.operationId, planId: op.plan.planId, kind: step.kind, state: "active", createdAt: op.createdAt, updatedAt: op.createdAt };
+        this.database().prepare("INSERT INTO provisioning_claims(operation_id,resource_key,state,data) VALUES (?,?,'active',?)").run(op.operationId, step.resourceKey, JSON.stringify(claim));
+      }
+      this.database().prepare("INSERT INTO provisioning_applies(id,plan_id,state,data) VALUES (?,?,?,?)").run(op.operationId, op.plan.planId, op.result.state, JSON.stringify(op));
+      this.history(op); this.append(op, "CLAIMS_ACQUIRED", "completed", op.createdAt);
+      return { operation: op, acquired: true };
+    });
+  }
+  managedGuard<T>(op: ProvisioningApplyOperation, now: string, expiresAt: string, run: () => T): T {
+    if (this.managedScope) throw new Error("Nested managed mutation guard is forbidden.");
+    return this.tx(() => {
+      const stored = this.fenced(op, now);
+      stored.lease.expiresAt = expiresAt; stored.updatedAt = now; this.save(stored);
+      this.managedScope = true;
+      try {
+        const result = run();
+        if (result && typeof (result as { then?: unknown }).then === "function") throw new Error("Managed mutation guard requires synchronous primitives.");
+        return result;
+      } finally { this.managedScope = false; }
+    });
+  }
+  private managedTx<T>(run: () => T): T { return this.managedScope ? run() : this.tx(run); }
+  intendFile(op: ProvisioningApplyOperation, intent: FileEffectIntent, now: string): void {
+    this.managedTx(() => {
+      this.fenced(op, now);
+      const existing = this.fileIntents(op.operationId).find((item) => item.id === intent.id);
+      if (existing) { const { fencingToken: _old, ...original } = existing; const { fencingToken: _new, ...requested } = intent; if (JSON.stringify(original) !== JSON.stringify(requested)) throw new Error("Incompatible file intent."); return; }
+      this.database().prepare("INSERT INTO provisioning_file_intents(operation_id,effect_id,data) VALUES (?,?,?)").run(op.operationId, intent.id, JSON.stringify({ ...intent, fencingToken: op.lease.token }));
+      this.append(op, intent.id, "started", now);
+    });
+  }
+  fileIntents(operationId: string): FileEffectIntent[] {
+    return this.database().prepare("SELECT data FROM provisioning_file_intents WHERE operation_id=? ORDER BY rowid").all(operationId).map((row) => JSON.parse(String(row.data)));
+  }
+  fileReceipts(operationId: string): FileEffectReceipt[] {
+    return this.database().prepare("SELECT data FROM provisioning_file_receipts WHERE operation_id=? ORDER BY rowid").all(operationId).map((row) => JSON.parse(String(row.data)));
+  }
+  receiptFile(op: ProvisioningApplyOperation, receipt: FileEffectReceipt, now: string): void {
+    this.managedTx(() => {
+      this.fenced(op, now);
+      if (!this.fileIntents(op.operationId).some((intent) => intent.id === receipt.intentId)) throw new Error("Durable file intent required.");
+      this.database().prepare("INSERT INTO provisioning_file_receipts(operation_id,effect_id,data) VALUES (?,?,?) ON CONFLICT(operation_id,effect_id) DO UPDATE SET data=excluded.data").run(op.operationId, receipt.intentId, JSON.stringify({ ...receipt, fencingToken: op.lease.token }));
+      this.append(op, receipt.intentId, receipt.compensated ? "compensated" : "completed", now);
+    });
+  }
+  journalManagedPhase(op: ProvisioningApplyOperation, phase: string, status: "started" | "completed", now: string): void {
+    this.managedTx(() => { this.fenced(op, now); this.append(op, phase, status, now); });
+  }
+  managedDefinitions(): ManagedRuntimeDefinition[] { return this.database().prepare("SELECT data FROM managed_runtime_definitions ORDER BY server_id").all().map((row) => JSON.parse(String(row.data))); }
+  publishManagedDefinition(op: ProvisioningApplyOperation, definition: ManagedRuntimeDefinition, now: string): void {
+    this.managedTx(() => {
+      this.fenced(op, now);
+      const previous = this.managedDefinitions().find((record) => record.descriptor.serverId === op.plan.serverId);
+      if (previous && (previous.operationId !== op.operationId || previous.digest !== definition.digest)) throw new ProvisioningApplyException({ code: "RESOURCE_CONFLICT", message: "Managed definition already exists." });
+      this.database().prepare("INSERT INTO managed_runtime_definitions(server_id,operation_id,data) VALUES (?,?,?) ON CONFLICT(server_id) DO UPDATE SET data=excluded.data").run(op.plan.serverId, op.operationId, JSON.stringify(definition));
+      this.append(op, "DEFINITION_PERSISTED", "completed", now);
+    });
+  }
+  guardManagedDefinition<T>(definition: ManagedRuntimeDefinition, run: () => T): T {
+    return this.tx(() => {
+      const current = this.managedDefinitions().find((record) => record.operationId === definition.operationId);
+      if (!current || current.state !== "ACTIVE" || current.digest !== definition.digest || current.fencingToken !== definition.fencingToken || this.get(current.operationId)?.result.state !== "PROVISIONED") throw new ProvisioningApplyException({ code: "LEASE_LOST", message: "Managed definition is no longer current." });
+      const result = run(); if (result && typeof (result as { then?: unknown }).then === "function") throw new Error("Synchronous activation required."); return result;
+    });
+  }
+  removeManagedDefinition(op: ProvisioningApplyOperation, now: string): void {
+    this.managedTx(() => { this.fenced(op, now); this.database().prepare("DELETE FROM managed_runtime_definitions WHERE operation_id=?").run(op.operationId); this.append(op, "DEFINITION_REMOVED", "compensated", now); });
+  }
+  finishManaged(op: ProvisioningApplyOperation, now: string): ProvisioningApplyOperation {
+    return this.managedTx(() => {
+      const stored = this.fenced(op, now), definition = this.managedDefinitions().find((record) => record.operationId === op.operationId);
+      if (!definition || definition.fencingToken !== stored.lease.token) throw new Error("Current managed definition required.");
+      definition.state = "ACTIVE";
+      this.database().prepare("UPDATE managed_runtime_definitions SET data=? WHERE operation_id=?").run(JSON.stringify(definition), op.operationId);
+      stored.result.state = "PROVISIONED"; stored.result.outcome = "applied"; stored.updatedAt = now;
+      this.save(stored); this.append(stored, "FINALIZED", "completed", now); this.history(stored); return stored;
+    });
   }
   savePlan(plan: ServerProvisioningPlan, preview?: import("./runtime-attachment").RuntimeAttachmentPreview): void {
     const existing = this.getPlan(plan.planId);

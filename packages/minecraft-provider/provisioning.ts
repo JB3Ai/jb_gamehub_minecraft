@@ -20,11 +20,15 @@ export class JavaProvisioningPlanner extends DescriptiveProvisioningPlanner {
       requirements: (request) => {
         const result: ProfileRequirements = { issues: [], artifacts: [] };
         const options = request.providerOptions ?? {};
-        const allowed = ["artifactRef", "artifactFile", "worldName", "javaRuntimeRef"];
+        const allowed = ["artifactRef", "artifactFile", "worldName", "javaRuntimeRef", "profileRef"];
         for (const [key, value] of Object.entries(options)) {
           if (!allowed.includes(key) || typeof value !== "string" || !/^[A-Za-z0-9][A-Za-z0-9_. -]{0,127}$/.test(value) || value.includes("..") || value.endsWith(".") || value.endsWith(" ")) {
             result.issues.push({ code: "INVALID_minecraft_OPTION", severity: "blocking", field: `providerOptions.${key}`, message: "Unsupported option or unsafe reference/name." });
           }
+        }
+        if (options.profileRef !== undefined) {
+          if (request.storage.mode !== "create" || Object.keys(options).some((key) => !["profileRef", "worldName"].includes(key)) || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(String(options.profileRef))) result.issues.push({ code: "INVALID_minecraft_OPTION", severity: "blocking", field: "providerOptions.profileRef", message: "A create profile reference cannot be combined with direct artifact/launch options." });
+          return result;
         }
         if (request.storage.mode === "adopt" && options.artifactRef !== undefined) result.issues.push({ code: "UNSUPPORTED_OPTION_COMBINATION", severity: "blocking", field: "providerOptions.artifactRef", message: "Adoption inspects the existing artifact; it cannot stage another artifact." });
         if (request.storage.mode === "create" && options.artifactFile !== undefined) result.issues.push({ code: "UNSUPPORTED_OPTION_COMBINATION", severity: "blocking", field: "providerOptions.artifactFile", message: "artifactFile selects an existing adoption artifact only." });

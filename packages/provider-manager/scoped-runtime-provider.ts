@@ -1,10 +1,11 @@
 import type { GameProvider, ProviderPlayerLifecycleEvent, ServerSummary } from "./index";
 import type { RuntimeAttachmentRecord, RuntimeAttachmentPolicy } from "../core/runtime-attachment";
+import type { ScopedRuntimeRecord, ManagedRuntimeDefinition } from "../core/managed-create";
 
-export type AttachedRuntimeFactory = (record: RuntimeAttachmentRecord, policy: RuntimeAttachmentPolicy) => Promise<GameProvider>;
+export type AttachedRuntimeFactory = (record: ScopedRuntimeRecord, policy: RuntimeAttachmentPolicy) => Promise<GameProvider>;
 /** One provider registry identity, independently configured runtime instances. */
 export function scopeRuntimeProvider(base: GameProvider, factory: AttachedRuntimeFactory): GameProvider {
-  const children = new Map<string, { runtime: GameProvider; record: RuntimeAttachmentRecord; verify: () => Promise<void> }>();
+  const children = new Map<string, { runtime: GameProvider; record: ScopedRuntimeRecord; verify: () => Promise<void>; admit?: () => boolean }>();
   const listeners = new Set<(event: ProviderPlayerLifecycleEvent) => void>();
   const subscriptions = new Map<string, () => void>();
   const forward = (event: ProviderPlayerLifecycleEvent) => { for (const listener of listeners) listener(event); };
@@ -17,6 +18,24 @@ export function scopeRuntimeProvider(base: GameProvider, factory: AttachedRuntim
   const activations = new Map<string, Promise<void>>();
   return new Proxy(base, {
     get(target, property) {
+      if (property === "activateManagedRuntime") return async (record: ManagedRuntimeDefinition, policy: RuntimeAttachmentPolicy, verify: () => Promise<void>, admit: () => boolean, publish: (mutation: () => void) => void) => {
+        const id = record.descriptor.serverId;
+        if ((await base.getServers()).some((server) => server.id === id)) throw new Error("Managed identity conflicts with configured server.");
+        const pending = activations.get(id); if (pending) await pending;
+        const current = children.get(id);
+        if (current) {
+          if (current.record.effectId !== record.effectId || current.record.digest !== record.digest) throw new Error("Incompatible managed runtime.");
+          publish(() => { current.record = record; current.verify = verify; current.admit = admit; }); return;
+        }
+        const activation = (async () => {
+          const runtime = await factory(record, policy); await runtime.register();
+          publish(() => { children.set(id, { runtime, record, verify, admit }); if (listeners.size) subscribe(); });
+        })();
+        activations.set(id, activation); try { await activation; } finally { activations.delete(id); }
+      };
+      if (property === "deactivateManagedRuntime") return (effectId: string, fence: (mutation: () => void) => void) => {
+        fence(() => { for (const [id, child] of children) if (child.record.effectId === effectId && child.record.descriptor.ownership === "MANAGED") { subscriptions.get(id)?.(); subscriptions.delete(id); children.delete(id); } });
+      };
       if (property === "activateAttachment") return async (record: RuntimeAttachmentRecord, policy: RuntimeAttachmentPolicy, verify: () => Promise<void>) => {
         const id = record.descriptor.serverId;
         if ((await base.getServers()).some((server) => server.id === id)) throw new Error("Attachment identity conflicts with configured server.");
@@ -31,10 +50,11 @@ export function scopeRuntimeProvider(base: GameProvider, factory: AttachedRuntim
         try { await activation; } finally { activations.delete(id); }
       };
       if (property === "getServers") return async (): Promise<ServerSummary[]> => [
-        ...await base.getServers(), ...[...children.values()].map(({ record }) => ({ id: record.descriptor.serverId, providerId: record.descriptor.providerId, name: record.descriptor.serverId, ownership: "ADOPTED" as const, attachmentId: record.effectId })),
+        ...await base.getServers(), ...[...children.values()].filter((child) => !child.admit || child.admit()).map(({ record }) => ({ id: record.descriptor.serverId, providerId: record.descriptor.providerId, name: record.descriptor.serverId, ownership: record.descriptor.ownership, ...(record.descriptor.ownership === "MANAGED" ? { managedDefinitionId: record.effectId } : { attachmentId: record.effectId }) })),
       ];
       if (property === "getCapabilities") return () => {
         const capabilities = { ...base.getCapabilities() };
+        if (base.managedCreation) capabilities["server.provision.create"] = true;
         for (const { runtime } of children.values()) for (const [key, value] of Object.entries(runtime.getCapabilities())) if (value && !key.startsWith("server.provision")) capabilities[key] = true;
         return capabilities;
       };
@@ -46,6 +66,7 @@ export function scopeRuntimeProvider(base: GameProvider, factory: AttachedRuntim
         const id = property === "enforcePlayerAccess" ? (args[0] as { serverId: string }).serverId : String(args[0]);
         const child = children.get(id); const runtime = child?.runtime ?? target;
         const invoke = async () => {
+          if (child?.admit && !child.admit()) throw new Error("Managed runtime is not active.");
           if (child && ["startServer", "restartServer"].includes(property)) await child.verify();
           if (property === "validateWorld" && (typeof args[1] !== "string" || args[1].includes("..") || /[\\/]/.test(args[1]))) throw new Error("Invalid world identity.");
           if (child && property === "getServerConnectionEndpoints") return child.record.descriptor.endpoints.map((endpoint) => endpoint.transport === "virtual" ? { ...endpoint, display: endpoint.id } : { id: endpoint.id, protocol: endpoint.protocol, transport: endpoint.transport, host: endpoint.bindAddress, port: endpoint.port.mode === "fixed" ? endpoint.port.value : undefined, display: `${endpoint.bindAddress}:${endpoint.port.mode === "fixed" ? endpoint.port.value : "unknown"}` });

@@ -1,6 +1,7 @@
 import { scopeRuntimeProvider } from "../provider-manager/scoped-runtime-provider";
 import { createAttachedJavaRuntime } from "../minecraft-provider/attached-runtime";
 import { createAttachedBedrockRuntime } from "../bedrock-provider/attached-runtime";
+import { createScopedSyntheticRuntime } from "../synthetic-provider/managed-create";
 import { MinecraftProvider } from "../minecraft-provider/index";
 import { BedrockProvider } from "../bedrock-provider/index";
 import { InMemoryProviderManager } from "../provider-manager/index";
@@ -82,7 +83,7 @@ export async function bootstrapCore(config: CoreBootstrapConfig = {}): Promise<I
   });
   await providerManager.register(scopeRuntimeProvider(bedrockProvider, createAttachedBedrockRuntime));
   const syntheticProvider = new SyntheticProvider();
-  await providerManager.register(syntheticProvider);
+  await providerManager.register(scopeRuntimeProvider(syntheticProvider, createScopedSyntheticRuntime));
 
   await providerManager.reconcileServerState();
   return providerManager;

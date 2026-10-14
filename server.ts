@@ -106,7 +106,7 @@ async function readContentAudit(): Promise<unknown[]> {
 app.use(express.json());
 app.use(async (req, res, next) => {
   const protectedHistory = /^\/api\/(operations|events|history)(\/|$)/.test(req.path) || /^\/api\/servers\/[^/]+\/[^/]+\/history$/.test(req.path);
-  if (protectedHistory && (Object.keys(provisioningOptions.policies).length > 0 || providerManager?.listRuntimeAttachments().length)) {
+  if (protectedHistory && (Object.keys(provisioningOptions.policies).length > 0 || providerManager?.listRuntimeAttachments().length || providerManager?.listManagedRuntimes().length)) {
     try { if (!await authorizeProvisioning(req, res, providerManager, provisioningOptions)) return; }
     catch { res.status(503).json({ error: { code: "AUTHORIZATION_UNAVAILABLE" } }); return; }
   }
@@ -116,7 +116,7 @@ app.use("/api/provisioning", provisioningRouter(() => providerManager, () => pro
 // Legacy lifecycle URLs must not become an authorization bypass for attached servers.
 app.use("/api/servers/:id", async (req, res, next) => {
   try {
-    if (providerManager.listRuntimeAttachments().some((record) => record.descriptor.serverId === req.params.id)) {
+    if ([...providerManager.listRuntimeAttachments(), ...providerManager.listManagedRuntimes()].some((record) => record.descriptor.serverId === req.params.id)) {
       const principal = await authorizeProvisioning(req, res, providerManager, provisioningOptions);
       if (!principal) return;
       res.locals.principal = principal;
@@ -346,7 +346,8 @@ app.get("/api/servers/:id/status", async (req, res) => {
 app.get("/api/servers/:id/worlds", async (req, res) => {
   try {
     const worlds = await providerManager.getWorlds(req.params.id);
-    res.json({ worlds });
+    const managed = providerManager.listManagedRuntimes().some((record) => record.descriptor.serverId === req.params.id);
+    res.json({ worlds: managed ? worlds.map(({ id, name }) => ({ id, name })) : worlds });
   } catch (err) {
     handleApiError(res, err);
   }
@@ -1181,7 +1182,7 @@ Be concise, witty, and directly execute the requested changes for the user!`;
 
 function wireWebSocket(httpServer: http.Server) {
   wsServer = new WebSocketServer({ server: httpServer, path: "/ws", verifyClient: (info, done) => {
-    if (!Object.keys(provisioningOptions.policies).length && !providerManager.listRuntimeAttachments().length) { done(true); return; }
+    if (!Object.keys(provisioningOptions.policies).length && !providerManager.listRuntimeAttachments().length && !providerManager.listManagedRuntimes().length) { done(true); return; }
     const request = Object.assign(info.req, { get: (name: string) => info.req.headers[name.toLowerCase()] }) as unknown as express.Request;
     Promise.resolve().then(() => provisioningOptions.authorize(request)).then(async (principal) => {
       await providerManager.writeAudit({ actor: principal?.actor ?? "anonymous", action: "provisioning.authorization", result: principal?.admin ? "completed" : "failed", metadata: { transport: "websocket", authorized: principal?.admin === true } });
@@ -1219,6 +1220,8 @@ export async function startServer(port = PORT, overrides: Partial<RuntimeConfig>
     ...overrides,
   };
   activeRuntimeConfig = config;
+  // Trusted bootstrap installations are always protected from managed CREATE, regardless of provider policy omissions.
+  provisioningOptions = { ...provisioningOptions, policies: Object.fromEntries(Object.entries(provisioningOptions.policies).map(([id, policy]) => [id, policy.managedCreate ? { ...policy, managedCreate: { ...policy.managedCreate, protectedPaths: [...policy.managedCreate.protectedPaths ?? [], config.minecraftServerDir, config.bedrockServerDir].filter((value): value is string => Boolean(value)) } } : policy])) };
   contentItems.clear();
   contentPlans.clear();
   providerManager = await bootstrapCore({
@@ -1240,6 +1243,12 @@ export async function startServer(port = PORT, overrides: Partial<RuntimeConfig>
     if (!policy || providerManager.getProvisioningOperation(record.operationId)?.result.state !== "PROVISIONED") continue;
     try { await providerManager.recoverRuntimeAttachment(record.operationId, policy); }
     catch { await providerManager.writeAudit({ actor: "system/recovery", action: "provisioning.state.changed", operationId: record.operationId, result: "failed", metadata: { code: "ATTACHMENT_RECOVERY_REQUIRED" } }); }
+  }
+  for (const record of providerManager.listManagedRuntimes()) {
+    const policy = provisioningOptions.policies[record.descriptor.providerId];
+    if (!policy || providerManager.getProvisioningOperation(record.operationId)?.result.state !== "PROVISIONED") continue;
+    try { await providerManager.recoverManagedCreation(record.operationId, policy); }
+    catch { await providerManager.writeAudit({ actor: "system/recovery", action: "provisioning.state.changed", operationId: record.operationId, result: "failed", metadata: { code: "MANAGED_RECOVERY_REQUIRED" } }); }
   }
   analyticsService = new AnalyticsService(providerManager);
   familyService = new FamilyService(providerManager);

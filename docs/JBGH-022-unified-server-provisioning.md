@@ -1744,10 +1744,10 @@ deletion are not silently added to the closure criteria.
 
 ## JBGH-022G-A implementation — Synthetic and Java managed CREATE
 
-Status: IMPLEMENTED / DISPOSABLE LIVE ACCEPTANCE DEFERRED.
+Status: CLOSED / PASS — disposable Java CREATE acceptance completed on 2026-10-15.
 Implementation validation: 2026-10-14. Overall JBGH-022 remains OPEN.
 This record specifies the implemented boundary; earlier 022G text remains the
-broader architecture proposal. No fresh-runtime live acceptance has been run.
+broader architecture proposal. The stopped Java live CREATE acceptance is recorded below.
 
 ### Implemented boundary and provider responsibilities
 
@@ -1970,7 +1970,7 @@ File/SQLite durability and cross-process exclusion were fixture-tested on this h
 power-loss atomicity, network filesystems and uncoordinated/malicious root writers
 are not claimed.
 
-### Validation and next gate
+### Implementation validation
 
 Added 77 focused CREATE tests across managed apply, preflight/security and API suites,
 plus a disposable fixture helper. They cover deterministic Java/synthetic output,
@@ -1993,10 +1993,76 @@ Validation results:
 - Build: PASS with the existing CJS `import.meta` warning.
 - Diff checks: PASS.
 
-No live runtime or acceptance harness was run. No commit or push was performed.
-Ready for a separately authorized **disposable, local, exclusive-root Java CREATE**
-acceptance with pinned artifacts and explicit prior EULA authorization, checking the
-PROVISIONED/offline boundary. This is not first-boot/readiness or player acceptance.
-Native Bedrock CREATE and its expanded-runtime bundle model remain deferred.
-Overall JBGH-022 stays OPEN until the required CREATE implementation/live gates and
-separately scoped remaining work are completed.
+The implementation validation above preceded the disposable live CREATE acceptance
+recorded below. Native Bedrock CREATE and its expanded-runtime bundle model remain
+deferred. Overall JBGH-022 remains OPEN.
+
+### JBGH-022G-A: CLOSED / PASS
+
+Date: 2026-10-15
+
+Disposable Java managed CREATE acceptance completed successfully against the
+PROVISIONED/offline boundary using the approved local Paper profile and explicit
+prior EULA authorization.
+
+| Field | Verified result |
+| --- | --- |
+| Provider | minecraft |
+| Server | java-022g-live |
+| Mode | CREATE |
+| Ownership | MANAGED |
+| Profile | approved |
+| Endpoint | 127.0.0.1:27051 |
+| World | managed-world |
+| Preflight | PASS |
+| State | PROVISIONED |
+| Outcome | applied |
+| Runtime status | offline |
+| Residuals | none |
+| First boot | not performed |
+| Player acceptance | not performed |
+
+Created:
+
+- `.jbgh-owner.json`
+- `paper.jar`
+- `server.properties`
+- `eula.txt`
+
+Paper SHA-256:
+
+```text
+05209AC5A423BF98136DD775A87D4324955D2C865F887B20EDD6B43A59CB36C4
+```
+
+Preflight digest:
+
+```text
+17220ec68ea8c6ad205efeddabf9a3a9d1c7d1d66b346c019b64933524360fce
+```
+
+Operation:
+
+```text
+create_plan_b144d3acd3c8bfc467bb4957d6f864f9e3539e280fccbf33dc520584b46a9025
+```
+
+All four created files matched the preflight manifest. The copied Paper artifact
+matched the approved source hash. Generated `server.properties` matched the intended
+stopped profile, including `enable-rcon=false` and `enable-query=false`; generated
+`eula.txt` contained `eula=true`. Source Paper, configuration, EULA and Java executable
+hashes remained unchanged. The runtime stayed offline and port 27051 had no Java
+listener. GameHub is stopped following acceptance; neither port 3000 nor port 27051
+has a listener.
+
+**JBGH-022 remains OPEN.**
+
+Deferred:
+
+- Java first-boot / READY acceptance
+- Java player acceptance
+- Bedrock managed CREATE
+- Power-loss / hostile host-mutation live recovery
+- Download/licensing acquisition workflows
+
+The next slice is JBGH-022G-B: Java first-boot → READY acceptance.

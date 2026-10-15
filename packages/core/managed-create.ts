@@ -35,6 +35,8 @@ export interface CreationManifest {
 }
 export interface ManagedCreationAdapter {
   manifest(request: ServerProvisioningRequest, profile: ApprovedCreationProfile, acceptance?: PriorLicenseAcceptance): CreationManifest;
+  /** Optional provider-owned content policy for completed runtimes; creation receipts remain byte-exact. */
+  runtimeFileValidator?(file: Readonly<CreationFile>): ((bytes: Uint8Array) => void) | undefined;
 }
 export interface FileIdentity { device: string; inode: string }
 export interface ResolvedCreationFile extends CreationFile { sourcePath?: string; sourceIdentity?: FileIdentity; size: number; sha256: string }

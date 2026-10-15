@@ -61,11 +61,29 @@ export class ManagedFilesystem {
     const location = this.target(""); const stat = existingStat(location);
     if (!directory || !stat?.isDirectory() || stat.isSymbolicLink() || !sameIdentity(pathIdentity(location), directory.identity) || canonicalManagedPath(location) !== location) managedFailure("OWNERSHIP_UNVERIFIED");
   }
-  inspect(intent: FileEffectIntent, receipt: FileEffectReceipt): void {
+  inspect(intent: FileEffectIntent, receipt: FileEffectReceipt, validateContents?: (bytes: Uint8Array) => void): void {
     const location = this.target(intent.relativePath); const stat = existingStat(location);
     if (!stat || stat.isSymbolicLink() || !sameIdentity(pathIdentity(location), receipt.identity)) managedFailure("ARTIFACT_DRIFT");
     if (intent.kind === "directory") { if (!stat.isDirectory()) managedFailure("ARTIFACT_DRIFT"); return; }
     if (!stat.isFile() || stat.nlink > 2) managedFailure("ARTIFACT_DRIFT");
+    if (validateContents) {
+      // Mutable provider configuration retains its owned identity and must be a single-link regular file.
+      const maxBytes = 64 * 1024;
+      if (stat.nlink !== 1 || stat.size > maxBytes) managedFailure("ARTIFACT_DRIFT");
+      const fd = fs.openSync(location, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0));
+      try {
+        const before = fs.fstatSync(fd);
+        if (!before.isFile() || before.nlink !== 1 || !sameIdentity(handleIdentity(fd), receipt.identity)) managedFailure("ARTIFACT_DRIFT");
+        const bytes = Buffer.alloc(maxBytes + 1); let total = 0, count: number;
+        while ((count = fs.readSync(fd, bytes, total, bytes.length - total, null)) > 0) {
+          total += count; if (total > maxBytes) managedFailure("ARTIFACT_DRIFT");
+        }
+        const after = fs.fstatSync(fd), current = fs.lstatSync(location);
+        if (current.isSymbolicLink() || current.nlink !== 1 || !sameIdentity(pathIdentity(location), receipt.identity) || before.size !== after.size || total !== before.size || before.mtimeMs !== after.mtimeMs) managedFailure("ARTIFACT_DRIFT");
+        validateContents(bytes.subarray(0, total));
+      } finally { fs.closeSync(fd); }
+      return;
+    }
     // A fully written temp can be linked to its final path before the publication receipt.
     if (intent.kind !== "temporary" && receipt.sha256 && this.hashOwned(location) !== receipt.sha256) managedFailure("ARTIFACT_DRIFT");
   }

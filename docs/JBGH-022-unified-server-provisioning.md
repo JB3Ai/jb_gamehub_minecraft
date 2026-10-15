@@ -1,8 +1,10 @@
 # JBGH-022A - Unified Server Provisioning Architecture
 
-Status: JBGH-022A-E foundations implemented; JBGH-022F: CLOSED / PASS.
-Updated: 2026-10-14. JBGH-022F acceptance fixes through `355b572` on `dev/laptop-continuation`.
-JBGH-022 remains OPEN. Fresh-runtime provisioning is unimplemented; existing-runtime live attachment acceptance has passed for Java and Bedrock.
+Status: JBGH-022A-E foundations implemented; JBGH-022F, JBGH-022G-A and JBGH-022G-B: CLOSED / PASS.
+Updated: 2026-10-15. JBGH-022G-B managed Java first-boot acceptance completed successfully.
+JBGH-022 remains OPEN. Managed synthetic/Java CREATE is implemented, Java first-boot
+and clean-stop acceptance passed, and Java/Bedrock existing-runtime attachment
+acceptance passed. Player acceptance and Bedrock managed CREATE remain deferred.
 
 ## JBGH-022B implementation boundary
 
@@ -1895,8 +1897,9 @@ Managed ownership keeps `destructiveOwnership=false`. Successful definitions
 retain their claims while stopped. No DELETE, decommissioning or automatic cleanup
 of successful runtimes is introduced. A later start is a separate explicit lifecycle
 operation and must verify managed files/profile/license; effective drift fails
-closed. Paper first-boot rewriting and offline boot dependencies are not validated
-by this stopped-CREATE slice.
+closed. Completed managed Java runtimes use the provider-owned semantic configuration
+policy recorded under JBGH-022G-B below; original CREATE receipts remain byte-exact.
+Paper first boot and its dependencies are outside the stopped-CREATE acceptance.
 
 ### Schema v8 and the implemented external-effect protocol
 
@@ -2065,4 +2068,110 @@ Deferred:
 - Power-loss / hostile host-mutation live recovery
 - Download/licensing acquisition workflows
 
-The next slice is JBGH-022G-B: Java first-boot → READY acceptance.
+JBGH-022G-B extends this stopped-CREATE boundary through Java first-boot → READY acceptance.
+
+### JBGH-022G-B initial live run: BLOCKED / LIVE DEFECT FOUND
+
+Date: 2026-10-15. This is the initial live result, before the blocker fix below.
+
+| Gate | Initial live result |
+| --- | --- |
+| First boot | PASS; Paper reached its normal `Done` message |
+| World creation/readiness | PASS; `managed-world` discovered and validated |
+| Provisioning-owned semantic configuration | PASS; all five protected values unchanged |
+| Immutable artifact integrity | PASS; ownership metadata, Paper and EULA hashes unchanged |
+| Online API observation | NOT CAPTURED |
+| Live socket observation | NOT CAPTURED |
+| Restartability after first boot | FAIL; `SERVER_START_FAILED` / `ARTIFACT_DRIFT` |
+
+The acceptance log probe encountered a Windows file-sharing violation and initiated
+cleanup before the online API/socket observations were captured. The retained Paper
+log proves that startup reached `127.0.0.1:27051`, prepared `managed-world`, reached
+`Done`, then saved all dimensions and stopped. The GameHub stop operation completed,
+and the final runtime was offline with port 27051 closed. No player joined.
+
+The actual production blocker is that completed-runtime verification treated
+Paper-normalized `server.properties` as byte-exact creation artifact drift. Paper
+added defaults/comments while preserving the managed configuration. The existing
+runtime and its rewritten configuration are retained for the rerun.
+
+### JBGH-022G-B blocker fix: managed Java configuration verification
+
+Only completed (`PROVISIONED`) managed runtime lifecycle/restoration verification
+may use an optional provider-owned file-content validator. The Java provider selects
+only `server.properties` and compares these required active properties with the
+original approved generated content:
+
+- `server-port`
+- `server-ip`
+- `level-name`
+- `enable-rcon`
+- `enable-query`
+
+Active entries must use explicit `key=value` syntax. Comments, blank lines, ordering,
+Java formatting whitespace around keys/separators and additional Paper defaults are
+permitted. Trailing value whitespace remains meaningful and is not stripped. Unrelated
+escaped values such as `level-type=minecraft\:normal` are ignored. Missing/changed
+protected values, protected-value escaping, duplicate keys, malformed entries,
+unsupported continuation lines and invalid UTF-8 fail with `ARTIFACT_DRIFT`.
+
+The filesystem gateway still verifies the managed parent/root, exact owned file
+identity, a single-link regular configuration file and bounded/stable reads (64 KiB
+maximum). Ownership metadata, Paper and EULA bytes remain hash-verified; profile,
+Java executable and prior EULA authorization verification are unchanged. Original
+creation manifests, approval digests, durable receipts, unfinished CREATE recovery
+and compensation remain byte-exact. This change neither rewrites the live runtime
+nor changes ADOPTED attachment, Bedrock or synthetic runtime verification.
+
+The exact real Paper first-boot configuration is retained as a deterministic test
+fixture. Regression tests exercise normalization, protected-key drift, malformed
+syntax, lifecycle/restoration, immutable files, EULA revocation, filesystem guards,
+unfinished CREATE recovery and the synthetic default verification path.
+
+### JBGH-022G-B: CLOSED / PASS
+
+Date: 2026-10-15. Managed Java first boot was validated against the existing
+`java-022g-live` runtime. The same managed definition and acceptance database were
+retained. Before rerun, `server.properties` still had the exact first-boot rewritten
+hash `DA88378573AAE9CC2C2D8DA414581A71A54F5F907855D43448AB275AF23CB639`.
+No runtime configuration was manually rewritten, and no runtime was recreated.
+
+| Gate | Verified rerun result |
+| --- | --- |
+| Provider / server | minecraft / java-022g-live |
+| Recovery after GameHub restart | MANAGED / offline |
+| GameHub start operation | completed; non-simulated |
+| Live API observation | online / MANAGED |
+| Actual Java listener | 127.0.0.1:27051; java.exe PID 10668 |
+| Paper readiness | normal `Done (14.897s)` message from this boot |
+| World | managed-world discovered; validation valid=true |
+| Ownership metadata / Paper / EULA hashes | unchanged |
+| Protected active properties | all five unchanged |
+| Raw server.properties hash | changed; permitted normalization |
+| GameHub stop operation | completed; non-simulated |
+| Final state | MANAGED / offline; port 27051 closed |
+| Player acceptance | not performed |
+
+Start operation: `op_1792085034455_cbd6e63f`.
+Stop operation: `op_1792085053648_3d57c20d`.
+The CREATE result remains PROVISIONED / applied; READY is runtime acceptance
+evidence, not a rewrite of the provisioning result. The acceptance log reader used
+shared reads with bounded retries to avoid the earlier Windows sharing violation.
+
+Blocker-fix validation:
+
+- Lint: PASS.
+- New semantic/runtime-integrity regressions: 35/35 PASS, including the exact real
+  first-boot configuration fixture.
+- Focused provisioning/attachment/provider tests: 261/261 PASS.
+- Contracts: 5/5 PASS.
+- Full suite: 346/347 PASS. The sole failure remains the unrelated Content Library
+  Bedrock native-provider-root case, expected 201 and received 422.
+- Build: PASS with the existing CJS `import.meta` warning.
+- Working/new-file diff checks: PASS.
+
+JBGH-022G-B is CLOSED / PASS. Player acceptance remains deferred.
+GameHub was stopped following acceptance; the Java runtime remains offline and
+port 27051 is closed. Overall JBGH-022 remains OPEN.
+
+The next slice is Bedrock managed CREATE.

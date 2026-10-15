@@ -202,9 +202,13 @@ export class ManagedCreationService {
   private async verify(op: ProvisioningApplyOperation, policy: RuntimeAttachmentPolicy): Promise<void> {
     if ((await this.preview(op.plan, policy, op.creation)).digest !== op.digest) managedFailure("ARTIFACT_DRIFT");
     const gateway = new ManagedFilesystem(op.creation!);
+    const completed = this.repo.get(op.operationId)?.result.state === "PROVISIONED";
     for (const intent of this.repo.fileIntents(op.operationId).filter((i) => !i.direction && (i.kind === "directory" || i.kind === "publish"))) {
       const receipt = this.repo.fileReceipts(op.operationId).find((r) => r.intentId === intent.id && !r.compensated);
-      if (!receipt) managedFailure("OWNERSHIP_UNVERIFIED"); gateway.inspect(intent, receipt);
+      if (!receipt) managedFailure("OWNERSHIP_UNVERIFIED");
+      const file = intent.kind === "publish" ? op.creation!.files.find((file) => file.relativePath === intent.relativePath) : undefined;
+      const validateContents = completed && file ? this.adapter.runtimeFileValidator?.(file) : undefined;
+      gateway.inspect(intent, receipt, validateContents);
     }
   }
   private async restore(op: ProvisioningApplyOperation, policy: RuntimeAttachmentPolicy) {

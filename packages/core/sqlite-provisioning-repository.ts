@@ -1,5 +1,5 @@
 import path from "node:path";
-import type { ManagedCreationRepository, ManagedCreatePreview, ManagedRuntimeDefinition, FileEffectIntent, FileEffectReceipt } from "./managed-create";
+import { creationHash, type ResolvedRuntimeBundle, type ManagedCreationRepository, type ManagedCreatePreview, type ManagedRuntimeDefinition, type FileEffectIntent, type FileEffectReceipt } from "./managed-create";
 import type { RuntimeAttachmentRepository, RuntimeAttachmentDescriptor, RuntimeAttachmentRecord, ExternalEffectIntent } from "./runtime-attachment";
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
@@ -31,6 +31,18 @@ export class SqliteProvisioningRepository implements ProvisioningApplyRepository
   getManagedPreview(planId: string): ManagedCreatePreview | undefined {
     const row = this.database().prepare("SELECT data FROM provisioning_create_previews WHERE plan_id=?").get(planId);
     return row ? JSON.parse(String(row.data)) : undefined;
+  }
+  saveManagedBundle(id: string, bundle: ResolvedRuntimeBundle): void {
+    if (creationHash(bundle) !== id) throw new Error("Bundle snapshot digest mismatch.");
+    this.database().prepare("INSERT INTO managed_runtime_bundles(id,data) VALUES (?,?) ON CONFLICT(id) DO NOTHING").run(id, JSON.stringify(bundle));
+    if (creationHash(this.getManagedBundle(id)) !== id) throw new Error("Incompatible bundle snapshot.");
+  }
+  getManagedBundle(id: string): ResolvedRuntimeBundle | undefined {
+    const row = this.database().prepare("SELECT data FROM managed_runtime_bundles WHERE id=?").get(id);
+    if (!row) return undefined;
+    const bundle = JSON.parse(String(row.data)) as ResolvedRuntimeBundle;
+    if (creationHash(bundle) !== id) throw new Error("Bundle snapshot drift.");
+    return bundle;
   }
   beginManaged(op: ProvisioningApplyOperation, steps: ProvisioningApplyStep[]) {
     return this.tx(() => {
@@ -196,6 +208,22 @@ export class SqliteProvisioningRepository implements ProvisioningApplyRepository
       return op;
     });
   }
+  acquireRollback(id: string, digest: string, actor: string, owner: string, now: string, expiresAt: string) {
+    return this.tx(() => {
+      const op = this.get(id);
+      if (!op || op.executionKind !== "managed-create" || !op.creation) throw new ProvisioningApplyException({ code: "OPERATION_NOT_FOUND", message: "Managed creation operation required." });
+      if (!actor.trim() || op.digest !== digest) throw new ProvisioningApplyException({ code: "APPROVAL_MISMATCH", message: "Rollback approval differs." });
+      if (op.result.state === "ROLLED_BACK") return op;
+      if (op.result.state !== "PARTIALLY_ROLLED_BACK" && !(op.result.state === "ROLLING_BACK" && op.rollbackRecovery)) throw new ProvisioningApplyException({ code: "ROLLBACK_STATE_CONFLICT", message: "Only partial rollback may be explicitly retried." });
+      if (op.lease.expiresAt > now) throw new ProvisioningApplyException({ code: "APPLY_IN_PROGRESS", message: "An unexpired lease still owns this operation." });
+      op.lease = { owner, token: op.lease.token + 1, expiresAt };
+      op.rollbackRecovery = { actor, approvedAt: now }; op.updatedAt = now;
+      op.result.state = "ROLLING_BACK"; op.result.outcome = "failed";
+      this.save(op); this.append(op, "ROLLBACK_RECOVERY", "started", now); this.history(op);
+      this.database().prepare("INSERT INTO audit_log(id,timestamp,actor,action,provider_id,server_id,operation_id,result,metadata) VALUES (?,?,?,?,?,?,?,?,?)").run(randomUUID(), now, actor, "provisioning.rollback.recovery.approved", op.plan.providerId, op.plan.serverId, id, "completed", JSON.stringify({ digest, fencingToken: op.lease.token }));
+      return op;
+    });
+  }
   startStep(op: ProvisioningApplyOperation, step: ProvisioningApplyStep, now: string, expiresAt: string) {
     return this.tx(() => {
       const stored = this.fenced(op, now);
@@ -252,6 +280,11 @@ export class SqliteProvisioningRepository implements ProvisioningApplyRepository
       const stored = this.fenced(op, now);
       const effects = this.effects(op.operationId);
       const remaining = effects.filter((effect) => !effect.step.kind.startsWith("CLAIM_"));
+      if (stored.executionKind === "managed-create" && !errors.length) {
+        const receipts = this.fileReceipts(op.operationId);
+        const uncompensated = this.fileIntents(op.operationId).some((intent) => !intent.direction && !["write", "remove-temp"].includes(intent.kind) && receipts.some((receipt) => receipt.intentId === intent.id && !receipt.compensated));
+        if (uncompensated) errors = [{ code: "OWNERSHIP_UNVERIFIED", message: "Managed compensation receipts remain incomplete." }];
+      }
       if (!remaining.length && !errors.length) {
         for (const claim of this.claims(op.operationId)) {
           claim.state = "released"; claim.updatedAt = now;

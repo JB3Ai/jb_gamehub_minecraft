@@ -35,7 +35,7 @@ interface Migration {
   up: string;
 }
 
-const SCHEMA_VERSION = 8;
+const SCHEMA_VERSION = 9;
 
 const migrations: Migration[] = [
   {
@@ -251,6 +251,9 @@ const migrations: Migration[] = [
     CREATE TABLE managed_runtime_definitions (server_id TEXT PRIMARY KEY, operation_id TEXT NOT NULL UNIQUE, data TEXT NOT NULL);
     CREATE TABLE provisioning_file_intents (operation_id TEXT NOT NULL, effect_id TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY(operation_id,effect_id));
     CREATE TABLE provisioning_file_receipts (operation_id TEXT NOT NULL, effect_id TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY(operation_id,effect_id));
+  ` },
+  { version: 9, name: "managed_runtime_bundles", up: `
+    CREATE TABLE managed_runtime_bundles (id TEXT PRIMARY KEY, data TEXT NOT NULL);
   ` },
 ];
 

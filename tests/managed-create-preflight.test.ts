@@ -67,7 +67,7 @@ test("managed CREATE requires approved roots separate from artifact and adoption
   f.policy.adoptionLocations.external = f.root;
   await assert.rejects(manager.previewManagedCreation(await manager.planProvisioning(f.request), f.policy));
 });
-test("existing server identity and native Bedrock CREATE stay unsupported", async (t) => {
+test("existing server identity conflicts and unscoped providers do not advertise CREATE", async (t) => {
   const f = await managedFixture(t), { manager } = await f.open();
   await assert.rejects(manager.previewManagedCreation(await manager.planProvisioning({ ...f.request, serverId: "legacy-java" }), f.policy));
   await manager.register(new BedrockProvider());
@@ -83,16 +83,16 @@ test("nested active physical-path claims block a new CREATE target", async (t) =
   await assert.rejects(manager.previewManagedCreation(await manager.planProvisioning(second), f.policy));
   assert.equal(repository.provisioning.claims(`create_${plan.planId}`).filter((claim) => claim.state === "active").length, 3);
 });
-test("migration v8 preserves v7 adopted records and creates managed effect tables", async (t) => {
+test("migrations v8/v9 preserve v7 adopted records and create managed effect tables", async (t) => {
   const f = await managedFixture(t); const first = await f.open(); await first.manager.shutdown();
   const db = new DatabaseSync(path.join(f.base, "state.sqlite"));
   const adoptedData = JSON.stringify({ effectId: "pre-v8-adopted", operationId: "legacy-attachment", digest: "approved-v7", fencingToken: 1, attachedAt: "2026-10-12T10:00:00Z", descriptor: { serverId: "existing-adopted", providerId: "minecraft", runtimeRoot: path.join(f.base, "adopted"), ownership: "ADOPTED", destructiveOwnership: false } });
   db.prepare("INSERT INTO runtime_attachments(effect_id,server_id,data) VALUES (?,?,?)").run("pre-v8-adopted", "existing-adopted", adoptedData);
-  db.exec("DROP TABLE provisioning_create_previews; DROP TABLE managed_runtime_definitions; DROP TABLE provisioning_file_intents; DROP TABLE provisioning_file_receipts; PRAGMA user_version=7;");
+  db.exec("DROP TABLE managed_runtime_bundles; DROP TABLE provisioning_create_previews; DROP TABLE managed_runtime_definitions; DROP TABLE provisioning_file_intents; DROP TABLE provisioning_file_receipts; PRAGMA user_version=7;");
   db.close(); const migrated = await f.open();
   assert.deepEqual(migrated.repository.provisioning.attachmentRecords()[0], JSON.parse(adoptedData));
   const observed = new DatabaseSync(path.join(f.base, "state.sqlite"));
   const tables = observed.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map((row) => row.name);
   for (const table of ["runtime_attachments", "provisioning_external_intents", "managed_runtime_definitions", "provisioning_file_intents", "provisioning_file_receipts"]) assert.ok(tables.includes(table));
-  assert.equal(observed.prepare("PRAGMA user_version").get()?.user_version, 8); observed.close();
+  assert.equal(observed.prepare("PRAGMA user_version").get()?.user_version, 9); observed.close();
 });

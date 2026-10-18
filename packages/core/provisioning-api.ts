@@ -52,7 +52,9 @@ function publicAttachment(record: RuntimeAttachmentRecord) {
 }
 function publicCreation(preview: ManagedCreatePreview) {
   return { digest: preview.digest, ownership: "MANAGED", profileId: preview.profileId, serverId: preview.plan.serverId,
-    directoryName: preview.leaf, files: preview.files.map(({ name, relativePath, sha256, size }) => ({ name, relativePath, sha256, size })), endpoints: preview.plan.request.endpoints, worldName: preview.worldName, startup: "remain-stopped", deferredValidations: ["first-boot", "world-readiness"] };
+    directoryName: preview.leaf, files: preview.files.map(({ name, relativePath, sha256, size }) => ({ name, relativePath, sha256, size })),
+    ...(preview.bundle ? { bundle: { version: preview.bundle.version, digest: preview.bundle.manifestDigest, fileCount: preview.bundle.fileCount, totalBytes: preview.bundle.totalBytes } } : {}),
+    endpoints: preview.plan.request.endpoints, worldName: preview.worldName, startup: "remain-stopped", deferredValidations: ["first-boot", "world-readiness"] };
 }
 /** Handlers delegate to ProviderManager; absolute roots, raw errors and launch configuration stay private. */
 export function provisioningRouter(manager: () => InMemoryProviderManager, options: () => ProvisioningApiOptions): express.Router {
@@ -102,6 +104,15 @@ export function provisioningRouter(manager: () => InMemoryProviderManager, optio
     res.status(200).json({ operationId: result.operationId, providerId: result.plan.providerId, serverId: result.plan.serverId, state: result.result.state, outcome: result.result.outcome, ownership: "MANAGED", ...(result.error ? { error: { code: result.error.code, message: "Managed creation did not complete." } } : {}), residuals: result.rollbackErrors.map(({ code }) => ({ code, directoryName: manager().getManagedCreatePreview(plan.planId)?.leaf, retainedClaims: manager().listProvisioningClaims(result.operationId).filter((claim) => claim.state === "active").length })) });
   }));
   router.get("/attachments", route(async (_req, res) => { res.json({ attachments: manager().listRuntimeAttachments().map(publicAttachment) }); }));
+  router.post("/operations/:operationId/recover", route(async (req, res) => {
+    const input = fields(req.body, ["digest", "approved"]);
+    if (input.approved !== true || typeof input.digest !== "string") throw new ApiFault(400, "APPROVAL_REQUIRED");
+    const operationId = String(req.params.operationId), operation = manager().getProvisioningOperation(operationId);
+    if (!operation || operation.executionKind !== "managed-create") throw new ApiFault(404, "OPERATION_NOT_FOUND");
+    const result = await manager().retryManagedRollback(operationId, { digest: input.digest, approved: true }, policy(operation.plan.providerId), res.locals.principal.actor);
+    const retainedClaims = manager().listProvisioningClaims(operationId).filter((claim) => claim.state === "active").length;
+    res.json({ operationId, providerId: result.plan.providerId, serverId: result.plan.serverId, state: result.result.state, outcome: result.result.outcome, ownership: "MANAGED", retainedClaims, residuals: result.rollbackErrors.map(({ code }) => ({ code })) });
+  }));
   router.get("/attachments/:id", route(async (req, res) => {
     const record = manager().listRuntimeAttachments().find((item) => item.effectId === req.params.id); if (!record) throw new ApiFault(404, "ATTACHMENT_NOT_FOUND"); res.json(publicAttachment(record));
   }));

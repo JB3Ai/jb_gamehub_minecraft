@@ -1,0 +1,23 @@
+{
+  "bedrock_server.exe": "NON-EXECUTABLE TEST FIXTURE: BDS 1.26.51.1\n",
+  "bedrock_server_how_to.html": "TEST ONLY: explicit transport=raknet\n",
+  "vendor.dll": "NON-EXECUTABLE TEST LIBRARY\n",
+  "server.properties": "# source configuration must not be copied\nlevel-name=Bedrock level\n",
+  "assets/definitions/a.json": "{\"fixture\":1}\n",
+  "assets/definitions/b.json": "{\"fixture\":2}\n",
+  "assets/definitions/c.json": "{\"fixture\":3}\n",
+  "assets/definitions/d.json": "{\"fixture\":4}\n",
+  "assets/definitions/e.json": "{\"fixture\":5}\n",
+  "assets/definitions/f.json": "{\"fixture\":6}\n",
+  "assets/definitions/g.json": "{\"fixture\":7}\n",
+  "assets/definitions/h.json": "{\"fixture\":8}\n",
+  "assets/definitions/i.json": "{\"fixture\":9}\n",
+  "assets/definitions/j.json": "{\"fixture\":10}\n",
+  "assets/definitions/k.json": "{\"fixture\":11}\n",
+  "assets/definitions/l.json": "{\"fixture\":12}\n",
+  "assets/definitions/m.json": "{\"fixture\":13}\n",
+  "assets/definitions/n.json": "{\"fixture\":14}\n",
+  "assets/definitions/o.json": "{\"fixture\":15}\n",
+  "assets/definitions/p.json": "{\"fixture\":16}\n",
+  "assets/definitions/q.json": "{\"fixture\":17}\n"
+}

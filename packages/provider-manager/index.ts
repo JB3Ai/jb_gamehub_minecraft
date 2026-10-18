@@ -1245,6 +1245,12 @@ export class InMemoryProviderManager {
     if (!operation || operation.executionKind !== "managed-create") throw new Error("Managed operation not found.");
     return this.managedCreationService(operation.plan.providerId, policy, options).recover(operationId, policy);
   }
+  async retryManagedRollback(operationId: string, approval: { digest: string; approved: true }, policy: RuntimeAttachmentPolicy, actor: string, options: ManagedCreationOptions = {}) {
+    policy = this.protectedCreationPolicy(policy);
+    const operation = this.repository.provisioning?.get(operationId);
+    if (!operation || operation.executionKind !== "managed-create") throw new ProvisioningApplyException({ code: "OPERATION_NOT_FOUND", message: "Managed operation not found." });
+    return this.managedCreationService(operation.plan.providerId, policy, options).retryRollback(operationId, approval, policy, actor);
+  }
   private protectedCreationPolicy(policy: RuntimeAttachmentPolicy): RuntimeAttachmentPolicy {
     return { ...policy, protectedPaths: [...policy.protectedPaths ?? [], ...[...this.providers.values()].flatMap((provider) => provider.managedProtectedPaths?.() ?? []), ...this.listRuntimeAttachments().map((record) => record.descriptor.runtimeRoot)] };
   }

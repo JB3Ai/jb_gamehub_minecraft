@@ -1,10 +1,13 @@
 # JBGH-022A - Unified Server Provisioning Architecture
 
 Status: JBGH-022A-E foundations implemented; JBGH-022F, JBGH-022G-A and JBGH-022G-B: CLOSED / PASS.
-Updated: 2026-10-15. JBGH-022G-B managed Java first-boot acceptance completed successfully.
+Updated: 2026-10-16. JBGH-022G-C1 stopped Bedrock CREATE implemented; live acceptance pending.
+JBGH-022G-B managed Java first-boot acceptance completed successfully on 2026-10-15.
 JBGH-022 remains OPEN. Managed synthetic/Java CREATE is implemented, Java first-boot
 and clean-stop acceptance passed, and Java/Bedrock existing-runtime attachment
-acceptance passed. Player acceptance and Bedrock managed CREATE remain deferred.
+acceptance passed. Bedrock CREATE is implemented through the stopped PROVISIONED
+boundary with fixture validation only. Bedrock first boot (G-C2), player acceptance
+and overall JBGH-022 closure remain deferred.
 
 ## JBGH-022B implementation boundary
 
@@ -2175,3 +2178,784 @@ GameHub was stopped following acceptance; the Java runtime remains offline and
 port 27051 is closed. Overall JBGH-022 remains OPEN.
 
 The next slice is Bedrock managed CREATE.
+
+## JBGH-022G-C — Bedrock Managed CREATE
+
+Status: G-C1 CLOSED / PASS (2026-10-18). G-C2 NOT STARTED / DEFERRED.
+Design date: 2026-10-16. JBGH-022 remains OPEN.
+The architecture contract below is implemented through the stopped CREATE boundary.
+Stopped CREATE live acceptance is recorded below. JBGH-022G-A/B and the existing ADOPTED BDS path
+stay unchanged. First boot remains guarded until the separate G-C2 slice.
+
+### Scope
+
+Create a new Windows x64 native BDS runtime from an approved, local, extracted
+distribution manifest. Reuse provider-neutral approval, claims, journal, scoped
+activation and MANAGED definitions; keep BDS filenames, configuration, runtime
+classification and readiness evidence in the Bedrock adapter.
+
+There are two separate acceptance gates, in this order:
+
+1. **Stopped CREATE:** CREATE -> PROVISIONED / applied -> MANAGED -> offline.
+   No BDS process starts. The selected world is configuration intent, not an
+   already-created or validated world.
+2. **Boot/READY:** separately authorized start -> observed online/ready -> clean
+   stop -> observed offline, with the same managed runtime retained for restart
+   verification. The CREATE result remains PROVISIONED / applied.
+
+Proposed disposable identities (operator references, not production constants):
+
+| Item | Proposed value |
+| --- | --- |
+| Managed root | `D:\jb_gamehub_022g_bedrock_acceptance` |
+| Target | `D:\jb_gamehub_022g_bedrock_acceptance\bedrock-022g-live` |
+| Provider / server | minecraft-bedrock / bedrock-022g-live |
+| Runtime kind | native-bds |
+| Approved profile reference | bedrock-raknet-approved |
+| Pinned initial BDS build / profile revision | 1.26.51.1 / 1 |
+| Transport / compatibility policy | raknet / bds-1.26.51.1-raknet-v1 |
+| Fresh world intent | managed-bedrock-world |
+| Protected existing installation | `D:\MinecraftBedrockServer` |
+
+The protected installation may be inspected/read as an explicitly approved source.
+Never start, stop, configure, mark, chmod, delete or otherwise mutate it for G-C.
+Do not create the proposed acceptance root, policy or target during implementation.
+
+### Non-goals
+
+- Java changes, FamilyService changes, content import, player/XUID acceptance,
+  UI/onboarding work or the known unrelated Bedrock Content Library 422 fix.
+- Downloads, automatic package acquisition, ZIP extraction, upgrades, automatic
+  license acceptance, copying installed worlds/accounts, or restoring world backups.
+- Linux/container/remote-agent support, arbitrary commands, firewall/NAT changes,
+  port allocation, custom add-ons/scripts, debug listeners or general server DELETE.
+- NetherNet/TCP signaling and negotiated peer UDP ranges. This first contract is
+  explicitly for a pinned build supporting the RakNet UDP endpoint model.
+- Hostile-host isolation, network filesystems, power-loss exactly-once effects,
+  running-process adoption after a GameHub crash, or automatic failed-boot cleanup.
+
+### Approved source model
+
+Use an **approved extracted runtime set** for the first implementation. An operator
+extracts the official distribution into an approved source location separately.
+G-C neither downloads nor opens archives. A future approved-package extractor needs
+its own archive/path-security contract.
+
+The trusted Bedrock profile must declare:
+
+| Field | Required contract |
+| --- | --- |
+| Identity | providerId=minecraft-bedrock, runtimeKind=native-bds, profile ID/revision |
+| Platform/build | Windows x64, exact operator-approved build and compatibility attestation |
+| Source | trusted source-root reference, canonical root identity, immutable manifest reference |
+| Bundle | versioned canonical manifest digest and relative entrypoint `bedrock_server.exe` |
+| Files | sorted relative paths, byte sizes, SHA-256, classification and explicit parent directories |
+| Configuration | protected generated properties, allowed vendor-default additions and rewrite policy |
+| Resources | positive file-count/depth/per-file/aggregate-byte limits and bounded lifecycle timeouts |
+| Authorization | explicit prior BDS license-acceptance reference scoped to this profile/bundle |
+| Networking | transport=raknet, approved fixed IPv4/IPv6 UDP pair and complete host inventory |
+
+Missing limits, hashes, required files, compatible build metadata or license
+authorization disable CREATE. Do not silently reuse Java's 16-file or single-JAR
+assumptions. Large manifests need a bounded, durable canonical snapshot referenced
+by digest; avoid copying the whole inventory into every operation/journal row.
+
+The manifest is an explicit file inventory, not "copy this directory recursively."
+Its digest binds path, size, hash, role, empty-directory requirements, platform,
+build and entrypoint. Include all required vendor binaries/assets and bundled
+notices for that approved build, including nested distribution files as necessary.
+The vendor how-to/template used to attest configuration support should also be
+identified by hash/build in the profile review.
+
+Never import source `worlds/`, live `server.properties`, allowlists, permissions,
+acceptance markers, logs, statistics, private state or development packs. Generate
+server policy afresh. A populated source such as the protected installation is
+eligible only for its explicitly selected, hash-approved runtime files. Verify
+manifest coverage inside selected runtime directories; do not infer approval for
+new files that appear there. A clean extracted source is preferred.
+
+Clients submit profile/root references, safe server/world identity and approved
+endpoint values. They cannot submit bundle manifests/hashes, source paths,
+executables, script text, license booleans or absolute destination paths.
+
+### Managed filesystem layout
+
+Preserve the approved package's relative layout rather than flattening assets:
+
+```text
+bedrock-022g-live/
+  .jbgh-owner.json          generated neutral ownership metadata; immutable
+  bedrock_server.exe       approved immutable entrypoint
+  <manifested files/dirs>  required vendor DLLs, assets, definitions, packs, notices
+  server.properties        generated; protected semantic configuration
+  allowlist.json           generated empty JSON array; protected policy
+  permissions.json         generated empty JSON array; protected policy
+  worlds/<world-name>/     absent at CREATE; generated by BDS at first boot
+  <declared output paths>  only the pinned profile's runtime-state rules
+```
+
+The vendor paths are manifest entries, not glob-based copy instructions.
+Do not create fake `level.dat` or copy `Bedrock level` from the source.
+At the stopped boundary the world directory need not exist.
+
+Validate every nested path component using a portable relative-path grammar.
+Explicitly manifested vendor bundle components may begin with underscores, as
+required by BDS `__brarchive` directories; client-selected managed-directory and
+world names retain the existing stricter grammar.
+Reject absolute/UNC/device paths, ADS, traversal, empty/dot segments, Windows
+reserved names, ambiguous separators, trailing dots/spaces and case collisions.
+Reject source/destination symlinks, junctions, reparse escapes and hard-link aliases.
+Require canonical local service-exclusive roots, ancestor-overlap checks against
+all protected/source/adopted/managed roots, and exact device/file identities.
+
+Extend the constrained filesystem gateway for journaled nested directories and
+files; providers do not receive arbitrary filesystem access. Each parent directory
+must have its own identity receipt before a child is written. Use exclusive
+creation, bounded streaming, verified temp hashes and atomic no-clobber publication.
+Configuration reads remain bounded and stable; runtime identities cannot be
+silently replaced merely because new bytes are semantically compatible.
+
+### Ownership model
+
+The resulting definition is `ownership=MANAGED`, `mode=create`, with
+`destructiveOwnership=false`; never ADOPTED. Persist provider/server/host,
+root reference and safe relative identity, canonical private identities,
+profile/build/bundle digest, file classifications, endpoints, world intent,
+license reference and originating operation.
+
+Ownership metadata is neutral core metadata, includes the immutable bundle
+identity, and is itself hash/identity protected. Public inventory shows MANAGED
+and safe endpoint/world information; absolute roots, private bundle inventories,
+launch configuration and operator authorization records stay private.
+
+Completed runtimes retain server/path/endpoint claims while stopped. A later
+start is a separate lifecycle operation. Neither failed first boot nor ordinary
+runtime output authorizes rollback/deletion of a successful CREATE.
+
+### Endpoint policy
+
+**Initial implementation: an explicit dual-stack RakNet UDP pair.**
+
+| Endpoint | Contract default | Meaning |
+| --- | --- | --- |
+| game-v4 | 0.0.0.0:19132 / UDP | `server-port` |
+| game-v6 | [::]:19133 / UDP | `server-portv6` |
+
+Ports are configurable fixed values approved by the profile and plan, not hard-coded
+production constants. Both claims are mandatory in this first profile. IPv6 becomes
+optional only with a separately attested profile/build that actually suppresses
+its listener; omission or port 0 is not evidence of disabling IPv6.
+
+Transport must be explicit. The official 26.50 release notes changed the default
+to NetherNet; the bundled how-to inspected for this design describes TCP signaling
+for NetherNet and separate UDP ports for RakNet. Later preview notes deprecate
+RakNet. Therefore this contract requires a specifically approved RakNet-compatible
+build; it does not promise arbitrary/latest BDS support. An incompatible build
+blocks the profile rather than silently changing transport or adding TCP claims.
+See the [official 26.50 notes](https://feedback.minecraft.net/hc/en-us/articles/48826825649933-Minecraft-Bedrock-Edition-26-50-Changelog-Wilderness-Bound)
+and [26.60 preview notes](https://feedback.minecraft.net/hc/en-us/articles/48740748263565-Minecraft-Beta-Preview-26-60-22-23).
+
+Do not import Java `server-ip=127.0.0.1` assumptions: the selected RakNet policy
+declares wildcard bindings and must prove the actual socket addresses. NetherNet
+`server-ip`/`server-udp-ports` semantics are outside this contract.
+Protect `enable-lan-visibility=false`: enabling LAN visibility may create additional
+default-port bindings even with configured custom ports. This behavior is documented
+in [Microsoft's server-property reference](https://learn.microsoft.com/en-us/minecraft/creator/documents/bedrockserver/server-properties?view=minecraft-bedrock-stable).
+
+Preflight is read-only: obtain complete, fresh trusted UDP inventory and consult
+durable claims. Query failure or unknown IPv6 coverage is not an empty/free result.
+Apply acquires server/path/both UDP claims atomically, then rechecks availability
+with transport-appropriate exclusive UDP probes before file mutation; do not reuse
+the Java TCP probe. Close probes before provisioning finishes. Cross-family wildcard
+collisions must fail closed; conservative reservation of each host/UDP port across
+families is acceptable. Logical claims are not permanent OS socket reservations.
+
+Start repeats endpoint/invariant checks immediately before launching the owned
+executable. If another process owns a port, fail without stopping it. Do not stop
+the real BDS installation to obtain 19132/19133: if either is occupied, acceptance
+waits or uses a separately approved fixed pair with a new digest. No silent fallback.
+
+### License acceptance
+
+Require a truthful prior operator record before approval/apply. Bind actor,
+past ISO-8601 acceptance time, reviewed terms reference/revision, provider,
+profile revision, bundle digest, host and intended server scope. Missing, revoked,
+placeholder, future-dated or incompatible records fail closed. Reading/downloading
+documentation or submitting `approved=true` does not create license acceptance.
+
+A Java acceptance record does not automatically authorize the BDS profile.
+Do not generate Java's `eula.txt` for BDS by analogy. Any vendor-required BDS
+license artifact must have an explicit version-specific requirement and trusted
+authorization; preserve packaged notices. See the operator-facing
+[official BDS distribution page](https://www.minecraft.net/en-us/download/server/bedrock)
+for the applicable download/terms workflow, performed outside this slice.
+
+### Generated configuration
+
+Provider-owned deterministic UTF-8 without BOM, stable ordering and final newline.
+Example values below express the proposed acceptance profile, not a live policy:
+
+```ini
+server-name=JB3 Bedrock Managed
+transport=raknet
+server-port=19132
+server-portv6=19133
+level-name=managed-bedrock-world
+online-mode=true
+allow-list=true
+allow-cheats=false
+default-player-permission-level=member
+enable-lan-visibility=false
+allow-inbound-script-debugging=false
+allow-outbound-script-debugging=false
+script-debugger-auto-attach=disabled
+```
+
+All generated active properties are protected, including transport, both ports,
+world intent, authentication/allowlist policy and disabled debugging. A profile must
+attest support for these exact keys on the pinned build. No RCON/query or unknown
+auxiliary listener is inferred from Java conventions.
+
+Generate `allowlist.json` and `permissions.json` as deterministic empty arrays.
+Their empty-array semantics remain protected after boot; formatting-only rewrites
+may be permitted, but account/operator additions are not. The empty allowlist with
+`allow-list=true` deliberately keeps player acceptance out of G-C. No real account
+name or XUID is embedded. Changing access policy later requires a separately
+authorized policy change.
+
+World intent must be a single safe directory name under `worlds/`. No world import,
+external path, symlink or source-world adoption. Resolve the expected world from
+the approved configuration; never hard-code a test-world ID into production.
+
+### Immutable runtime artifacts
+
+Byte-exact SHA-256 and exact owned identities for the executable and every
+manifested immutable binary, DLL, static asset, bundled pack/definition and notice.
+Ownership metadata and the bundle manifest digest are also immutable.
+A matching executable hash alone is not proof of an intact BDS runtime set.
+
+Before activation/start/restoration, verify manifest membership, required directory
+identities and each immutable file. Unexpected loadable binaries or files inside
+immutable namespaces fail verification; they are preserved for review, not deleted.
+Never relabel a changed asset as runtime state, refresh its hash from disk, or
+rewrite the approval digest/original receipts to make verification pass.
+
+### Mutable runtime state
+
+The profile separately enumerates known BDS output paths and their validation
+rules: the selected `worlds/<world-name>/` tree, configured logs/captures, statistics
+or other version-specific state only when actually required by that build.
+Do not assume Java's log locations or require a BDS log file that is not generated;
+bounded stdout/stderr evidence may be retained by GameHub outside immutable paths.
+
+`server.properties` and access-policy JSON are protected configuration, not
+unrestricted mutable state. Never blanket-exempt `config/**`, runtime packs,
+executable directories or the entire target from verification. Every copied
+configuration/default file needs an explicit immutable/protected role; an unknown
+rewrite becomes a blocker requiring profile review.
+
+State growth is expected and does not invalidate a whole-directory hash.
+Unknown outputs are retained and reported as unclassified; launch/restoration fails
+closed until their role is explicitly reviewed. Do not auto-delete or auto-approve.
+Source directories never become writable state.
+
+Record any required application-data/temp writes outside the target explicitly.
+The gateway constrains GameHub's mutations; it is not an OS sandbox for native BDS.
+An undeclared write into protected/source storage fails acceptance. Host isolation
+and arbitrary outside-root mutation containment are not claimed.
+
+### Semantic verification rules
+
+- Plan/preflight/apply, interrupted CREATE recovery and compensation use the exact
+  approved generated bytes and copied hashes until PROVISIONED commits.
+- Completed managed BDS lifecycle/restoration uses Bedrock-owned validators for
+  declared protected configuration only. Reuse the neutral validator hook introduced
+  by G-B, not Java's parser/key set or the ADOPTED attachment verifier.
+- Parse the pinned build's supported explicit `key=value` format. Permit comments,
+  blank lines, ordering and documented separator whitespace. Preserve meaningful
+  value content. Reject invalid encoding, malformed active lines, duplicate keys,
+  ambiguous escapes/continuations and unsupported syntax.
+- Every protected key must exist and match the stored approved value. New active
+  defaults are allowed only by a versioned profile allowlist and allowed values;
+  additional network/debug/transport behavior is not accepted as an innocent default.
+- Access-policy JSON must parse as the approved empty-array policy; entries, extra
+  structure, malformed JSON or changed permissions fail closed.
+- Immutable hash/identity or protected semantic drift remains ARTIFACT_DRIFT;
+  missing authorization and unknown endpoint availability retain specific failures.
+- Successful normalization never changes original manifests, receipts, approval
+  digest, bundle hash or license scope. No schema/schema-version inference from
+  mutable runtime bytes.
+
+### Apply flow
+
+1. Admin-only plan: CREATE mode, trusted managed-root/profile references, safe
+   server/world identity and the two approved UDP endpoints. Keep existing plan,
+   preflight and distinct `POST /api/provisioning/applies` approval API semantics.
+2. Read-only preflight resolves/canonicalizes roots, verifies protected overlap,
+   source inventory/hashes/limits, profile/platform/license, nested namespace rules
+   and both endpoint inventories. Persist a versioned private executable snapshot.
+   Public preview shows MANAGED, bundle identity/count summary, endpoints, world
+   intent and `startup=remain-stopped`; readiness/world creation are deferred.
+3. Apply loads stored plan/digest, requires `approved=true`, revalidates inputs and
+   atomically claims server ID, physical path and both UDP endpoints. Approval
+   binds the complete bundle/configuration/resource plan, not only the EXE.
+4. Journal intent before root/parent-directory creation, each bounded copy,
+   generated policy file, temp publication/removal, definition and activation.
+   Reuse fenced synchronous mutation guards and exact identity/hash receipts.
+5. Stage only approved files with exclusive no-clobber publication. Verify each
+   destination and source again; create ownership metadata/config/access-policy
+   files. Persist a reconstructable PENDING_ACTIVATION MANAGED definition.
+6. Activate a scoped native BDS child with the exact private entrypoint and owned
+   cwd; no process launch. Publish ACTIVE definition and PROVISIONED/applied result
+   atomically, retain claims and audit/history. Discovery/status must report offline.
+7. Restore the completed definition after GameHub restart without starting it;
+   approval replay is idempotent. Do not route CREATE through `/attachments`.
+
+Implemented G-C1 safeguards: versioned directory-bundle profile/manifest support,
+bounded private manifest storage, safe nested filesystem effects, UDP-aware
+availability and stopped dual-endpoint routing. Bundle inventories have their own
+bounds and source-root references; Java's flat-file limits and `artifactLocations`
+file semantics remain unchanged. SQLite migration v9 adds private bundle snapshots
+and preserves v8 Java, simulation and ADOPTED records.
+
+Later launch uses the approved entrypoint resolved under the managed target,
+fixed provider-owned arguments, shell=false and the managed cwd. No PATH lookup,
+client command strings or Java runtime reference. Preserve persistent stdout/stderr
+line buffering. Managed readiness must use a version-approved startup-complete
+signal and corroborating socket/world evidence, rather than promote an early
+IPv4-capability message into READY. Process identity includes the owned child and
+its start identity, not merely a PID or a successful port probe.
+
+### Recovery / rollback
+
+Preserve intent -> effect -> receipt, leases/fences and current synchronous host
+mutation guards. Stable effect IDs bind to manifest entries/digest. A stale worker
+cannot mutate, publish activation, commit receipts or compensate after takeover.
+
+Fixture-test interruption after claims, root/each parent intent, directory receipt,
+each file temp/write/publish/receipt, generated config/access-policy files,
+definition, activation and finalization. Recover only compatible receipted identities
+and hashes. A created directory without a committed identity receipt is ambiguous:
+retain it/claims and report PARTIALLY_ROLLED_BACK rather than infer ownership.
+
+Before successful provisioning, compensate only operation-owned, identity/hash-
+proven files and empty owned directories, deepest first. No recursive deletion.
+Unknown, replaced, changed or nonempty resources are retained with explicit safe
+residual summaries and prerequisite claims. Never touch source/adopted storage.
+A failed boot after PROVISIONED retains the runtime, generated world, claims and
+history; it does not rerun CREATE compensation.
+
+Clean stop uses the owned BDS console and waits for actual child exit and socket
+closure within a bounded timeout. A command acknowledgement or completed dispatch
+operation alone is not stopped proof. Timeout retains process/resources and reports
+failure; no automatic force-kill or unrelated-process shutdown. Recovery of an
+orphaned live BDS after a GameHub crash is deferred; detect occupied endpoints and
+report recovery required instead of guessing that a new child owns that process.
+
+### Live acceptance plan
+
+Implementation first needs deterministic bundle/profile/path/security, corruption,
+UDP inventory/claim, nested fault/recovery/rollback and semantic-config tests.
+Regression coverage must preserve Java managed CREATE/G-B, synthetic and both
+ADOPTED providers, `BedrockProvider.getWorlds()`, FamilyService and existing APIs.
+Run lint, contracts, focused tests, full suite, build and diff checks. The known
+Content Library native-Bedrock-root case (201 expected, 422 received) remains a
+separate issue; do not call that full-suite baseline green.
+
+**Pass A — stopped CREATE, separately authorized on the server:**
+
+1. Operator supplies a reviewed source manifest/build, truthful prior BDS license
+   record, exclusive disposable root, complete UDP inventory and free approved
+   pair. Keep the existing installation protected. Record source file hashes and
+   selected source namespace inventory before the run.
+2. Confirm target absent. Plan -> preflight PASS -> explicit approved apply.
+   Verify only the manifest and generated policy were created, hashes match,
+   ownership MANAGED and result PROVISIONED/applied with no residuals.
+3. Verify no BDS process/socket started. World intent matches generated properties;
+   actual world creation/discovery is deferred, not falsely marked PASS.
+4. Restart GameHub while the runtime is stopped; definition, claims and offline
+   status recover. Replay the identical approval without additional effects.
+   Verify source inputs unchanged and retain the target for Pass B.
+5. Exercise rollback/crash boundaries in fixtures or separately isolated disposable
+   fault runs, never by corrupting the protected source or the accepted target.
+
+**Pass B — boot/READY, only after Pass A:**
+
+1. Use the same target/definition, capture original immutable hashes and protected
+   values, and verify stopped state. Start only through GameHub; retain operation ID.
+2. Observe API starting/online where emitted and current-process BDS startup-complete
+   evidence. An early `IPv4 supported` line or process spawn alone is insufficient.
+   Require a version-approved ready marker, not stale logs from an earlier boot.
+3. Inspect actual Windows UDP endpoints and owning `bedrock_server.exe` PID,
+   entrypoint/cwd and both IPv4/IPv6 address/port bindings. Verify no unclaimed
+   default-port, TCP signaling or debug listener. Optionally use a RakNet status
+   probe without a player login; it cannot substitute for socket-owner evidence.
+4. Query the provider worlds API, record discovered IDs and select the approved
+   world intent. Require that world's `level.dat` and `validateWorld.valid=true`.
+   No hard-coded source-world assumption and no change to getWorlds semantics.
+5. Capture a bounded shared-read/stream log excerpt and current online/MANAGED
+   inventory, all immutable hashes, protected config/access-policy semantics,
+   runtime outputs/classifications and source-preservation evidence.
+6. Stop through GameHub. Observe actual process exit, offline status and both UDP
+   ports closed. Do not treat console acknowledgement as completed shutdown.
+7. Restart GameHub after clean stop, recover the same MANAGED runtime with normalized
+   configuration, then perform a second start/ready/stop cycle. This proves
+   post-first-boot verification/restartability, not just one successful launch.
+8. Recheck source hashes/inventory and protected roots, preserve original CREATE
+   receipts, record `playerAcceptance=false` and retain the accepted target.
+   Any teardown is separately authorized; no DELETE API or source cleanup is implied.
+
+Evidence includes profile/build/bundle digest, approved endpoint pair, plan/digest,
+CREATE/start/stop IDs, before/after hashes, actual PID/socket observations, API
+states, world IDs/validation, semantic comparisons, exit/port-closure results,
+source-preservation and truthful residuals. Keep evidence outside the repo unless
+explicitly versioned; do not add links to disposable local evidence in this document.
+No live BDS launch, GameHub launch, managed-runtime directory creation, extraction
+or source mutation is part of this implementation task.
+
+### PASS criteria
+
+```text
+Pass A =
+  approved bundle/profile/license and preflight PASS
+  + fresh exclusive target with exact approved files/generated policy
+  + durable MANAGED / PROVISIONED / applied / stopped
+  + retained atomic claims, idempotent replay and stopped restart restoration
+  + source preserved, no overwrite, no residuals
+
+Pass B =
+  same created runtime starts through GameHub
+  + current ready evidence and online/MANAGED API observation
+  + owned native BDS sockets match both approved UDP bindings
+  + approved fresh world discovered and validated
+  + immutable hashes/identities and protected semantic policies intact
+  + clean process exit, offline and both ports closed
+  + post-first-boot GameHub restoration and second boot/stop succeed
+  + source and original CREATE receipts preserved
+```
+
+JBGH-022G-C cannot close until both passes have recorded real PASS evidence.
+A generated world name, a successful spawn/dispatch operation, UDP send success or
+an empty inventory caused by a query error is not READY/PASS. Missing observations
+remain incomplete; defects remain open. Player acceptance, NetherNet expansion and
+the wider JBGH-022 closure remain separate.
+
+The stopped-CREATE implementation uses non-executable fixture bundles and
+deterministic fault tests. A real profile stays disabled until the operator supplies
+the compatible approved bundle, bounds, license record and free endpoint pair.
+This document supplies no live runtime authorization.
+
+### G-C1 implementation record — stopped CREATE only
+
+Implemented on 2026-10-16. **JBGH-022G-C1 live acceptance closed on 2026-10-18; see the acceptance record below.**
+G-C2 boot/READY acceptance is not implemented or performed.
+
+The initial profile is pinned to Windows x64 BDS **1.26.51.1**, profile revision
+`1`, runtime kind `native-bds`, explicit transport `raknet`, and compatibility
+policy `bds-1.26.51.1-raknet-v1`. The local source executable's version metadata
+identifies 1.26.51.1. This identifies the build to review; it does not approve an
+unhashed distribution or prove live transport compatibility. Neither `latest`,
+NetherNet nor another build is accepted by this profile implementation.
+
+Trusted policy additions under `managedCreate`:
+
+- `bundleLocations`: source-root reference to an absolute canonical local directory;
+  separate from single-file `artifactLocations`.
+- `bundles`: reference to an `ApprovedRuntimeBundle` (schemaVersion 1), including
+  build/platform/architecture/runtimeKind/transport/sourceRef/entrypoint; sorted
+  `files` entries with exact relativePath/size/sha256/classification; explicit empty
+  `directories`; `runtimeOutputs`; and positive `limits`.
+- A profile uses `artifacts: []`, no Java `runtime`, `bundle: { reference, digest }`,
+  a BDS `acceptanceRef`, and configuration containing the exact runtimeKind,
+  compatibility, transport and bundleVersion above, worldName, and optionally
+  version-reviewed `additionalDefaults`.
+- The BDS license record must include the exact providerId, serverId and
+  bundleDigest, as well as the existing host/profile/revision/operator/terms/time
+  scope. Missing, revoked, future or placeholder authorization fails. No Java
+  acceptance record is inherited and no Java-style `eula.txt` is generated.
+
+The bundle digest is SHA-256 of `canonicalProvisioningJson(bundle)`, binding every
+inventory entry, classification, directory, output declaration and limit. The
+entrypoint must be `bedrock_server.exe`. The reviewed/hash-approved
+`bedrock_server_how_to.html` is required as an immutable runtime file. Approval of
+the exact extracted set and compatibility attestation remains an operator action;
+the implementation does not acquire or approve a vendor release automatically.
+
+Resource limits are explicit per bundle: at most 32,768 files/directories, depth
+16, 256 MiB per file, 4 GiB aggregate and a 16 MiB manifest. Operator bounds may
+be lower. Every selected nested runtime namespace requires complete inventory
+coverage; unknown source files there fail preflight. Unselected root state such
+as an installed world is not copied. Approved templates for server.properties,
+allowlist.json and permissions.json can be hashed as `protected-config`; their
+source contents are never copied. All other copied files are `immutable-runtime`.
+Unknown mutable/copied configuration roles fail closed.
+
+Migration v9 stores each resolved bundle once in `managed_runtime_bundles`, keyed
+by a verified content digest including source identities. Previews/operations
+retain a compact snapshot reference, bundle summary and entrypoint. Journal rows
+retain individual effect IDs and receipts. The public CREATE projection includes
+bundle version/digest/count/bytes, generated file hashes, endpoint and world intent;
+it omits source paths, full private inventory, source identities and license data.
+
+Apply uses the existing approvals, atomic four-resource claim set (server, path,
+IPv4 UDP port, IPv6 UDP port), SQLite writer guard, intent/effect/receipt journal
+and exclusive publication. Each nested parent has an exact identity receipt.
+Copies and verification stream bounded data. Rollback is identity/hash checked,
+deepest first and empty-directory only; foreign, modified or unreceipted storage
+retains claims and reports PARTIALLY_ROLLED_BACK. No recursive deletion is added.
+The configured Bedrock installation and `D:\MinecraftBedrockServer` on Windows
+are protected even when the operator omits them from policy protectedPaths.
+
+Generated configuration protects every emitted value: server-name, transport,
+both UDP ports, level-name, online-mode, allow-list, allow-cheats, default player
+permission, disabled LAN discovery and disabled inbound/outbound/automatic script
+debugging. IPv4 uses `game-v4 / native-bds / udp / 0.0.0.0`; IPv6 uses
+`game-v6 / native-bds / udp / ::`, with two distinct explicit fixed ports. There is
+no RakNet server-ip assumption. Complete trusted UDP inventory is mandatory;
+preflight does not bind. Apply probes UDP (not TCP), closes each probe before
+continuing, and leaves no listener behind.
+
+After PROVISIONED, Bedrock-owned validators allow comments, blank lines, ordering
+and separator whitespace while requiring every generated active key/value.
+Additional defaults require an explicitly pinned value in the profile's small
+versioned safe-key allowlist. Unknown keys, duplicate/malformed entries, escaping,
+invalid encoding, changed protected values or nonempty access-policy arrays fail
+ARTIFACT_DRIFT. Immutable runtime/ownership files remain hash/identity exact;
+completed files must have one link. Original approval digests and receipts do not
+change when configuration normalizes.
+
+The stopped runtime has no generated worlds/logs or other undeclared files.
+Declared possible `worlds` output is **not authorized by PROVISIONED**. G-C1 rejects
+even that output before boot, plus leftover scratch and unknown loadable files.
+The neutral `lifecycleDeferred` guard blocks managed Bedrock start/restart with
+FIRST_BOOT_DEFERRED; existing Java/synthetic and ADOPTED lifecycle paths are
+unchanged. G-C2 must add durable boot authorization and the selected-world output
+policy before lifting this guard. Stopped restore/recovery remains available.
+
+Local validation uses a small explicitly non-executable bundle with more than 16
+files, nested assets and an empty directory. Coverage includes preview/apply,
+source/protected/target collisions, manifest/hash/membership/path/link/limit
+failures, both endpoint inventories, licensing and compatibility, interruption
+recovery, nested compensation, ambiguous receipt and foreign-data preservation,
+stale fences, semantic/immutable integrity, v8-to-v9 Java preservation, safe API
+projection/approval, UDP probe closure and stopped restart routing.
+
+Validation on 2026-10-16:
+
+| Check | Result |
+| --- | --- |
+| `npm run lint` | PASS |
+| Affected managed CREATE, Java integrity, attachment, provisioning/API/recovery tests | 278/278 PASS |
+| `npm run test:contracts` | 5/5 PASS |
+| `npm test` | 422/423 PASS; one known unrelated failure, below |
+| `npm run build` | PASS; existing CJS `import.meta` warning remains |
+| `git diff --check` | PASS |
+
+The full-suite failure remains **Content Library API maps Bedrock plans to the
+configured native provider root**: expected HTTP 201, received 422. It is outside
+G-C1 and was not changed. The full suite is not green.
+
+No real source/runtime files, live policy or disposable acceptance root were
+modified or created for this slice. No native BDS process was launched.
+Player acceptance and live C1/C2 PASS evidence remain deferred; JBGH-022 is OPEN.
+
+### G-C1 acceptance preparation — vendor path correction
+
+Read-only preparation on 2026-10-16 found a real bundle compatibility blocker:
+the directory-bundle validator and filesystem gateway reused the client-name
+grammar and rejected the vendor's `__brarchive` components. Removing those files
+would produce an incomplete runtime. The correction permits leading underscores
+only in approved bundle members, retaining explicit inventory/hash approval,
+component bounds, traversal/ADS/reserved-name/case/link protections and the
+unchanged client directory/world-name grammar. A regression first reproduced
+UNSAFE_PATH, then proved nested copy and stopped restart recovery with a vendor
+archive fixture. Additional rejection coverage preserves the unsafe-path boundary.
+
+The real 1.26.51.1 candidate inventory then passed read-only manifest resolution:
+3,028 candidate source files (3,025 immutable runtime files and three
+configuration templates that will not be copied), 696 directories and 289,747,643
+bytes. Windows x64 PE metadata and the bundled RakNet transport documentation were
+checked. Hash/identity/mtime comparison across all 3,038 protected source files
+and their directories showed no change during preparation. Installed worlds,
+development directories, packet statistics and the old attachment acceptance
+marker are excluded from the candidate runtime inventory.
+
+Candidate bundle reference: `bds-windows-x64-1_26_51_1-raknet`.
+Candidate canonical manifest SHA-256:
+`557fe940e01a0ca2de8df3fb7d14783b2a59f6e669d1fbfd6b2249176570647f`.
+This fingerprint identifies the set for operator review; it does not constitute
+operator approval, license acceptance or a CREATE PASS.
+
+The separate disposable managed root was prepared, but the target remains absent.
+UDP 19132/19133 were free at the preparation snapshot, but the default GameHub
+bedrock-main definition already advertises UDP 19132. The live draft request
+therefore selects disposable UDP **29232 / 29233**, verified free, without changing
+the existing provider definition or real BDS. The bundle digest is unchanged by
+this endpoint selection. No BDS process was running.
+The draft policy intentionally has no BDS license acceptance and marks
+endpoint inventory incomplete, so it cannot proceed accidentally. A complete host
+inventory was captured separately and must be refreshed before enabling a live
+policy. GameHub, API preflight/apply and BDS first boot were not run. G-C1 remains
+OPEN pending genuine bundle/license approval and live stopped-CREATE evidence;
+G-C2 remains deferred. No local disposable-evidence links are versioned here.
+
+### G-C1 blocker recovery — explicit partial rollback retry
+
+The 2026-10-17 stopped-CREATE live attempt exhausted host storage during the
+first immutable bundle copy. Compensation retained the partially written private
+scratch file, the owned generated files/directories and all four claims in
+`PARTIALLY_ROLLED_BACK`. No BDS process started. G-C1 acceptance was paused; this
+failure is not a CREATE PASS. Neither the target nor claims may be cleared by
+manual filesystem deletion or SQL edits.
+
+Implemented on 2026-10-18: an explicit administrative action,
+`POST /api/provisioning/operations/{operationId}/recover`, accepts only
+`{ "digest": "<original-approved-creation-digest>", "approved": true }`.
+Existing admin authorization applies. The database atomically checks operation
+kind/state, digest and expired lease, advances the fencing token, records the
+approving actor and reopens compensation. Successful CREATE and ADOPT operations
+cannot enter this path. A completed rollback replays without new file effects.
+
+Recovery uses the persisted manifest and ownership receipts, with current
+managed-root/protected-path checks. It verifies the entire retained tree before
+the first file deletion and rechecks each uncompensated effect at removal. Owned
+files require their exact recorded identity and hash; directories require their
+recorded identity and empty-directory removal. Foreign paths, replacement files,
+links, missing ownership receipts and changed published bytes fail closed.
+There is no recursive deletion.
+
+An interrupted write has a narrower recovery rule: its unpublished private
+scratch must retain the durable empty-file receipt's identity, have exactly one
+link, have a matching write intent without a completed write receipt or publish
+intent, and contain only a bounded prefix of the approved bytes. For copied
+artifacts the source identity, size and complete approved SHA-256 are reverified
+read-only. The observed scratch hash then guards removal. This exception does not
+apply to published artifacts or ordinary automatic compensation.
+
+Only uncompensated file effects are retried. Physical removal and compensation
+receipts share the existing synchronous SQLite writer/fence guard. Claims are
+released atomically with `ROLLED_BACK` only after every required compensation
+has succeeded; ambiguity keeps `PARTIALLY_ROLLED_BACK` and every claim. An
+interrupted explicit retry requires another explicit approved retry. Ordinary
+startup recovery does not reopen partial rollback or continue an explicit
+destructive retry. No profile reapproval, endpoint probe, CREATE, runtime start
+or lifecycle-policy change occurs during rollback recovery.
+
+Regression coverage was added before implementation. The 13 focused tests cover
+disk-full recovery and four-claim release, foreign content, published/scratch
+drift, scratch replacement/hard links, source drift, missing directory receipts,
+approval/digest/lease checks, cross-connection fencing, interrupted compensation,
+completed CREATE rejection, protected roots, receipt-based claim retention,
+startup non-destruction and authenticated/sanitized HTTP results.
+
+Validation on 2026-10-18: lint PASS; focused recovery 13/13 PASS; affected managed
+CREATE/integrity/provisioning/API regressions PASS; contracts 5/5 PASS; build PASS
+(existing CJS `import.meta` warning); full suite 435/436 PASS. The sole full-suite
+failure remains the unrelated Content Library native Bedrock root mapping test
+(expected HTTP 201, received 422). The full suite is not green.
+
+The preserved real failed operation was explicitly recovered on 2026-10-18 using
+the same acceptance database and retained target, after a consistent database
+backup and read-only source/target inventory. Ordinary API startup first proved
+that `PARTIALLY_ROLLED_BACK` and its four claims remained unchanged. The approved
+admin recovery returned HTTP 200, `ROLLED_BACK`, zero active claims and no
+residuals. The original target is absent and the fencing token advanced from 1
+to 2. SQLite integrity is `ok`. All 3,038 protected BDS source files and directory
+metadata still match the original acceptance inventory. No lifecycle start was
+recorded and no BDS launch attempt was observed; disposable UDP ports remained
+closed. The existing API on 3010 was left running; only the temporary recovery
+API on 3011 was stopped. Original failure evidence and before/after database
+backups were preserved separately, without versioning local evidence paths.
+
+This recovery cleared the prerequisite for the fresh stopped-CREATE live run
+recorded below. G-C2 first boot and player acceptance remain deferred.
+JBGH-022 remains OPEN.
+
+### G-C1 live finalization correction — verification lease renewal
+
+The fresh 2026-10-18 live CREATE exposed a separate lease gap once all 3,029 files
+were published. Full manifest verification exceeded the 30-second apply lease:
+the operation remained APPLYING with all 12,813 file receipts durable, four
+claims held and no activated definition. A deterministic regression reproduced
+LEASE_LOST when individually bounded reads collectively exceeded the lease.
+
+Verification now checks and renews the existing fence for each file and directory
+read during apply. The ownership receipt inventory is loaded once per pass;
+actual ancestor identities, file identities, hashes, tree membership and protected
+configuration remain verified. An expired or superseded fence cannot be renewed.
+Fully receipted bundles resume at this strict verification stage, preserving
+original file receipts instead of replaying completed creation effects. The Java
+single-artifact execution path, approval policy and deferred BDS lifecycle guard
+are unchanged.
+
+The retained state was backed up before stopping the temporary API after lease
+expiry. Restarting the API with the correction and explicitly resubmitting the
+same newly created operation's approved digest advanced fence 1 to 2 and completed
+PROVISIONED / applied. The target was neither deleted nor recreated. All 12,813
+creation receipts remained identical. The separate original disk-full operation
+remained ROLLED_BACK. Four regression tests cover lease renewal, expired-fence
+refusal, receipt-preserving finalization recovery and rejection of changed bytes.
+
+### JBGH-022G-C1: CLOSED / PASS
+
+Fresh disposable Bedrock stopped-CREATE live acceptance completed on **2026-10-18**.
+All **18 acceptance gates passed**, including the finalization recovery above.
+
+| Item | Verified result |
+| --- | --- |
+| Provider / server | `minecraft-bedrock` / `bedrock-022g-live` |
+| Mode / ownership / state / outcome | CREATE / MANAGED / PROVISIONED / applied |
+| Profile | `bedrock-raknet-approved`, revision 1 |
+| Approved source bundle | `bds-windows-x64-1_26_51_1-raknet` |
+| Runtime | BDS 1.26.51.1, Windows x64, explicit RakNet |
+| Managed target | `D:\jb_gamehub_022g_bedrock_acceptance\bedrock-022g-live` |
+| IPv4 / IPv6 endpoints | UDP `0.0.0.0:29232` / UDP `[::]:29233` |
+| Configured world intent | `managed-bedrock-world`; no world created |
+| Preflight | PASS / MANAGED / remain-stopped |
+| Runtime after apply and API restart | offline / MANAGED |
+| Approved manifest / copied runtime files | 3,028 approved source entries / 3,025 immutable files copied |
+| Generated files | `.jbgh-owner.json`, `server.properties`, `allowlist.json`, `permissions.json` |
+| Verified target | 3,029 files and 697 directories including the target root |
+| Source artifacts intact | true; all 3,038 protected source files and directory metadata unchanged |
+| SQLite integrity / rollback residuals | ok / none |
+| Claims | four held by the successful managed runtime; zero retained by the earlier rolled-back operation |
+| BDS processes / launch attempts / lifecycle starts | zero observed / zero / zero |
+| Forbidden stopped-state output | no `worlds`, no `eula.txt`, no `.jbgh-file-*` scratch |
+| First boot / world readiness / player acceptance | not performed / not performed / false |
+
+Approved bundle manifest SHA-256:
+`557fe940e01a0ca2de8df3fb7d14783b2a59f6e669d1fbfd6b2249176570647f`.
+
+Fresh plan:
+`plan_12b344c9a28c7b79b77adf47a1c97be47730fbd559e30f6d38a060e2a3f5f699`.
+Operation:
+`create_plan_12b344c9a28c7b79b77adf47a1c97be47730fbd559e30f6d38a060e2a3f5f699`.
+Preflight approval digest:
+`dae2f844064b277c9e2317d7a5a5feee314491d0a55073078a0885fc7e65fac3`.
+The distinct descriptive display name gave this retry a fresh deterministic plan
+identity without changing the approved server, profile, bundle, world or endpoints.
+
+Generated configuration was hash/receipt verified and independently checked for
+`transport=raknet`, UDP 29232/29233, `level-name=managed-bedrock-world`,
+`enable-lan-visibility=false`, `online-mode=true` and `allow-list=true`.
+Both generated player-policy files contain empty arrays. Definition, ownership,
+target content, intents and receipt fingerprints remained identical after a
+graceful API shutdown and startup against the same acceptance database.
+
+Process sampling covered 2,680 observations with no BDS process; the Node launch
+observer recorded no BDS attempt. OS UDP snapshots were empty at the stopped
+checkpoints. Kernel process tracing was unavailable; no kernel-trace evidence is
+claimed. The temporary API on 3011 was stopped gracefully after acceptance, while
+the pre-existing API on 3010 was left untouched. The managed target remains
+provisioned and stopped for the separate G-C2 pass. No real BDS source files were
+modified. Original failure, recovery, interrupted-finalization and PASS evidence,
+plus consistent database backups, remain separate from versioned documentation.
+
+Final local validation: lint PASS; focused verification/recovery 17/17 PASS;
+contracts 5/5 PASS; build PASS with the existing CJS `import.meta` warning;
+full suite **439/440 PASS**. The sole failure remains the unrelated Content Library
+native Bedrock root-mapping test (expected HTTP 201, received 422). The full suite
+is not green.
+
+**JBGH-022G-C1 is CLOSED / PASS. JBGH-022 remains OPEN.**
+**G-C2 first boot / READY and player acceptance remain deferred.**

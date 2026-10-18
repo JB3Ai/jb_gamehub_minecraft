@@ -23,6 +23,8 @@ export interface ProvisioningEffect { operationId: string; step: ProvisioningApp
 export interface ProvisioningApplyOperation {
   executionKind?: "attachment" | "managed-create";
   creation?: import("./managed-create").ManagedCreatePreview;
+  /** Explicit rollback retries never resume destructively through ordinary startup recovery. */
+  rollbackRecovery?: { actor: string; approvedAt: string };
   attachment?: import("./runtime-attachment").RuntimeAttachmentDescriptor;
   operationId: string; plan: ServerProvisioningPlan; digest: string; actor: string;
   steps: ProvisioningApplyStep[]; result: ProvisioningResult;

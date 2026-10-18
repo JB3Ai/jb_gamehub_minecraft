@@ -1,5 +1,6 @@
 import { BedrockRuntimeAttachments } from "./runtime-attachment";
 import { BedrockProvisioningPlanner } from "./provisioning";
+import { BedrockManagedCreation } from "./managed-create";
 import { ChildProcess, spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -53,6 +54,7 @@ function commandParts(command: string): { executable: string; args: string[] } {
 
 /** Native Bedrock Dedicated Server provider. It remains degraded until a BDS installation is configured. */
 export class BedrockProvider implements GameProvider {
+  readonly managedCreation = new BedrockManagedCreation();
   readonly runtimeAttachments = new BedrockRuntimeAttachments();
   readonly provisioning: BedrockProvisioningPlanner;
   private readonly config: Required<Pick<BedrockProviderConfig, "host" | "port" | "providerId" | "serverId">> & BedrockProviderConfig;
@@ -78,6 +80,10 @@ export class BedrockProvider implements GameProvider {
 
   metadata(): ProviderMetadata {
     return { id: this.config.providerId, name: "Minecraft Bedrock Dedicated Server", version: "0.1.0", status: this.ready ? "ready" : "degraded" };
+  }
+
+  managedProtectedPaths(): string[] {
+    return [...(this.config.serverDir ? [path.resolve(this.config.serverDir)] : []), ...(process.platform === "win32" ? ["D:\\MinecraftBedrockServer"] : [])];
   }
 
   getCapabilities(): CapabilityMap {

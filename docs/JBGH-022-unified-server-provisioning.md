@@ -1,13 +1,20 @@
-# JBGH-022A - Unified Server Provisioning Architecture
+# JBGH-022 - Unified Server Provisioning
 
-Status: JBGH-022A-E foundations implemented; JBGH-022F, JBGH-022G-A and JBGH-022G-B: CLOSED / PASS.
-Updated: 2026-10-16. JBGH-022G-C1 stopped Bedrock CREATE implemented; live acceptance pending.
-JBGH-022G-B managed Java first-boot acceptance completed successfully on 2026-10-15.
-JBGH-022 remains OPEN. Managed synthetic/Java CREATE is implemented, Java first-boot
-and clean-stop acceptance passed, and Java/Bedrock existing-runtime attachment
-acceptance passed. Bedrock CREATE is implemented through the stopped PROVISIONED
-boundary with fixture validation only. Bedrock first boot (G-C2), player acceptance
-and overall JBGH-022 closure remain deferred.
+Status: **JBGH-022: CLOSED / PASS**. Closure review completed 2026-10-18.
+JBGH-022A-F and JBGH-022G-A/B/C1/C2 meet the accepted provisioning boundary.
+Both real-provider attachment paths and managed Java/Bedrock CREATE, first boot,
+world validation, clean stop and stopped restart recovery have PASS evidence.
+See the final closure review for the acceptance crosswalk and explicit exclusions.
+
+Player acceptance remains deferred and is not required to close this provisioning
+milestone. The known Content Library HTTP 422 failure is outside JBGH-022; the full
+suite is not green. JBGH-023 Unified Setup Wizard is next, with no UI work started.
+
+This document preserves chronological design proposals and slice records. Their
+OPEN/PENDING/DEFERRED markers describe their dated checkpoints, not current
+milestone blockers. Original proposal syntax and scope are superseded by the
+implemented 022F/G contracts and the final closure crosswalk; state names such as
+PENDING_ACTIVATION and FIRST_BOOT_DEFERRED remain valid runtime safeguards.
 
 ## JBGH-022B implementation boundary
 
@@ -76,13 +83,13 @@ This document relies on that recorded server acceptance; it does not claim a new
 laptop runtime run. The older JBGH-021 overview still says acceptance pending;
 reconcile that documentation separately rather than changing runtime semantics.
 
-Non-goals: implementing provisioning, downloads, an installer UI, remote agents,
+Original 022A architecture-only non-goals: implementing provisioning, downloads, an installer UI, remote agents,
 containers, firewall/NAT automation, upgrades, destructive deletion, automatic
 EULA acceptance, or changes to FamilyService, rewards, analytics, AI, and existing
 Bedrock lifecycle behavior. Existing content import remains a separate approved
 pipeline. No secrets or environment files change as part of this milestone.
 
-## Current architecture observations
+## Architecture observations at the original 022A checkpoint
 
 | Inspected source | Observation and consequence |
 |---|---|
@@ -490,7 +497,7 @@ compensation is limited to the approved disposable pre-exposure phase. A later
 cleanup plan handles retained data. Successful stopped provisioning is not rolled
 back merely because startup was not requested.
 
-## REST proposal (not implemented)
+## Original REST proposal (superseded by the 022F/G contracts)
 
 | Route | Behavior |
 |---|---|
@@ -509,8 +516,10 @@ explicit before exposing mutation routes. No destroy endpoint in this proposal.
 
 JBGH-022A acceptance: this reviewed document defines create/adopt contracts,
 state/outcome semantics, manager integration, safety boundaries, durable recovery,
-content dependencies and staged work without runtime changes. Future implementation
-must meet the matrix below; these are proposed tests, not claims of executed tests.
+content dependencies and staged work without runtime changes. The matrix below is
+the original proposal, not a claim of executed tests. Later slices deliberately
+scope fixed-endpoint provisioning, content-free CREATE and separate player
+acceptance. The final closure crosswalk reconciles these changes explicitly.
 
 | Area | Required proof | Earliest stage |
 |---|---|---|
@@ -561,7 +570,7 @@ green full suite from contract-only results.
    evidence including cleanup, restart and player/session compatibility. UI and
    decommissioning remain separately scoped unless explicitly authorized.
 
-## Open decisions and blockers
+## Original design decisions and blockers (disposition in the closure review)
 
 - Confirm operator-configured managed roots, approved adoption locations and
   local runtime artifact profiles; no safe default should be the repository cwd.
@@ -1183,17 +1192,18 @@ world/root isolation, single event forwarding, unknown IDs, artifact drift, EULA
 spawn failures, ownership preservation and fail-closed harness configuration. No real
 Java/BDS runtime or human client is used by these tests.
 
-JBGH-022F live attached-runtime evidence is complete. Before JBGH-022 can close,
-complete any remaining documented API/auth deployment acceptance and separately scope
-fresh-runtime creation/artifact/licensing/external-effect recovery. The known Bedrock
-ContentImportPlanner 422 failure remains separate and unchanged. JBGH-022G implementation has not begun.
+JBGH-022F live attached-runtime evidence is complete. Its earlier generic reference
+to remaining API/auth deployment acceptance is resolved by the authenticated HTTP,
+legacy-route, history and WebSocket regression coverage plus authorized live
+operations; no concrete 022F acceptance gate remains open. Fresh creation, approved
+artifact/license policy and external-effect recovery were completed in 022G below.
+The known Bedrock ContentImportPlanner 422 failure remains separate and unchanged.
 
 ## JBGH-022G — Managed Fresh-Runtime Provisioning
 
-Status: ARCHITECTURE PROPOSED / NOT IMPLEMENTED. Reviewed against the checkout at
-`ae7f3b2` on 2026-10-14. The sections above retain their historical implementation
-boundaries. This section specifies the narrower first fresh-CREATE implementation;
-it does not enable a capability, apply endpoint, migration or acceptance harness.
+Original architecture checkpoint: reviewed against `ae7f3b2` on 2026-10-14,
+before implementation. This proposal is retained as design history; completed
+022G-A/B/C1/C2 implementation and live acceptance are recorded below.
 JBGH-022F remains CLOSED / PASS and overall JBGH-022 remains OPEN.
 
 ### Scope and recommendation
@@ -2181,11 +2191,12 @@ The next slice is Bedrock managed CREATE.
 
 ## JBGH-022G-C — Bedrock Managed CREATE
 
-Status: G-C1 CLOSED / PASS (2026-10-18). G-C2 NOT STARTED / DEFERRED.
+Status: G-C1 and G-C2 CLOSED / PASS (2026-10-18).
 Design date: 2026-10-16. JBGH-022 remains OPEN.
-The architecture contract below is implemented through the stopped CREATE boundary.
-Stopped CREATE live acceptance is recorded below. JBGH-022G-A/B and the existing ADOPTED BDS path
-stay unchanged. First boot remains guarded until the separate G-C2 slice.
+The architecture contract below is implemented and live-proven through stopped
+CREATE and the separately authorized managed first-boot boundary. Both acceptance
+records follow. JBGH-022G-A/B and the existing ADOPTED BDS path stay unchanged.
+Unapproved managed Bedrock runtimes remain guarded by FIRST_BOOT_DEFERRED.
 
 ### Scope
 
@@ -2648,7 +2659,8 @@ This document supplies no live runtime authorization.
 ### G-C1 implementation record — stopped CREATE only
 
 Implemented on 2026-10-16. **JBGH-022G-C1 live acceptance closed on 2026-10-18; see the acceptance record below.**
-G-C2 boot/READY acceptance is not implemented or performed.
+This historical implementation record ends at stopped CREATE. The separately
+implemented G-C2 boot/READY contract and live PASS record appear below.
 
 The initial profile is pinned to Windows x64 BDS **1.26.51.1**, profile revision
 `1`, runtime kind `native-bds`, explicit transport `raknet`, and compatibility
@@ -2958,4 +2970,252 @@ native Bedrock root-mapping test (expected HTTP 201, received 422). The full sui
 is not green.
 
 **JBGH-022G-C1 is CLOSED / PASS. JBGH-022 remains OPEN.**
-**G-C2 first boot / READY and player acceptance remain deferred.**
+**G-C2 first boot / READY was deferred at this checkpoint and subsequently passed
+in the separate acceptance below. Player acceptance remains deferred.**
+
+### JBGH-022G-C2 — managed first boot contract
+
+Design date: 2026-10-18. **CLOSED / PASS; live acceptance completed 2026-10-18.**
+G-C1 remains CLOSED / PASS. This slice retains its exact target, creation digest,
+ownership metadata, definition and original filesystem receipts. No CREATE,
+re-extraction, world replacement, onboarding or UI work is authorized here.
+
+#### Durable authorization and launch boundary
+
+The Bedrock adapter remains lifecycle-deferred by default. A separate admin-only
+boot preview/approval binds the existing PROVISIONED/ACTIVE definition, provider,
+server, host, creation digest, definition fence, owned root identity and a versioned
+provider boot/output policy. Preview is read-only. Approval supplies its exact
+digest and `approved=true`; actor/time come from authenticated server handling.
+Persist the authorization separately from CREATE records and audit it atomically.
+No client-provided paths, launch commands, output rules or arbitrary ready markers.
+
+Only that approved managed path may pass FIRST_BOOT_DEFERRED. Authorization alone
+does not authorize pre-existing runtime output. Before launch, verify the exact
+G-C1 tree and current source/profile/license approval, then persist a fenced launch
+intent. A single active launch attempt is allowed per managed definition. Process,
+READY and clean-stop receipts belong to that attempt. Startup never launches BDS;
+an unfinished attempt or occupied endpoint requires operator reconciliation,
+without guessing ownership of an orphan or killing another process.
+
+The effective permission change is scoped to this approved path, not a global
+`lifecycleDeferred=false` toggle. Native configured/ADOPTED Bedrock, Java,
+`BedrockProvider.getWorlds()` and FamilyService behavior remain unchanged.
+
+#### Versioned output policy
+
+Pin `bds-1.26.51.1-managed-boot-v1`, Windows x64, native BDS 1.26.51.1 and RakNet.
+Keep the G-C1 bundle approval unchanged. The boot-policy digest separately records
+the selected world, endpoints, additional approved configuration defaults and
+exact output roles. Configuration defaults may come only from the already pinned,
+hash-verified source template; protected managed values always take precedence.
+
+After a durable launch intent, permit only:
+
+- `worlds/`, the selected `worlds/<world-name>/`, and its `db/` directory;
+- regular bounded `level.dat`, `level.dat_old`, `levelname.txt`, and recognized
+  LevelDB files (`CURRENT`, `LOCK`, `LOG`, `LOG.old`, numeric log/table files and
+  `MANIFEST-*`) under that selected world;
+- the known bounded root output `packet-statistics.txt`;
+- explicitly named empty development-pack directories BDS initializes. They do
+  not authorize installed packs, scripts or arbitrary child files.
+
+Capture stdout/stderr evidence outside immutable runtime paths. No general
+`logs/**`, `config/**`, pack directory, executable directory or whole-target
+exemption. A newly observed log/default/output path is a reviewable blocker until
+its role is explicitly approved; Java output conventions do not apply.
+
+Bound file count/depth/size and reject symlinks, junctions, hard-linked files,
+other worlds, executable/script additions and unknown output. Preserve rejected
+content. Runtime output is never a CREATE compensation receipt or deletion grant.
+Retain byte-exact ownership/runtime assets and strict protected config/access-policy
+semantics. Allow supported comment/blank-line/order/whitespace rewrites and exact
+approved defaults; reject changed/missing managed keys, ambiguity and policy drift.
+
+#### READY and clean stop
+
+For the managed path only, require all three current-attempt observations:
+
+1. Owned-process stdout identifies BDS **1.26.51.1** and emits the complete
+   approved **`Server started.`** line. Spawn, `IPv4 supported`, stale log files,
+   split/incomplete lines and another process's output are insufficient.
+2. A successful, complete OS UDP inventory ties both exact approved address/port
+   bindings to the still-owned child PID. A foreign listener, missing endpoint,
+   unexpected owned binding or inventory error cannot establish readiness.
+3. Provider discovery includes the selected world, its nonempty regular
+   `level.dat` exists under the authorized tree, and `validateWorld.valid=true`.
+
+Expose READY/online only while these corroborations hold. Reset readiness for
+every attempt and after exit. Report starting/stopping distinctly. Stop uses the
+owned child's console, awaits actual successful exit and closure of both managed
+ports within a bounded deadline, then persists a clean-stop receipt. Dispatch
+acknowledgement is insufficient. Timeout retains state and reports failure;
+no automatic force kill, CREATE rollback or world cleanup.
+
+#### Fixture and live acceptance boundary
+
+Fixtures precede any real start. Cover missing/wrong/replayed approval and scope,
+durability/migration, authorization versus launch-intent output gating, duplicate
+launch rejection, current/split/stale readiness signals, each missing readiness
+corroboration, owned versus foreign UDP bindings, clean stop/timeout, restart
+restoration without launch, second boot, semantic config/immutable drift, and
+unauthorized outputs/links/other worlds. Preserve existing provider/API contracts.
+
+Run lint, focused regressions, contracts, build, diff checks and the full suite.
+The known unrelated Content Library HTTP 422 failure remains explicitly separate.
+Only then run on the server against the exact G-C1 `bedrock-022g-live` target:
+approve boot, start through GameHub, capture starting and READY/online/MANAGED,
+owned sockets and provider-validated world, stop/exit/closed ports, restart
+GameHub without relaunch, then a second start/READY/clean-stop cycle. Compare all
+immutable inputs, original receipts, approved semantics and the complete protected
+source inventory. Keep player acceptance false and preserve the stopped runtime.
+
+G-C2 closes only on captured live PASS evidence. Assess remaining JBGH-022 gaps
+afterward; this contract does not close the parent milestone or start UI work.
+
+### G-C2 implementation and live acceptance — CLOSED / PASS
+
+Acceptance completed on **2026-10-18** on the server, against the exact G-C1
+`bedrock-022g-live` target and database. All **22 recorded live gates passed**.
+No CREATE/apply request, re-extraction, target recreation or source modification
+occurred. The selected world was generated by BDS during the authorized first boot.
+
+| Evidence | Verified result |
+|---|---|
+| Provider / ownership | `minecraft-bedrock` / MANAGED |
+| Existing target | `D:\jb_gamehub_022g_bedrock_acceptance\bedrock-022g-live` |
+| Runtime / transport | approved BDS 1.26.51.1, Windows x64, RakNet |
+| Boot policy | `bds-1.26.51.1-managed-boot-v1` |
+| First lifecycle | STARTING -> READY / online -> clean stop -> OFFLINE |
+| First owned native process | PID 16096; exact managed executable and working directory |
+| Actual sockets, both boots | UDP `0.0.0.0:29232` and `[::]:29233`, owned by the current BDS PID |
+| World | `managed-bedrock-world`, provider-discovered; `validateWorld.valid=true` |
+| Restart recovery | same definition restored offline/MANAGED; no automatic BDS launch |
+| Second lifecycle | READY / online -> clean stop -> OFFLINE, PID 15004 |
+| Durable attempt fences | 1 then 2; both end STOPPED with exit code 0 and ports closed |
+| Protected managed files | 3,029 checked; immutable hashes/identities strict, approved configuration semantics intact |
+| Original CREATE records | definition, intents and all 12,813 receipts unchanged |
+| Protected source | all 3,038 files and source inventory unchanged |
+| Runtime output | 14 permitted output entries after the second stop; 8,041 file bytes |
+| Claims / database | four valid managed claims retained; SQLite integrity `ok` |
+| Final state | PROVISIONED / MANAGED / offline; no native BDS process or managed UDP listeners |
+| Acceptance API | temporary port 3011 closed gracefully after both cycles |
+| Player acceptance | false; no player login claimed |
+
+The original CREATE digest remains
+`dae2f844064b277c9e2317d7a5a5feee314491d0a55073078a0885fc7e65fac3`.
+The new boot authorization is independently bound by digest
+`72aedc045eb1b32cee3d3c574aadf91cfa3c38a4875c80bc696b73f1e680d7ec`;
+its policy digest is
+`707e77af731e231961bdab4ea3633583c0b896d2ca0dacc67a7fef1fe19d945a`.
+
+Lifecycle operations:
+
+- first start: `op_1792340897545_99afd8aa`;
+- first stop: `op_1792340945611_b5653886`;
+- second start: `op_1792341024465_7be73c81`;
+- second stop: `op_1792341065055_1ddd6677`.
+
+Current-process stdout identified the approved version and emitted the complete
+`Server started.` signal in both boots. READY additionally required the full OS
+UDP inventory, matching child ownership and provider-validated world metadata.
+Each stop awaited actual native exit and closed ports. Separate API, OS process,
+socket, stdout/exit, filesystem, database and consistent-backup evidence is retained
+outside version control; no disposable evidence links are added here.
+
+Implementation adds separate schema-v10 boot authorizations and audited,
+compare-and-swap attempt state, retaining the original managed definition and
+CREATE history. Admin-only boot preview/approval binds the exact existing runtime
+and provider-owned output policy. Output authorization begins with the durable
+launch intent, not approval alone. An unresolved attempt blocks another launch;
+startup never guesses ownership or launches automatically. Managed-only readiness
+requires the pinned signal plus owned sockets and world validation. Stop timeout
+retains state and never force-kills. Native configured/ADOPTED Bedrock, Java,
+FamilyService and `BedrockProvider.getWorlds()` behavior remain unchanged.
+
+Fixture coverage adds 24 tests for approval scope/durability/fencing and API
+authorization, v9 migration, launch-intent output gating, forbidden paths/links,
+protected config drift, current/split/stale startup output, missing or foreign
+socket evidence, inventory failure, world evidence, clean stop/timeout and restart
+with a second boot. The fixtures launch only a fake Node child, never native BDS.
+
+Validation before live acceptance: lint PASS; affected regressions **213/213 PASS**;
+contracts **5/5 PASS**; build PASS with the existing CJS `import.meta` warning;
+`git diff --check` PASS. Full suite **463/464 PASS**. The sole failure remains
+the unrelated Content Library native-Bedrock-root mapping test (expected HTTP 201,
+received 422). The full suite is not green.
+
+**JBGH-022G-C2 is CLOSED / PASS. Both G-C stopped-CREATE and boot/READY passes
+are complete.** Player acceptance, NetherNet expansion, orphan-process adoption,
+power-loss/hostile-host live recovery, downloads and licensing-acquisition flows
+are not established by this run. The already approved RakNet/license/bundle policy
+was preserved; no newer distribution was substituted.
+
+## JBGH-022 closure review — CLOSED / PASS
+
+Date: **2026-10-18**. The original architecture/test proposal, subsequent accepted
+slice boundaries, implemented contracts, regression coverage and retained live
+records were reviewed together. **No JBGH-022-scoped blocker remains.** This closes
+the single-host, operator-approved provisioning milestone, including the G-C2
+implementation and its real native BDS acceptance, in the same change set.
+
+| Checklist | Disposition and supporting proof |
+|---|---|
+| 022A architecture | Complete: provider-neutral contracts, provider-owned interpretation, repository boundary, approval, ownership, claims, recovery and staged acceptance are defined. |
+| 022B planning/contracts | Complete: deterministic immutable plans, bounded schema/options, provider capability checks and no-effects planning regressions. |
+| 022C profiles/preflight | Complete: Java/BDS profiles, trusted references, protected-root/path checks, endpoint inventory, structured issues and fail-closed unsupported requests. |
+| 022D durable apply | Complete: SQLite plans/claims/journal, leases/fencing, duplicate/concurrent apply, fault compensation and restart fixtures. |
+| 022E runtime attachment | Complete: Java/BDS inspected manifests, ADOPTED ownership, source preservation, scoped definitions, conflicts, rollback and restart rehydration. |
+| 022F authenticated/scoped API | Complete: admin HTTP 401/403 behavior, trusted actor, digest approval, safe projections, scoped/legacy lifecycle guards, protected history/WebSocket access and restart/routing tests; both authorized live attachments passed. |
+| 022G-A Java managed CREATE | CLOSED / PASS, 2026-10-15: approved artifact/EULA/config/ownership manifest, PROVISIONED/applied/MANAGED, stopped endpoint and preserved source. |
+| 022G-B Java first boot | CLOSED / PASS, 2026-10-15: same managed runtime restored offline after GameHub restart, real Java listener/online/world evidence, protected semantic config and immutable inputs intact, clean stop. |
+| 022G-C1 Bedrock managed CREATE | CLOSED / PASS, 2026-10-18: all 18 stopped-CREATE gates; approved pinned bundle, fresh MANAGED target, offline restart, receipts and protected source intact. |
+| 022G-C2 Bedrock first boot/READY/stop | CLOSED / PASS, 2026-10-18: all 22 gates; same runtime, approved boot policy, pinned signal plus owned UDP/world evidence, clean stop, stopped restart and second boot/stop. |
+| Managed Java and Bedrock restart recovery | Proven independently: Java G-B retained the same definition/database and recovered MANAGED/offline before its successful boot; Bedrock C1/C2 restored offline without relaunch and preserved original receipts. |
+| External-effect recovery | Deterministic fault/fencing/ownership regressions plus real disk-full partial rollback recovery to ROLLED_BACK, zero failed-operation claims, target absent and source unchanged; subsequent fresh C1 passed. |
+| Player acceptance dependency | None in the accepted provisioning boundary. 022F/G explicitly record playerAcceptance=false and separate player/session acceptance. No client join, playability or new Family evidence is claimed by 022 closure. |
+| Known Content Library HTTP 422 | Explicitly outside JBGH-022: the original content-import proposal was narrowed to content-free attachment/CREATE. Existing import dispatch/planner work stays separately tracked; no imported-world provisioning claim. |
+
+Relevant regression suites are `provisioning.test.ts`,
+`provisioning-preflight.test.ts`, `provisioning-apply.test.ts`,
+`runtime-attachment.test.ts`, `provisioning-api.test.ts`,
+`attached-runtime-routing.test.ts`, the managed CREATE/API/verification suites,
+`managed-java-runtime-integrity.test.ts`, `managed-rollback-recovery.test.ts`,
+`managed-bedrock-create.test.ts`, `managed-bedrock-boot.test.ts` and
+`managed-bedrock-readiness.test.ts`. Source/configuration/ownership observations
+in the individual live records retain their original dates; this review does not
+rerun live runtimes or replace those records with fixture results.
+
+### Open/deferred marker disposition
+
+- Early A-F and G-A/B/C1 OPEN or acceptance-pending statements are chronological
+  checkpoints superseded by the later implementation and PASS records. The initial
+  Java ARTIFACT_DRIFT, Bedrock disk-full rollback and verification-lease failures
+  each have an explicit fix, regression coverage and successful live continuation.
+- The original proposal's client/content rows are superseded by the accepted
+  022F/G content-free and no-player scope. These exclusions are not inferred from
+  missing evidence and do not silently claim those features work.
+- Fixed endpoint provisioning is the accepted implementation. Automatic pool
+  allocation remains unsupported; read-only allocation proposals cannot become
+  successful applies. No port allocator or permanent OS reservation is claimed.
+- `PENDING_ACTIVATION`, recovery-required states and `FIRST_BOOT_DEFERRED` are
+  intentional safety states/guards. Explicit boot approval only opens the bound
+  managed path; their names do not indicate unfinished milestone work.
+- General orphan-process adoption, power-loss/hostile-host live qualification,
+  downloads/acquisition, automatic licensing, additional BDS transports/builds,
+  upgrades/deletion, remote hosts, public identity/TLS deployment and onboarding/UI
+  are outside this milestone's supported boundary. Existing approval, path,
+  immutable-artifact, output and ownership validation remain strict.
+- The older JBGH-021 overview/roadmap wording is an independent documentation
+  cleanup; its authoritative 021A PASS record is already referenced above.
+
+Closure validation: lint PASS; affected regressions **213/213 PASS**; contracts
+**5/5 PASS**; build PASS with the existing CJS `import.meta` warning; diff checks
+PASS. Full suite **463/464 PASS**: only the separately tracked Content Library
+native Bedrock root-mapping failure (expected 201, received 422). **The full suite
+is not green.**
+
+**JBGH-022: CLOSED / PASS.** Player acceptance remains explicitly deferred and the
+Content Library 422 remains open outside JBGH-022. Backend provisioning expansion
+ends here; the next milestone is **JBGH-023 Unified Setup Wizard**. No setup or
+onboarding implementation is included in this closure.

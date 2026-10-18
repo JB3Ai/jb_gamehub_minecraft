@@ -1,6 +1,7 @@
 import { RuntimeAttachmentService } from "../core/runtime-attachment-service";
 import { ManagedCreationService, type ManagedCreationOptions } from "../core/managed-create-service";
 import type { ManagedCreationAdapter, ManagedCreationRepository, ManagedCreatePreview, ManagedRuntimeDefinition } from "../core/managed-create";
+import type { ManagedRuntimeBootControl } from "../core/managed-boot";
 import type { RuntimeAttachmentAdapter, RuntimeAttachmentPolicy, RuntimeAttachmentRepository, RuntimeAttachmentRequest, RuntimeAttachmentRecord } from "../core/runtime-attachment";
 import { ProvisioningApplyService } from "../core/provisioning-apply-service";
 import { ProvisioningApplyException, type ProvisioningApplyRepository, type ProvisioningApplyRequest } from "../core/provisioning-apply-contracts";
@@ -119,6 +120,8 @@ export interface ServerSummary {
 
 export interface ServerStatus {
   status: "online" | "offline" | "starting" | "stopping" | "error";
+  readiness?: "OFFLINE" | "STARTING" | "READY" | "STOPPING" | "FAILED";
+  readinessEvidence?: { startupSignal: boolean; versionMatched: boolean; udpEndpoints: boolean; worldValidated: boolean; processId?: number; attemptId?: string };
   players?: number;
   uptimeSeconds?: number;
 }
@@ -349,7 +352,7 @@ export interface PersistenceRepository {
 export interface GameProvider {
   managedProtectedPaths?(): string[];
   readonly managedCreation?: ManagedCreationAdapter;
-  activateManagedRuntime?(record: ManagedRuntimeDefinition, policy: RuntimeAttachmentPolicy, verify: () => Promise<void>, admit: () => boolean, publish: (mutation: () => void) => void): Promise<void>;
+  activateManagedRuntime?(record: ManagedRuntimeDefinition, policy: RuntimeAttachmentPolicy, verify: () => Promise<void>, admit: () => boolean, publish: (mutation: () => void) => void, boot?: ManagedRuntimeBootControl): Promise<void>;
   deactivateManagedRuntime?(effectId: string, fence: (mutation: () => void) => void): void;
   activateAttachment?(record: RuntimeAttachmentRecord, policy: RuntimeAttachmentPolicy, verify: () => Promise<void>): Promise<void>;
   readonly runtimeAttachments?: RuntimeAttachmentAdapter;
@@ -1208,7 +1211,7 @@ export class InMemoryProviderManager {
     const provider = this.getProvider(providerId), repository = this.repository.provisioning;
     if (!provider.getCapabilities()["server.provision.create"] || !provider.provisioning || !provider.managedCreation || !provider.activateManagedRuntime || !provider.deactivateManagedRuntime || !repository?.beginManaged) throw new ProvisioningCapabilityError(providerId);
     return new ManagedCreationService(repository as ProvisioningApplyRepository & ManagedCreationRepository, provider.provisioning, provider.managedCreation, {
-      activate: (record, verify, admit, publish) => provider.activateManagedRuntime!(record, policy, verify, admit, publish),
+      activate: (record, verify, admit, publish, boot) => provider.activateManagedRuntime!(record, policy, verify, admit, publish, boot),
       detach: (id, fence) => provider.deactivateManagedRuntime!(id, fence),
     }, options);
   }
@@ -1250,6 +1253,16 @@ export class InMemoryProviderManager {
     const operation = this.repository.provisioning?.get(operationId);
     if (!operation || operation.executionKind !== "managed-create") throw new ProvisioningApplyException({ code: "OPERATION_NOT_FOUND", message: "Managed operation not found." });
     return this.managedCreationService(operation.plan.providerId, policy, options).retryRollback(operationId, approval, policy, actor);
+  }
+  async previewManagedBoot(operationId: string, policy: RuntimeAttachmentPolicy) {
+    const operation = this.getProvisioningOperation(operationId);
+    if (!operation || operation.executionKind !== "managed-create") throw new ProvisioningApplyException({ code: "BOOT_UNAVAILABLE", message: "Managed creation required." });
+    return this.managedCreationService(operation.plan.providerId, this.protectedCreationPolicy(policy)).previewBoot(operationId, this.protectedCreationPolicy(policy));
+  }
+  async authorizeManagedBoot(operationId: string, input: { digest: string; approved: true }, policy: RuntimeAttachmentPolicy, actor: string) {
+    const operation = this.getProvisioningOperation(operationId);
+    if (!operation || operation.executionKind !== "managed-create") throw new ProvisioningApplyException({ code: "BOOT_UNAVAILABLE", message: "Managed creation required." });
+    return this.managedCreationService(operation.plan.providerId, this.protectedCreationPolicy(policy)).authorizeBoot(operationId, input, this.protectedCreationPolicy(policy), actor);
   }
   private protectedCreationPolicy(policy: RuntimeAttachmentPolicy): RuntimeAttachmentPolicy {
     return { ...policy, protectedPaths: [...policy.protectedPaths ?? [], ...[...this.providers.values()].flatMap((provider) => provider.managedProtectedPaths?.() ?? []), ...this.listRuntimeAttachments().map((record) => record.descriptor.runtimeRoot)] };

@@ -3,6 +3,7 @@ import type { ProvisioningJson, ServerProvisioningPlan, ServerProvisioningReques
 import { canonicalProvisioningJson } from "./provisioning";
 import type { RuntimeArtifact, RuntimeAttachmentPolicy, RuntimeAttachmentRecord } from "./runtime-attachment";
 import type { ProvisioningApplyOperation, ProvisioningApplyStep } from "./provisioning-apply-contracts";
+import type { ManagedBootAuthorization, ManagedRuntimeOutputPolicy } from "./managed-boot";
 
 export interface ApprovedCreationProfile {
   providerId: string; revision: string;
@@ -58,7 +59,9 @@ export interface ManagedCreationAdapter {
   /** A stopped-only implementation may register a runtime without authorizing its first boot. */
   readonly lifecycleDeferred?: boolean;
   /** Optional provider-owned content policy for completed runtimes; creation receipts remain byte-exact. */
-  runtimeFileValidator?(file: Readonly<CreationFile>): ((bytes: Uint8Array) => void) | undefined;
+  runtimeFileValidator?(file: Readonly<CreationFile>, bootPolicy?: ProvisioningJson): ((bytes: Uint8Array) => void) | undefined;
+  bootPolicy?(preview: Readonly<ManagedCreatePreview>, bundle?: Readonly<ResolvedRuntimeBundle>): ProvisioningJson;
+  runtimeOutputPolicy?(preview: Readonly<ManagedCreatePreview>, policy: ProvisioningJson): ManagedRuntimeOutputPolicy;
 }
 export interface FileIdentity { device: string; inode: string }
 export interface ResolvedCreationFile extends CreationFile { sourcePath?: string; sourceIdentity?: FileIdentity; size: number; sha256: string }
@@ -88,6 +91,8 @@ export interface FileEffectReceipt {
   fencingToken?: number;
 }
 export interface ManagedCreationRepository {
+  getManagedBoot(operationId: string): ManagedBootAuthorization | undefined;
+  saveManagedBoot(definition: ManagedRuntimeDefinition, expectedRevision: number | undefined, record: ManagedBootAuthorization, action: string, actor: string, now: string): void;
   saveManagedPreview(preview: ManagedCreatePreview): void;
   getManagedPreview(planId: string): ManagedCreatePreview | undefined;
   saveManagedBundle(id: string, bundle: ResolvedRuntimeBundle): void;

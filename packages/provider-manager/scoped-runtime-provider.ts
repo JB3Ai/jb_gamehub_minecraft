@@ -1,11 +1,12 @@
 import type { GameProvider, ProviderPlayerLifecycleEvent, ServerSummary } from "./index";
 import type { RuntimeAttachmentRecord, RuntimeAttachmentPolicy } from "../core/runtime-attachment";
 import type { ScopedRuntimeRecord, ManagedRuntimeDefinition } from "../core/managed-create";
+import type { ManagedRuntimeBootControl } from "../core/managed-boot";
 
-export type AttachedRuntimeFactory = (record: ScopedRuntimeRecord, policy: RuntimeAttachmentPolicy) => Promise<GameProvider>;
+export type AttachedRuntimeFactory = (record: ScopedRuntimeRecord, policy: RuntimeAttachmentPolicy, boot?: ManagedRuntimeBootControl) => Promise<GameProvider>;
 /** One provider registry identity, independently configured runtime instances. */
 export function scopeRuntimeProvider(base: GameProvider, factory: AttachedRuntimeFactory): GameProvider {
-  const children = new Map<string, { runtime: GameProvider; record: ScopedRuntimeRecord; verify: () => Promise<void>; admit?: () => boolean }>();
+  const children = new Map<string, { runtime: GameProvider; record: ScopedRuntimeRecord; verify: () => Promise<void>; admit?: () => boolean; boot?: ManagedRuntimeBootControl }>();
   const listeners = new Set<(event: ProviderPlayerLifecycleEvent) => void>();
   const subscriptions = new Map<string, () => void>();
   const forward = (event: ProviderPlayerLifecycleEvent) => { for (const listener of listeners) listener(event); };
@@ -18,18 +19,23 @@ export function scopeRuntimeProvider(base: GameProvider, factory: AttachedRuntim
   const activations = new Map<string, Promise<void>>();
   return new Proxy(base, {
     get(target, property) {
-      if (property === "activateManagedRuntime") return async (record: ManagedRuntimeDefinition, policy: RuntimeAttachmentPolicy, verify: () => Promise<void>, admit: () => boolean, publish: (mutation: () => void) => void) => {
+      if (property === "activateManagedRuntime") return async (record: ManagedRuntimeDefinition, policy: RuntimeAttachmentPolicy, verify: () => Promise<void>, admit: () => boolean, publish: (mutation: () => void) => void, boot?: ManagedRuntimeBootControl) => {
         const id = record.descriptor.serverId;
         if ((await base.getServers()).some((server) => server.id === id)) throw new Error("Managed identity conflicts with configured server.");
         const pending = activations.get(id); if (pending) await pending;
         const current = children.get(id);
         if (current) {
           if (current.record.effectId !== record.effectId || current.record.digest !== record.digest) throw new Error("Incompatible managed runtime.");
+          if (boot && current.record.fencingToken !== record.fencingToken) {
+            if ((await current.runtime.getServerStatus(id)).status !== "offline") throw new Error("Managed runtime fence changed while a process may be active.");
+            const runtime = await factory(record, policy, boot); await runtime.register();
+            publish(() => { subscriptions.get(id)?.(); subscriptions.delete(id); children.set(id, { runtime, record, verify, admit, boot }); if (listeners.size) subscribe(); }); return;
+          }
           publish(() => { current.record = record; current.verify = verify; current.admit = admit; }); return;
         }
         const activation = (async () => {
-          const runtime = await factory(record, policy); await runtime.register();
-          publish(() => { children.set(id, { runtime, record, verify, admit }); if (listeners.size) subscribe(); });
+          const runtime = await factory(record, policy, boot); await runtime.register();
+          publish(() => { children.set(id, { runtime, record, verify, admit, boot }); if (listeners.size) subscribe(); });
         })();
         activations.set(id, activation); try { await activation; } finally { activations.delete(id); }
       };
@@ -72,7 +78,7 @@ export function scopeRuntimeProvider(base: GameProvider, factory: AttachedRuntim
           if (child && property === "getServerConnectionEndpoints") return child.record.descriptor.endpoints.map((endpoint) => endpoint.transport === "virtual" ? { ...endpoint, display: endpoint.id } : { id: endpoint.id, protocol: endpoint.protocol, transport: endpoint.transport, host: endpoint.bindAddress, port: endpoint.port.mode === "fixed" ? endpoint.port.value : undefined, display: `${endpoint.bindAddress}:${endpoint.port.mode === "fixed" ? endpoint.port.value : "unknown"}` });
           const method = Reflect.get(runtime, property);
           if (typeof method !== "function") throw new Error("Runtime capability unavailable.");
-          if (child && property === "restartServer") { await runtime.stopServer(id); await waitForRuntimeStopped(runtime, id); return runtime.startServer(id); }
+          if (child && property === "restartServer") { await runtime.stopServer(id); await waitForRuntimeStopped(runtime, id); if (child.boot) await child.verify(); return runtime.startServer(id); }
           return method.apply(runtime, args);
         };
         if (!["startServer", "stopServer", "restartServer"].includes(property)) return invoke();

@@ -8,6 +8,7 @@ import { ProvisioningApplyException, ProvisioningInterrupted, terminalProvisioni
 import type { RuntimeAttachmentPolicy } from "./runtime-attachment";
 import { bytesHash, creationDigest, creationHash, manifestArtifacts, type ManagedCreatePreview, type ManagedCreationAdapter, type ManagedCreationRepository, type ManagedRuntimeDefinition, type FileEffectIntent, type ResolvedRuntimeBundle } from "./managed-create";
 import { resolveRuntimeBundle } from "./managed-bundle";
+import { ManagedBootCoordinator, type ManagedRuntimeBootControl, type ManagedRuntimeOutputPolicy } from "./managed-boot";
 import { ManagedFilesystem, canonicalManagedPath, existingStat, hashFile, identity, managedFailure, pathOverlaps, safeLeaf } from "./managed-filesystem";
 
 type Repository = ProvisioningApplyRepository & ManagedCreationRepository;
@@ -19,7 +20,7 @@ export interface ManagedCreationOptions {
   probe?: (port: number, address: string, transport?: "tcp" | "udp") => Promise<void>;
 }
 export interface ManagedActivation {
-  activate(record: ManagedRuntimeDefinition, verify: () => Promise<void>, admit: () => boolean, publish: (mutation: () => void) => void): Promise<void>;
+  activate(record: ManagedRuntimeDefinition, verify: () => Promise<void>, admit: () => boolean, publish: (mutation: () => void) => void, boot?: ManagedRuntimeBootControl): Promise<void>;
   detach(effectId: string, fence: (mutation: () => void) => void): void;
 }
 export async function probeManagedEndpoint(port: number, address: string, transport: "tcp" | "udp" = "tcp"): Promise<void> {
@@ -156,22 +157,32 @@ export class ManagedCreationService {
     });
   }
   /** No runtime-generated output is authorized by stopped CREATE. A later boot receipt must grant it. */
-  private inspectTree(preview: ManagedCreatePreview, operationId: string, gateway: ManagedFilesystem, final = false, inspect: (run: () => string[]) => string[] = (run) => run()): void {
+  private inspectTree(preview: ManagedCreatePreview, operationId: string, gateway: ManagedFilesystem, final = false, inspect: (run: () => string[]) => string[] = (run) => run(), outputs?: ManagedRuntimeOutputPolicy): void {
     if (!preview.bundle || !existingStat(preview.runtimePath)) return;
     const intents = this.repo.fileIntents(operationId).filter((intent) => !intent.direction), receipts = this.repo.fileReceipts(operationId);
     const known = new Map(intents.map((intent) => [intent.relativePath, intent]));
-    let count = 0;
+    let count = 0, outputCount = 0, outputBytes = 0;
     const walk = (relative: string) => {
       const children = inspect(() => {
         const intent = known.get(relative), receipt = receipts.find((receipt) => receipt.intentId === intent?.id && !receipt.compensated);
-        if (!intent || intent.kind !== "directory" || !receipt) managedFailure("OWNERSHIP_UNVERIFIED");
-        gateway.inspect(intent, receipt);
+        if (intent) {
+          if (intent.kind !== "directory" || !receipt) managedFailure("OWNERSHIP_UNVERIFIED");
+          gateway.inspect(intent, receipt);
+        } else if (!outputs?.allows(relative, "directory", 0) || canonicalManagedPath(path.join(preview.runtimePath, relative)) !== path.join(preview.runtimePath, relative)) managedFailure("ARTIFACT_DRIFT");
         return fs.readdirSync(path.join(preview.runtimePath, relative)).flatMap((name) => {
-          if (++count > known.size) managedFailure("ARTIFACT_DRIFT");
+          if (++count > known.size + (outputs?.maxEntries ?? 0)) managedFailure("ARTIFACT_DRIFT");
           const child = relative ? relative + "/" + name : name, expected = known.get(child), stat = fs.lstatSync(path.join(preview.runtimePath, child));
-          if (!expected || stat.isSymbolicLink() || final && !["directory", "publish"].includes(expected.kind)) managedFailure("ARTIFACT_DRIFT");
+          if (stat.isSymbolicLink()) managedFailure("ARTIFACT_DRIFT");
+          if (expected) {
+            if (final && !["directory", "publish"].includes(expected.kind)) managedFailure("ARTIFACT_DRIFT");
+          } else {
+            if (++outputCount > (outputs?.maxEntries ?? 0)) managedFailure("ARTIFACT_DRIFT");
+            const kind = stat.isDirectory() ? "directory" : "file";
+            if (!outputs || !stat.isDirectory() && (!stat.isFile() || stat.nlink !== 1) || !outputs.allows(child, kind, stat.size)) managedFailure("ARTIFACT_DRIFT");
+            if (kind === "file") { outputBytes += stat.size; if (outputBytes > outputs.maxTotalBytes) managedFailure("ARTIFACT_DRIFT"); }
+          }
           if (stat.isDirectory()) return [child];
-          if (expected.kind === "directory" || !stat.isFile()) managedFailure("ARTIFACT_DRIFT");
+          if (expected?.kind === "directory" || !stat.isFile()) managedFailure("ARTIFACT_DRIFT");
           return [];
         });
       });
@@ -181,7 +192,25 @@ export class ManagedCreationService {
   }
   private async verifyForStart(op: ProvisioningApplyOperation, policy: RuntimeAttachmentPolicy): Promise<void> {
     await this.verify(op, policy);
-    if (this.adapter.lifecycleDeferred) managedFailure("FIRST_BOOT_DEFERRED");
+    if (this.adapter.lifecycleDeferred && !this.bootCoordinator(op)?.current()) managedFailure("FIRST_BOOT_DEFERRED");
+  }
+  private bootCoordinator(op: ProvisioningApplyOperation, definition?: ManagedRuntimeDefinition): ManagedBootCoordinator | undefined {
+    if (!this.adapter.bootPolicy) return undefined;
+    definition ??= this.repo.managedDefinitions().find((record) => record.operationId === op.operationId && record.state === "ACTIVE");
+    if (!definition || !op.creation) managedFailure("BOOT_UNAVAILABLE");
+    return new ManagedBootCoordinator(this.repo, this.adapter, op.creation, definition, this.now, this.worker);
+  }
+  async previewBoot(operationId: string, policy: RuntimeAttachmentPolicy) {
+    const op = this.repo.get(operationId);
+    if (!op || op.executionKind !== "managed-create" || op.result.state !== "PROVISIONED") managedFailure("BOOT_UNAVAILABLE");
+    await this.verify(op, policy);
+    const boot = this.bootCoordinator(op); if (!boot) managedFailure("BOOT_UNSUPPORTED");
+    return boot.previewAuthorization();
+  }
+  async authorizeBoot(operationId: string, input: { digest: string; approved: true }, policy: RuntimeAttachmentPolicy, actor: string) {
+    if (input.approved !== true || !actor.trim()) managedFailure("APPROVAL_REQUIRED");
+    await this.previewBoot(operationId, policy);
+    return this.bootCoordinator(this.repo.get(operationId)!)!.authorize(input, actor);
   }
   private claims(preview: ManagedCreatePreview): ProvisioningApplyStep[] {
     const key = (...parts: string[]) => JSON.stringify(parts), plan = preview.plan;
@@ -286,7 +315,7 @@ export class ManagedCreationService {
       this.guard(op, () => { this.assertCurrentProfile(preview, policy); this.repo.publishManagedDefinition(op, definition, this.clock().now); });
       await this.options.afterStep?.("definition");
       this.repo.journalManagedPhase(op, "ACTIVATION_INTENT", "started", this.clock().now);
-      await this.activation.activate(definition, () => this.verifyForStart(op, policy), () => this.repo.get(op.operationId)?.result.state === "PROVISIONED" && this.repo.managedDefinitions().some((record) => record.operationId === op.operationId && record.state === "ACTIVE"), (mutation) => this.guard(op, mutation));
+      await this.activation.activate(definition, () => this.verifyForStart(op, policy), () => this.repo.get(op.operationId)?.result.state === "PROVISIONED" && this.repo.managedDefinitions().some((record) => record.operationId === op.operationId && record.state === "ACTIVE"), (mutation) => this.guard(op, mutation), this.bootCoordinator(op, definition)?.control());
       this.repo.journalManagedPhase(op, "ACTIVATION_RECEIPT", "completed", this.clock().now);
       await this.options.afterStep?.("activation");
       this.repo.journalManagedPhase(op, "FINALIZE_INTENT", "started", this.clock().now);
@@ -304,6 +333,8 @@ export class ManagedCreationService {
     if ((await this.preview(op.plan, policy, op.creation)).digest !== op.digest) managedFailure("ARTIFACT_DRIFT");
     const executable = this.executablePreview(op.creation!), preview = executable.preview;
     const completed = this.repo.get(op.operationId)?.result.state === "PROVISIONED";
+    const boot = completed ? this.bootCoordinator(op)?.current() : undefined;
+    const runtimePolicy = boot?.attempt ? boot.policy : undefined;
     const intents = this.repo.fileIntents(op.operationId).filter((i) => !i.direction && (i.kind === "directory" || i.kind === "publish"));
     // One durable ownership snapshot per verification pass. Every physical identity/hash is still
     // checked, and an in-progress apply rechecks/renews its fence for each bounded read.
@@ -319,16 +350,16 @@ export class ManagedCreationService {
       const receipt = receipts.get(intent.id);
       if (!receipt || receipt.compensated) managedFailure("OWNERSHIP_UNVERIFIED");
       const file = intent.kind === "publish" ? preview.files.find((file) => file.relativePath === intent.relativePath) : undefined;
-      const validateContents = completed && file ? this.adapter.runtimeFileValidator?.(file) : undefined;
+      const validateContents = completed && file ? this.adapter.runtimeFileValidator?.(file, runtimePolicy) : undefined;
       inspect(() => gateway.inspect(intent, receipt, validateContents, completed && Boolean(preview.bundle)));
     }
-    this.inspectTree(preview, op.operationId, gateway, true, inspect);
+    this.inspectTree(preview, op.operationId, gateway, true, inspect, runtimePolicy === undefined ? undefined : this.adapter.runtimeOutputPolicy?.(preview, runtimePolicy));
   }
   private async restore(op: ProvisioningApplyOperation, policy: RuntimeAttachmentPolicy) {
     await this.verify(op, policy);
     const definition = this.repo.managedDefinitions().find((record) => record.operationId === op.operationId && record.state === "ACTIVE");
     if (!definition) managedFailure("OWNERSHIP_UNVERIFIED");
-    await this.activation.activate(definition, () => this.verifyForStart(op, policy), () => this.repo.get(op.operationId)?.result.state === "PROVISIONED", (mutation) => this.repo.guardManagedDefinition(definition, mutation));
+    await this.activation.activate(definition, () => this.verifyForStart(op, policy), () => this.repo.get(op.operationId)?.result.state === "PROVISIONED", (mutation) => this.repo.guardManagedDefinition(definition, mutation), this.bootCoordinator(op, definition)?.control());
   }
   private async rollback(initial: ProvisioningApplyOperation, explicit = false): Promise<ProvisioningApplyOperation> {
     const op = this.repo.transition(initial, "ROLLING_BACK", this.clock().now);

@@ -300,7 +300,7 @@ test("v9 migration preserves a completed v8 Java managed definition and receipts
   const result = await opened.manager.applyManagedCreation({ planId: plan.planId, digest: preview.digest, approved: true }, f.policy, "test-admin", f.options);
   const definitions = opened.repository.provisioning.managedDefinitions(), receipts = opened.repository.provisioning.fileReceipts(result.operationId);
   await opened.manager.shutdown(); const db = new DatabaseSync(path.join(f.base, "state.sqlite"));
-  db.exec("DROP TABLE managed_runtime_bundles; PRAGMA user_version=8;"); db.close();
+  db.exec("DROP TABLE managed_runtime_boot_authorizations; DROP TABLE managed_runtime_bundles; PRAGMA user_version=8;"); db.close();
   const migrated = await f.open(); await migrated.manager.recoverManagedCreation(result.operationId, f.policy, f.options);
   assert.deepEqual(migrated.repository.provisioning.managedDefinitions(), definitions); assert.deepEqual(migrated.repository.provisioning.fileReceipts(result.operationId), receipts);
 });

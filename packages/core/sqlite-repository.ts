@@ -35,7 +35,7 @@ interface Migration {
   up: string;
 }
 
-const SCHEMA_VERSION = 9;
+const SCHEMA_VERSION = 10;
 
 const migrations: Migration[] = [
   {
@@ -254,6 +254,9 @@ const migrations: Migration[] = [
   ` },
   { version: 9, name: "managed_runtime_bundles", up: `
     CREATE TABLE managed_runtime_bundles (id TEXT PRIMARY KEY, data TEXT NOT NULL);
+  ` },
+  { version: 10, name: "managed_runtime_boot_authorizations", up: `
+    CREATE TABLE managed_runtime_boot_authorizations (operation_id TEXT PRIMARY KEY, data TEXT NOT NULL);
   ` },
 ];
 

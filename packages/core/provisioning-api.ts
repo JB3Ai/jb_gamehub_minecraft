@@ -5,7 +5,7 @@ import type { InMemoryProviderManager } from "../provider-manager";
 import { ProvisioningCapabilityError, ProvisioningValidationError } from "./provisioning";
 import { ProvisioningApplyException, provisioningDigest } from "./provisioning-apply-contracts";
 import type { RuntimeAttachmentPolicy, RuntimeAttachmentRecord, RuntimeAttachmentPreview } from "./runtime-attachment";
-import type { ManagedCreatePreview } from "./managed-create";
+import { creationHash, type ManagedCreatePreview } from "./managed-create";
 
 export interface AdminPrincipal { actor: string; admin: boolean }
 export interface ProvisioningApiOptions {
@@ -104,6 +104,21 @@ export function provisioningRouter(manager: () => InMemoryProviderManager, optio
     res.status(200).json({ operationId: result.operationId, providerId: result.plan.providerId, serverId: result.plan.serverId, state: result.result.state, outcome: result.result.outcome, ownership: "MANAGED", ...(result.error ? { error: { code: result.error.code, message: "Managed creation did not complete." } } : {}), residuals: result.rollbackErrors.map(({ code }) => ({ code, directoryName: manager().getManagedCreatePreview(plan.planId)?.leaf, retainedClaims: manager().listProvisioningClaims(result.operationId).filter((claim) => claim.state === "active").length })) });
   }));
   router.get("/attachments", route(async (_req, res) => { res.json({ attachments: manager().listRuntimeAttachments().map(publicAttachment) }); }));
+  router.post("/operations/:operationId/boot-preview", route(async (req, res) => {
+    fields(req.body ?? {}, []);
+    const operationId = String(req.params.operationId), op = manager().getProvisioningOperation(operationId);
+    if (!op || op.executionKind !== "managed-create") throw new ApiFault(404, "OPERATION_NOT_FOUND");
+    const preview = await manager().previewManagedBoot(operationId, policy(op.plan.providerId));
+    res.json({ digest: preview.digest, creationDigest: preview.creationDigest, providerId: preview.providerId, serverId: preview.serverId, policyId: (preview.policy as { id?: string }).id, policyDigest: creationHash(preview.policy), startup: "explicit-start-only" });
+  }));
+  router.post("/operations/:operationId/boot-authorizations", route(async (req, res) => {
+    const input = fields(req.body, ["digest", "approved"]);
+    if (input.approved !== true || typeof input.digest !== "string") throw new ApiFault(400, "APPROVAL_REQUIRED");
+    const operationId = String(req.params.operationId), op = manager().getProvisioningOperation(operationId);
+    if (!op || op.executionKind !== "managed-create") throw new ApiFault(404, "OPERATION_NOT_FOUND");
+    const record = await manager().authorizeManagedBoot(operationId, { digest: input.digest, approved: true }, policy(op.plan.providerId), res.locals.principal.actor);
+    res.json({ digest: record.digest, creationDigest: record.creationDigest, authorized: true, approvedAt: record.approvedAt, startup: "explicit-start-only" });
+  }));
   router.post("/operations/:operationId/recover", route(async (req, res) => {
     const input = fields(req.body, ["digest", "approved"]);
     if (input.approved !== true || typeof input.digest !== "string") throw new ApiFault(400, "APPROVAL_REQUIRED");

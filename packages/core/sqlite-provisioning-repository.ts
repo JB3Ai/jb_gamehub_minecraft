@@ -1,4 +1,5 @@
 import path from "node:path";
+import type { ManagedBootAuthorization } from "./managed-boot";
 import { creationHash, type ResolvedRuntimeBundle, type ManagedCreationRepository, type ManagedCreatePreview, type ManagedRuntimeDefinition, type FileEffectIntent, type FileEffectReceipt } from "./managed-create";
 import type { RuntimeAttachmentRepository, RuntimeAttachmentDescriptor, RuntimeAttachmentRecord, ExternalEffectIntent } from "./runtime-attachment";
 import { randomUUID } from "node:crypto";
@@ -19,6 +20,19 @@ CREATE TABLE provisioning_effects (operation_id TEXT NOT NULL, step_id TEXT NOT 
 export class SqliteProvisioningRepository implements ProvisioningApplyRepository, RuntimeAttachmentRepository, ManagedCreationRepository {
   private managedScope = false;
   constructor(private readonly database: () => DatabaseSync) {}
+  getManagedBoot(operationId: string): ManagedBootAuthorization | undefined {
+    const row = this.database().prepare("SELECT data FROM managed_runtime_boot_authorizations WHERE operation_id=?").get(operationId);
+    return row ? JSON.parse(String(row.data)) : undefined;
+  }
+  saveManagedBoot(definition: ManagedRuntimeDefinition, expectedRevision: number | undefined, record: ManagedBootAuthorization, action: string, actor: string, now: string): void {
+    this.guardManagedDefinition(definition, () => {
+      const prior = this.getManagedBoot(definition.operationId);
+      if (prior?.revision !== expectedRevision || record.revision !== (expectedRevision ?? 0) + 1 || record.operationId !== definition.operationId || record.creationDigest !== definition.digest || record.definitionId !== definition.effectId || record.definitionFence !== definition.fencingToken || !actor.trim()) throw new ProvisioningApplyException({ code: "BOOT_STATE_CONFLICT", message: "Managed boot record changed or is outside this definition." });
+      this.database().prepare("INSERT INTO managed_runtime_boot_authorizations(operation_id,data) VALUES (?,?) ON CONFLICT(operation_id) DO UPDATE SET data=excluded.data").run(definition.operationId, JSON.stringify(record));
+      this.database().prepare("INSERT INTO audit_log(id,timestamp,actor,action,provider_id,server_id,operation_id,result,metadata) VALUES (?,?,?,?,?,?,?,?,?)").run(randomUUID(), now, actor, action, definition.descriptor.providerId, definition.descriptor.serverId, definition.operationId, "completed", JSON.stringify({ digest: record.digest, revision: record.revision, attemptId: record.attempt?.id, fence: record.attempt?.fence, state: record.attempt?.state }));
+      this.database().prepare("INSERT INTO events(id,provider_id,server_id,operation_id,type,timestamp,payload) VALUES (?,?,?,?,?,?,?)").run(randomUUID(), definition.descriptor.providerId, definition.descriptor.serverId, definition.operationId, "provisioning.boot.changed", now, JSON.stringify({ digest: record.digest, attemptId: record.attempt?.id, state: record.attempt?.state ?? "AUTHORIZED" }));
+    });
+  }
   private tx<T>(run: () => T): T {
     const db = this.database(); db.exec("BEGIN IMMEDIATE;");
     try { const result = run(); db.exec("COMMIT;"); return result; }

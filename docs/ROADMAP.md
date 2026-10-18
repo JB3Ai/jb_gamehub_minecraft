@@ -16,6 +16,8 @@
 - [x] JBGH-020D: Bedrock Worlds & Pack Linking (content pipeline closed; native runtime remains provider-scoped)
 - [ ] JBGH-021: Native Bedrock Server Provider (BDS adapter implemented; live native-client acceptance pending)
 - [x] JBGH-021A — CLOSED / PASS: Native BDS Live Acceptance
+- [x] JBGH-022 — CLOSED / PASS: [Unified Server Provisioning](./JBGH-022-unified-server-provisioning.md#jbgh-022-closure-review--closed--pass) (2026-10-18)
+- [ ] JBGH-023: Unified Setup Wizard (next; implementation not started)
 
 ### JBGH-021A — CLOSED / PASS
 

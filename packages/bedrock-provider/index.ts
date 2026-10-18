@@ -150,13 +150,14 @@ export class BedrockProvider implements GameProvider {
     const command = this.config.startCommand || this.defaultExecutable();
     const { executable, args } = commandParts(command);
     this.process = spawn(executable, args, { cwd: this.config.serverDir, stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+    const ownedChild = this.process;
     this.stdoutBuffer = "";
     this.stderrBuffer = "";
     this.process.stdout?.on("data", (chunk: Buffer) => {
-      this.stdoutBuffer = this.appendLog(this.stdoutBuffer, chunk.toString("utf8"));
+      this.stdoutBuffer = this.appendLog(this.stdoutBuffer, chunk.toString("utf8"), ownedChild, "stdout");
     });
     this.process.stderr?.on("data", (chunk: Buffer) => {
-      this.stderrBuffer = this.appendLog(this.stderrBuffer, chunk.toString("utf8"));
+      this.stderrBuffer = this.appendLog(this.stderrBuffer, chunk.toString("utf8"), ownedChild, "stderr");
     });
     this.runtimeReady = false;
     this.process.once("exit", () => { this.process = undefined; this.startedAt = undefined; this.runtimeReady = false; this.stdoutBuffer = ""; this.stderrBuffer = ""; });
@@ -271,11 +272,13 @@ export class BedrockProvider implements GameProvider {
   }
 
   /** Buffers a stream chunk and parses only complete logical log lines, returning the unparsed remainder. */
-  private appendLog(buffer: string, chunk: string): string {
+  protected ownedProcess(): ChildProcess | undefined { return this.process; }
+  protected observeRuntimeLine(_line: string, _child: ChildProcess, _stream: "stdout" | "stderr"): void {}
+  private appendLog(buffer: string, chunk: string, child: ChildProcess, stream: "stdout" | "stderr"): string {
     const combined = buffer + chunk;
     const lines = combined.split(/\r?\n/);
     const remainder = lines.pop() ?? "";
-    for (const line of lines) this.consumeLogLine(line);
+    for (const line of lines) { this.consumeLogLine(line); this.observeRuntimeLine(line, child, stream); }
     return remainder;
   }
 }

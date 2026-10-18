@@ -1,5 +1,9 @@
 import type { ManagedCreationAdapter, ApprovedRuntimeBundle } from "../core/managed-create";
 import { managedFailure, safeLeaf } from "../core/managed-filesystem";
+import fs from "node:fs";
+import { hashFile, sameIdentity } from "../core/managed-filesystem";
+import type { ManagedCreatePreview, ResolvedRuntimeBundle } from "../core/managed-create";
+import type { ProvisioningJson } from "../core/provisioning";
 
 /** This compatibility boundary is deliberately build-specific; never resolve 'latest'. */
 export const managedBedrockCompatibility = Object.freeze({ version: "1.26.51.1", platform: "win32", architecture: "x64", transport: "raknet", policy: "bds-1.26.51.1-raknet-v1" });
@@ -42,11 +46,40 @@ function validateBundle(bundle: Readonly<ApprovedRuntimeBundle> | undefined): as
 
 export class BedrockManagedCreation implements ManagedCreationAdapter {
   readonly lifecycleDeferred = true;
-  runtimeFileValidator: ManagedCreationAdapter["runtimeFileValidator"] = (file) => {
+  bootPolicy(preview: Readonly<ManagedCreatePreview>, bundle?: Readonly<ResolvedRuntimeBundle>): ProvisioningJson {
+    validateBundle(bundle?.manifest);
+    if (!preview.worldName || !safeLeaf(preview.worldName) || bundle!.manifestDigest !== preview.bundle?.manifestDigest) managedFailure("BOOT_POLICY_UNAVAILABLE");
+    const template = bundle!.files.find(file => file.relativePath === "server.properties");
+    const generated = preview.files.find(file => file.name === "configuration");
+    if (!template?.sourcePath || !template.sourceIdentity || !generated?.content || template.size > 64 * 1024) managedFailure("BOOT_POLICY_UNAVAILABLE");
+    const observed = hashFile(template.sourcePath, 64 * 1024);
+    if (observed.sha256 !== template.sha256 || !sameIdentity(observed.identity, template.sourceIdentity)) managedFailure("ARTIFACT_DRIFT");
+    const protectedKeys = properties(Buffer.from(generated.content));
+    const defaults = Object.fromEntries([...properties(fs.readFileSync(template.sourcePath))].filter(([key]) => !protectedKeys.has(key)));
+    return { schemaVersion: 1, id: "bds-1.26.51.1-managed-boot-v1", bundleVersion: managedBedrockCompatibility.version,
+      transport: "raknet", worldName: preview.worldName, endpoints: preview.plan.request.endpoints as unknown as ProvisioningJson,
+      configurationTemplateHash: template.sha256, configurationDefaults: { ...defaults, ...(generated.validationPolicy as Record<string, string> ?? {}) },
+      outputs: ["selected-world-level-metadata", "selected-world-leveldb", "packet-statistics.txt", "empty-development_behavior_packs", "empty-development_resource_packs", "empty-development_skin_packs"],
+      maxEntries: 10000, maxTotalBytes: 512 * 1024 * 1024, maxWorldFileBytes: 64 * 1024 * 1024 };
+  }
+  runtimeOutputPolicy: ManagedCreationAdapter["runtimeOutputPolicy"] = (preview, value) => {
+    const policy = value as { id?: string; worldName?: string };
+    if (policy.id !== "bds-1.26.51.1-managed-boot-v1" || policy.worldName !== preview.worldName || !preview.worldName) managedFailure("BOOT_POLICY_UNAVAILABLE");
+    const world = "worlds/" + preview.worldName;
+    return { maxEntries: 10000, maxTotalBytes: 512 * 1024 * 1024, allows: (relative, kind, size) => {
+      if (relative.split("/").length > 4 || size > 64 * 1024 * 1024) return false;
+      if (kind === "directory") return ["worlds", world, world + "/db", "development_behavior_packs", "development_resource_packs", "development_skin_packs"].includes(relative);
+      if (relative === "packet-statistics.txt") return size <= 1024 * 1024;
+      if (["level.dat", "level.dat_old", "levelname.txt"].some(name => relative === world + "/" + name)) return true;
+      if (!relative.startsWith(world + "/db/")) return false;
+      return /^(?:CURRENT|LOCK|LOG|LOG\.old|MANIFEST-[0-9]{6,20}|[0-9]{6,20}\.(?:ldb|sst|log|dbtmp))$/.test(relative.slice((world + "/db/").length));
+    } };
+  };
+  runtimeFileValidator: ManagedCreationAdapter["runtimeFileValidator"] = (file, bootPolicy) => {
     if (file.content === undefined) return undefined;
     if (file.name === "configuration" && file.relativePath === "server.properties") {
       const expected = properties(Buffer.from(file.content));
-      const defaults = file.validationPolicy as Record<string, string> | undefined;
+      const defaults = { ...((bootPolicy as { configurationDefaults?: Record<string, string> } | undefined)?.configurationDefaults ?? {}), ...(file.validationPolicy as Record<string, string> ?? {}) };
       return (bytes) => {
         const actual = properties(bytes);
         for (const [key, value] of expected) if (!actual.has(key) || actual.get(key) !== value) managedFailure("ARTIFACT_DRIFT");

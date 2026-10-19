@@ -26,6 +26,67 @@ import {
   ValidationResult,
   WorldListResponse,
 } from "./types";
+import type { CreateProvisioningRequest, ProvisioningConnection, ProvisioningPlanResponse, ProvisioningPreflightResponse, SetupOptionsResponse, ProvisioningApplyRequest, ProvisioningApplyResponse } from "./provisioningTypes";
+
+export function setupIssueMessage(code: string): string {
+  if (code === "ENDPOINT_OCCUPIED") return "A selected connection port is already in use. Ask your administrator to update the setup.";
+  if (code === "PATH_COLLISION" || code === "RESOURCE_CONFLICT") return "A server or reserved setup already uses this location. Ask your administrator to check it.";
+  if (code === "LICENSE_ACCEPTANCE_REQUIRED") return "This approved setup needs administrator attention before it can be checked.";
+  if (code === "UNSAFE_WORLD_NAME") return "Choose a simple world name without path characters, then check setup again.";
+  return "This setup needs attention. Check your settings or ask your administrator to review the approved setup.";
+}
+export class ProvisioningClientError extends Error {
+  constructor(readonly code: string, readonly status = 0) {
+    super(code === "UNAUTHENTICATED" ? "Connect with an administrator access key to check setup."
+      : code === "FORBIDDEN" ? "A GameHub administrator must continue."
+      : ["ENDPOINT_OCCUPIED", "PATH_COLLISION", "RESOURCE_CONFLICT", "LICENSE_ACCEPTANCE_REQUIRED", "UNSAFE_WORLD_NAME"].includes(code) ? setupIssueMessage(code)
+      : code === "INVALID_RESPONSE" ? "GameHub returned an unexpected setup response. Please reconnect and try again."
+      : "Setup could not be checked. Your settings have been kept; check the connection or ask your administrator.");
+  }
+}
+const object = (v: unknown): v is Record<string, any> => !!v && typeof v === "object" && !Array.isArray(v);
+const text = (v: unknown, max = 2048): v is string => typeof v === "string" && v.length > 0 && v.length <= max;
+const providerId = (v: unknown) => v === "minecraft" || v === "minecraft-bedrock";
+const endpoints = (v: unknown) => Array.isArray(v) && v.length > 0 && v.length <= 8 && v.every(e => object(e) && text(e.id, 64) && text(e.protocol, 64) && ["tcp", "udp"].includes(e.transport) && text(e.bindAddress, 128) && object(e.port) && e.port.mode === "fixed" && Number.isInteger(e.port.value) && e.port.value >= 1 && e.port.value <= 65535);
+const issues = (v: unknown) => Array.isArray(v) && v.every(i => object(i) && text(i.code, 128) && ["blocking", "warning"].includes(i.severity));
+const setupProfile = (f: unknown) => object(f) && text(f.profileRef, 64) && text(f.revision, 64) && text(f.label, 80) && object(f.defaults) && (f.defaults.worldName === undefined || text(f.defaults.worldName, 128)) && typeof f.available === "boolean" && (!f.available || object(f.requestDefaults) && text(f.requestDefaults.hostId, 64) && text(f.requestDefaults.rootId, 64) && endpoints(f.requestDefaults.endpoints) && (f.requestDefaults.serverId === undefined || typeof f.requestDefaults.serverId === "string" && /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(f.requestDefaults.serverId)));
+const setupProvider = (p: unknown) => object(p) && providerId(p.providerId) && text(p.label, 80) && Array.isArray(p.profiles) && p.profiles.every(setupProfile) && new Set(p.profiles.map(f => f.profileRef)).size === p.profiles.length;
+const createRequest = (r: unknown) => object(r) && r.schemaVersion === 1 && providerId(r.providerId) && text(r.serverId, 64) && text(r.displayName, 120) && text(r.hostId, 64) && object(r.storage) && r.storage.mode === "create" && text(r.storage.rootId, 64) && endpoints(r.endpoints) && object(r.providerOptions) && text(r.providerOptions.profileRef, 64) && text(r.providerOptions.worldName, 128);
+async function setupRequest(route: string, connection: ProvisioningConnection, body?: unknown): Promise<any> {
+  if (!connection.token.trim()) throw new ProvisioningClientError("UNAUTHENTICATED", 401);
+  let response: Response;
+  try { response = await fetch(`/api/provisioning${route}`, { method: body === undefined ? "GET" : "POST", signal: connection.signal,
+    headers: { authorization: `Bearer ${connection.token}`, ...(body === undefined ? {} : { "content-type": "application/json" }) },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }) }); }
+  catch (error) { if (connection.signal?.aborted) throw error; throw new ProvisioningClientError("NETWORK_ERROR"); }
+  let result: unknown;
+  try { result = await response.json(); } catch { throw new ProvisioningClientError("INVALID_RESPONSE", response.status); }
+  if (!response.ok && !(route === "/preflight" && response.status === 422 && object(result) && result.status === "FAIL" && issues(result.issues))) throw new ProvisioningClientError(object(result) && object(result.error) && text(result.error.code, 128) ? result.error.code : response.status === 401 ? "UNAUTHENTICATED" : response.status === 403 ? "FORBIDDEN" : "PREFLIGHT_FAILED", response.status);
+  return result;
+}
+export async function getProvisioningSetupOptions(connection: ProvisioningConnection): Promise<SetupOptionsResponse> {
+  const result = await setupRequest("/setup-options", connection);
+  if (!object(result) || !Array.isArray(result.providers) || result.providers.length > 2 || !result.providers.every(setupProvider) || new Set(result.providers.map(p => p.providerId)).size !== result.providers.length) throw new ProvisioningClientError("INVALID_RESPONSE");
+  return result as unknown as SetupOptionsResponse;
+}
+export async function createProvisioningPlan(request: CreateProvisioningRequest, connection: ProvisioningConnection): Promise<ProvisioningPlanResponse> {
+  const result = await setupRequest("/plans", connection, request), plan = result?.plan;
+  if (!object(result) || !text(result.digest, 128) || !object(plan) || plan.schemaVersion !== 1 || !text(plan.planId, 160) || !providerId(plan.providerId) || !text(plan.serverId, 64) || !text(plan.displayName, 120) || plan.mode !== "create" || !["planned", "blocked", "expired"].includes(plan.status) || !createRequest(plan.request) || !object(plan.validation) || typeof plan.validation.valid !== "boolean" || !issues(plan.validation.errors)) throw new ProvisioningClientError("INVALID_RESPONSE");
+  return result as unknown as ProvisioningPlanResponse;
+}
+export async function preflightProvisioning(planId: string, connection: ProvisioningConnection): Promise<ProvisioningPreflightResponse> {
+  const result = await setupRequest("/preflight", connection, { planId }), c = result?.creation;
+  if (!object(result) || !["PASS", "WARN", "FAIL"].includes(result.status) || !issues(result.issues)) throw new ProvisioningClientError("INVALID_RESPONSE");
+  if (result.status === "PASS" && (!object(c) || !/^[a-f0-9]{64}$/.test(c.digest) || c.ownership !== "MANAGED" || !text(c.profileId, 64) || !text(c.serverId, 64) || !text(c.directoryName, 128) || !text(c.worldName, 128) || c.startup !== "remain-stopped" || !endpoints(c.endpoints) || !Array.isArray(c.files) || !c.files.every(f => object(f) && text(f.name) && text(f.relativePath) && /^[a-f0-9]{64}$/.test(f.sha256) && Number.isInteger(f.size) && f.size >= 0) || !Array.isArray(c.deferredValidations) || !c.deferredValidations.every(v => typeof v === "string"))) throw new ProvisioningClientError("INVALID_RESPONSE");
+  return result as unknown as ProvisioningPreflightResponse;
+}
+
+export async function applyProvisioning(input: ProvisioningApplyRequest, connection: ProvisioningConnection): Promise<ProvisioningApplyResponse> {
+  const result = await setupRequest("/applies", connection, input);
+  if (!object(result) || !text(result.operationId, 200) || !providerId(result.providerId) || !text(result.serverId, 64) || !text(result.state, 80) || !text(result.outcome, 80) || result.ownership !== "MANAGED" || !Array.isArray(result.residuals) || !result.residuals.every(r => object(r) && text(r.code, 128) && (r.directoryName === undefined || text(r.directoryName, 128)) && (r.retainedClaims === undefined || Number.isInteger(r.retainedClaims) && r.retainedClaims >= 0)) || (result.error !== undefined && (!object(result.error) || !text(result.error.code, 128) || !text(result.error.message)))) throw new ProvisioningClientError("INVALID_RESPONSE");
+  // Raw diagnostics and directory names are never displayed by the wizard.
+  return result as unknown as ProvisioningApplyResponse;
+}
 
 async function parseResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {

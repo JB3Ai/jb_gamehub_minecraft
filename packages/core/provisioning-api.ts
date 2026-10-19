@@ -6,11 +6,16 @@ import { ProvisioningCapabilityError, ProvisioningValidationError } from "./prov
 import { ProvisioningApplyException, provisioningDigest } from "./provisioning-apply-contracts";
 import type { RuntimeAttachmentPolicy, RuntimeAttachmentRecord, RuntimeAttachmentPreview } from "./runtime-attachment";
 import { creationHash, type ManagedCreatePreview } from "./managed-create";
+import { parseProvisioningRequest, type ProvisioningEndpointRequest } from "./provisioning";
+import { safeLeaf } from "./managed-filesystem";
 
 export interface AdminPrincipal { actor: string; admin: boolean }
 export interface ProvisioningApiOptions {
   authorize: (request: express.Request) => AdminPrincipal | undefined | Promise<AdminPrincipal | undefined>;
-  policies: Record<string, RuntimeAttachmentPolicy>;
+  policies: Record<string, RuntimeAttachmentPolicy & {
+    /** Optional operator-owned presentation defaults. No paths or execution authority. */
+    setup?: { profiles: Record<string, { rootId: string; endpoints: ProvisioningEndpointRequest[]; label?: string }> };
+  }>;
 }
 export function tokenAdminAuthorizer(token?: string): ProvisioningApiOptions["authorize"] {
   return (request) => {
@@ -69,6 +74,32 @@ export function provisioningRouter(manager: () => InMemoryProviderManager, optio
   };
   const stored = (id: unknown) => { if (typeof id !== "string") throw new ApiFault(400, "PLAN_ID_REQUIRED"); const value = manager().getProvisioningPlan(id); if (!value) throw new ApiFault(404, "PLAN_NOT_FOUND"); return value; };
   const policy = (providerId: string) => { const value = options().policies[providerId]; if (!value) throw new ApiFault(422, "POLICY_UNAVAILABLE"); return value; };
+  router.get("/setup-options", route(async (_req, res) => {
+    const providers = [];
+    for (const [providerId, label, profileLabel] of [["minecraft", "Minecraft Java", "Java"], ["minecraft-bedrock", "Minecraft Bedrock", "Bedrock"]]) {
+      const trusted = options().policies[providerId];
+      if (!trusted?.managedCreate || !manager().listProviders().some(provider => provider.id === providerId)) continue;
+      if (!manager().getProvider(providerId).getCapabilities()["server.provision.create"]) continue;
+      const profiles = Object.entries(trusted.managedCreate.profiles ?? {}).flatMap(([profileRef, profile]) => {
+        if (!profile || profile.providerId !== providerId || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(profileRef) || typeof profile.revision !== "string" || !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(profile.revision)) return [];
+        const defaults = typeof profile.configuration?.worldName === "string" && safeLeaf(profile.configuration.worldName) ? { worldName: profile.configuration.worldName } : {};
+        const publicOption = { profileRef, revision: profile.revision, label: profileLabel, defaults };
+        const setup = trusted.setup?.profiles?.[profileRef];
+        if (!setup || !Object.hasOwn(trusted.managedRoots, setup.rootId)) return [{ ...publicOption, available: false }];
+        try {
+          const serverId = profile.acceptanceRef ? trusted.managedCreate.acceptances[profile.acceptanceRef]?.serverId : undefined;
+          const request = parseProvisioningRequest({ schemaVersion: 1, providerId, serverId: serverId ?? "setup-discovery", hostId: trusted.hostId,
+            storage: { mode: "create", rootId: setup.rootId }, endpoints: setup.endpoints, providerOptions: { profileRef } });
+          if (request.endpoints.some(endpoint => endpoint.transport === "virtual" || endpoint.port.mode !== "fixed")) return [{ ...publicOption, available: false }];
+          return [{ ...publicOption, available: true,
+            ...(typeof setup.label === "string" && /^[\p{L}\p{N} _.-]{1,80}$/u.test(setup.label) ? { label: setup.label } : {}),
+            requestDefaults: { hostId: request.hostId, rootId: setup.rootId, endpoints: request.endpoints, ...(serverId ? { serverId } : {}) } }];
+        } catch { return [{ ...publicOption, available: false }]; }
+      });
+      providers.push({ providerId, label, profiles });
+    }
+    res.set("Cache-Control", "no-store").json({ providers });
+  }));
   router.post("/plans", route(async (req, res) => {
     const plan = await manager().planProvisioning(req.body); manager().saveProvisioningPlan(plan);
     res.status(201).json({ plan, digest: provisioningDigest(plan), profile: manager().getProvisioningProfile(plan.providerId) });

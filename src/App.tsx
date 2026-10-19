@@ -3,7 +3,7 @@ import { OperationalDashboard } from "./components/OperationalDashboard";
 import { useOperationalDashboard } from "./dashboard/useOperationalDashboard";
 
 export default function App() {
-  const { state, selectedServer, selectServer, refreshData, runCommand, runWorldValidation, cleanupHistory } = useOperationalDashboard();
+  const { state, selectedServer, selectServer, showProvisionedServer, refreshData, runCommand, runWorldValidation, cleanupHistory } = useOperationalDashboard();
   const worlds = selectedServer ? state.worldsByServer[selectedServer.id] || [] : [];
 
   if (state.loading && state.servers.length === 0) {
@@ -26,6 +26,7 @@ export default function App() {
       selectedServer={selectedServer}
       worlds={worlds}
       onSelectServer={selectServer}
+      onProvisioned={showProvisionedServer}
       onRefresh={() => {
         void refreshData();
       }}

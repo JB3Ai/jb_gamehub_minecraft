@@ -175,6 +175,16 @@ export function useOperationalDashboard() {
     [loadServerWorlds],
   );
 
+  const showProvisionedServer = useCallback(async (providerId: string, serverId: string, open: boolean) => {
+    // Inventory is independent of optional authenticated history/analytics panels.
+    const inventory = await getServers();
+    if (!inventory.servers.some(server => server.providerId === providerId && server.id === serverId)) throw new Error("Created server is not yet in inventory.");
+    setState(current => ({ ...current, loading: false,
+      servers: inventory.servers.map(server => ({ ...server, status: normalizeLifecycleState(server.status) })),
+      selectedServerId: open ? serverId : current.selectedServerId,
+    }));
+  }, []);
+
   const runCommand = useCallback(
     async (command: "start" | "stop" | "restart") => {
       if (!state.selectedServerId) {
@@ -323,6 +333,7 @@ export function useOperationalDashboard() {
     state,
     selectedServer,
     selectServer,
+    showProvisionedServer,
     refreshData: applyManualRefresh,
     runCommand,
     runWorldValidation,

@@ -1,4 +1,5 @@
 import React from "react";
+import { NewServerModal } from "./NewServerModal";
 import {
   askAiStudio,
   evaluateChildAccess,
@@ -1065,6 +1066,7 @@ export function OperationalDashboard({
   onCommand,
   onValidateWorld,
   onRefresh,
+  onProvisioned,
   onCleanupHistory,
 }: {
   state: DashboardState;
@@ -1074,9 +1076,11 @@ export function OperationalDashboard({
   onCommand: (command: "start" | "stop" | "restart") => void;
   onValidateWorld: (worldId: string) => void;
   onRefresh: () => void;
+  onProvisioned?: (providerId: string, serverId: string, open: boolean) => Promise<void>;
   onCleanupHistory: () => void;
 }) {
   const [activePanel, setActivePanel] = React.useState<PanelId>("servers");
+  const [setupOpen, setSetupOpen] = React.useState(false);
 
   return (
     <main className="dashboard-shell">
@@ -1089,10 +1093,16 @@ export function OperationalDashboard({
         <div className="header-actions">
           <span className={`chip ${statusClass(state.wsConnection)}`}>{wsStateLabel(state.wsConnection)}</span>
           <button type="button" className="cmd-btn" onClick={onRefresh}>Refresh</button>
+          <button type="button" className="cmd-btn" onClick={() => setSetupOpen(true)}>Create server</button>
         </div>
       </header>
 
       {state.error ? <div className="error-banner">Backend unavailable: {state.error}</div> : null}
+      {setupOpen ? <NewServerModal isOpen onClose={() => setSetupOpen(false)} onProvisioned={async (providerId, serverId, open) => {
+        if (!onProvisioned) throw new Error("Server summary is unavailable.");
+        await onProvisioned(providerId, serverId, open);
+        if (open) setActivePanel("servers");
+      }} /> : null}
 
       <SectionNavigation activePanel={activePanel} onSelect={setActivePanel} />
 

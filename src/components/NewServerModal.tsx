@@ -1,200 +1,110 @@
-import React, { useState } from 'react';
-import {
-  Server,
-  Layers,
-  CheckCircle2,
-  Sparkles,
-  ArrowRight,
-  Smartphone,
-  Shield,
-  X
-} from 'lucide-react';
-import { ServerType } from '../types';
+import React, { useEffect, useRef, useState } from "react";
+import { useSetupWizard } from "../setup/useSetupWizard";
+import type { SetupWizardState } from "../setup/types";
+import { setupIssueMessage } from "../dashboard/apiClient";
 
-interface NewServerModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  onCreateServer: (serverData: { name: string; type: ServerType; version: string; geyserEnabled: boolean }) => void;
+export interface NewServerModalProps {
+  isOpen: boolean; onClose: () => void;
+  onProvisioned?: (providerId: string, serverId: string, open: boolean) => Promise<void>;
 }
-
-export const NewServerModal: React.FC<NewServerModalProps> = ({
-  isOpen,
-  onClose,
-  onCreateServer,
-}) => {
-  const [step, setStep] = useState<1 | 2 | 3>(1);
-  const [serverName, setServerName] = useState('Family Crossplay Hub');
-  const [selectedType, setSelectedType] = useState<ServerType>('Paper');
-  const [selectedVersion, setSelectedVersion] = useState('1.21.4');
-  const [geyserEnabled, setGeyserEnabled] = useState(true);
-
+export function SetupReview({ state }: { state: SetupWizardState }) {
+  const creation = state.preflight?.creation;
+  const provider = state.options?.providers.find(p => p.providerId === state.configuration.providerId);
+  return <section aria-label="Setup review">
+    <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-6 gap-y-3 break-words">
+      <dt>Server type</dt><dd>{provider?.label}</dd>
+      <dt>Server</dt><dd>{state.configuration.displayName}</dd>
+      <dt>World</dt><dd>{creation?.worldName} <span className="text-slate-400">(created on first start)</span></dd>
+      <dt>Setup check</dt><dd>Ready</dd>
+      <dt>Ownership</dt><dd>Managed</dd>
+      <dt>Startup</dt><dd>{creation?.startup === "remain-stopped" ? "Created stopped" : "Not confirmed"}</dd>
+      <dt>Connections</dt><dd>{creation?.endpoints.map(e => e.transport.toUpperCase() + " " + e.port.value).join(", ")}</dd>
+    </dl>
+    <p id="setup-review-boundary" className="mt-5 text-slate-300">Create this managed server using the checked settings. It will remain stopped. Starting it is a separate action.</p>
+  </section>;
+}
+export function SetupCompletion({ state }: { state: SetupWizardState }) {
+  return <section aria-label="Created server summary"><p role="status">Server created</p><dl className="mt-4 grid grid-cols-[auto_minmax(0,1fr)] gap-3 break-words">
+    <dt>Server type</dt><dd>{state.options?.providers.find(p => p.providerId === state.configuration.providerId)?.label}</dd>
+    <dt>Server</dt><dd>{state.configuration.displayName}</dd><dt>World</dt><dd>{state.preflight?.creation?.worldName} (created on first start)</dd>
+    <dt>Status</dt><dd>Ready to manage</dd><dt>Ownership</dt><dd>Managed</dd><dt>Startup</dt><dd>Created stopped</dd>
+  </dl><p className="mt-4 text-slate-300">Your server is ready to manage. It has not been started.</p></section>;
+}
+export function NewServerModal({ isOpen, onClose, onProvisioned }: NewServerModalProps) {
+  const wizard = useSetupWizard(isOpen), { state } = wizard;
+  const [inventoryMessage, setInventoryMessage] = useState(""), [opening, setOpening] = useState(false);
+  const dialog = useRef<HTMLDialogElement>(null), heading = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    if (!isOpen) return;
+    const previous = document.activeElement, current = dialog.current;
+    current?.showModal();
+    return () => { current?.close(); if (previous instanceof HTMLElement && previous.isConnected) previous.focus(); };
+  }, [isOpen]);
+  useEffect(() => { if (isOpen) heading.current?.focus(); }, [isOpen, state.step]);
   if (!isOpen) return null;
-
-  const handleFinish = () => {
-    onCreateServer({
-      name: serverName,
-      type: selectedType,
-      version: selectedVersion,
-      geyserEnabled,
-    });
-    onClose();
+  const close = () => { if (!wizard.canClose() || opening) return; wizard.reset(); setInventoryMessage(""); onClose(); };
+  const refreshInventory = async (providerId: string, serverId: string, open: boolean) => {
+    setOpening(true); setInventoryMessage("");
+    try { if (!onProvisioned) throw new Error("Server summary is unavailable."); await onProvisioned(providerId, serverId, open); if (open) { wizard.reset(); onClose(); } }
+    catch { setInventoryMessage("Your server was created, but its summary could not be refreshed. Open Server will check inventory again; it will not create another server."); }
+    finally { setOpening(false); }
   };
-
-  return (
-    <div className="fixed inset-0 z-50 bg-[#09090b]/80 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-150">
-      <div className="bg-[#18181b] border border-zinc-800 rounded-3xl max-w-xl w-full p-6 sm:p-8 space-y-6 shadow-2xl relative">
-        <button
-          onClick={onClose}
-          className="absolute top-4 right-4 text-zinc-500 hover:text-zinc-200 p-1 font-bold"
-        >
-          <X className="w-5 h-5" />
-        </button>
-
-        {/* Wizard Progress Steps */}
-        <div>
-          <div className="flex items-center justify-between text-xs font-bold text-zinc-400 mb-2">
-            <span className={step >= 1 ? 'text-emerald-400' : ''}>1. Choose Type</span>
-            <span className={step >= 2 ? 'text-emerald-400' : ''}>2. Choose Version & Name</span>
-            <span className={step >= 3 ? 'text-emerald-400' : ''}>3. Crossplay & Done</span>
-          </div>
-
-          <div className="w-full bg-zinc-950 h-2 rounded-full overflow-hidden border border-zinc-800">
-            <div
-              className="bg-emerald-500 h-full transition-all duration-300"
-              style={{ width: `${(step / 3) * 100}%` }}
-            ></div>
-          </div>
-        </div>
-
-        {/* Step 1: Choose Type */}
-        {step === 1 && (
-          <div className="space-y-4">
-            <h2 className="text-lg font-extrabold text-zinc-100 flex items-center gap-2">
-              <Layers className="w-5 h-5 text-emerald-400" /> Choose Minecraft Server Platform
-            </h2>
-
-            <div className="grid grid-cols-2 gap-3">
-              {[
-                { type: 'Paper', desc: 'Ultra high performance with plugins (Recommended)' },
-                { type: 'Purpur', desc: 'Fork of Paper with custom gameplay tweaks' },
-                { type: 'Fabric', desc: 'Modern lightweight modding framework' },
-                { type: 'Vanilla', desc: 'Pure un-modded Mojang server' },
-                { type: 'Bedrock', desc: 'Official Minecraft Bedrock server' },
-                { type: 'Geyser Bridge', desc: 'Cross-play Java & Bedrock bridge' },
-              ].map((item) => (
-                <button
-                  key={item.type}
-                  onClick={() => setSelectedType(item.type as ServerType)}
-                  className={`p-3.5 rounded-xl border text-left transition-all ${
-                    selectedType === item.type
-                      ? 'bg-emerald-950 border-emerald-500 text-emerald-300 shadow-md'
-                      : 'bg-zinc-950 border-zinc-800 hover:border-zinc-700 text-zinc-300'
-                  }`}
-                >
-                  <div className="font-bold text-xs">{item.type}</div>
-                  <div className="text-[10px] text-zinc-400 mt-0.5">{item.desc}</div>
-                </button>
-              ))}
-            </div>
-
-            <div className="pt-4 flex justify-end">
-              <button
-                onClick={() => setStep(2)}
-                className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-zinc-950 font-bold text-xs rounded-xl flex items-center gap-1.5 transition-colors"
-              >
-                Next: Choose Version <ArrowRight className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Step 2: Choose Version & Name */}
-        {step === 2 && (
-          <div className="space-y-4">
-            <h2 className="text-lg font-extrabold text-zinc-100">Name & Select Version</h2>
-
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-zinc-300">Server Display Name</label>
-              <input
-                type="text"
-                value={serverName}
-                onChange={(e) => setServerName(e.target.value)}
-                className="w-full bg-zinc-950 border border-zinc-700 focus:border-emerald-500 rounded-xl px-3.5 py-2.5 text-xs text-zinc-100 outline-none"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-zinc-300">Minecraft Version</label>
-              <select
-                value={selectedVersion}
-                onChange={(e) => setSelectedVersion(e.target.value)}
-                className="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-3 py-2.5 text-xs text-zinc-100 outline-none"
-              >
-                <option value="1.21.4">1.21.4 (Latest Stable)</option>
-                <option value="1.21.3">1.21.3</option>
-                <option value="1.20.6">1.20.6</option>
-                <option value="1.19.4">1.19.4</option>
-                <option value="1.16.5">1.16.5 (Classic SMP)</option>
-              </select>
-            </div>
-
-            <div className="pt-4 flex justify-between">
-              <button
-                onClick={() => setStep(1)}
-                className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-bold text-xs rounded-xl"
-              >
-                Back
-              </button>
-              <button
-                onClick={() => setStep(3)}
-                className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-zinc-950 font-bold text-xs rounded-xl flex items-center gap-1.5 transition-colors"
-              >
-                Next: Crossplay Settings <ArrowRight className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Step 3: Done */}
-        {step === 3 && (
-          <div className="space-y-4">
-            <h2 className="text-lg font-extrabold text-zinc-100 flex items-center gap-2">
-              <Smartphone className="w-5 h-5 text-blue-400" /> Bedrock Crossplay Bridge
-            </h2>
-
-            <div className="bg-zinc-950 p-4 border border-zinc-800 rounded-xl space-y-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-xs font-bold text-zinc-200">Enable Geyser Bridge</div>
-                  <div className="text-[11px] text-zinc-400">Allow iOS, Android, Xbox, Switch players to join</div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setGeyserEnabled(!geyserEnabled)}
-                  className={`w-12 h-6 rounded-full p-1 transition-colors ${geyserEnabled ? 'bg-blue-600' : 'bg-zinc-800'}`}
-                >
-                  <div className={`w-4 h-4 bg-zinc-100 rounded-full transition-transform ${geyserEnabled ? 'translate-x-6' : 'translate-x-0'}`}></div>
-                </button>
-              </div>
-            </div>
-
-            <div className="pt-4 flex justify-between">
-              <button
-                onClick={() => setStep(2)}
-                className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-bold text-xs rounded-xl"
-              >
-                Back
-              </button>
-              <button
-                onClick={handleFinish}
-                className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-zinc-950 font-black text-xs rounded-xl flex items-center gap-1.5 transition-all shadow-lg shadow-emerald-600/30"
-              >
-                <CheckCircle2 className="w-4 h-4" /> Deploy Server Now
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
+  const config = state.configuration, provider = state.options?.providers.find(p => p.providerId === config.providerId);
+  const titles = { "choose-provider": "Choose your server", configure: "Configure essentials", preflight: "Checking setup", review: "Review your setup", provisioning: "Creating server", complete: "Server summary", error: "Setup needs attention" };
+  const step = state.step === "choose-provider" ? 1 : state.step === "configure" || state.step === "error" ? 2 : state.step === "preflight" ? 3 : state.step === "review" ? 4 : state.step === "provisioning" ? 5 : 6;
+  const fieldClass = "w-full rounded-lg border border-slate-500 bg-slate-950 p-3 text-slate-100 focus-visible:outline-2 focus-visible:outline-cyan-400";
+  return <dialog ref={dialog} aria-labelledby="setup-title" onCancel={event => { event.preventDefault(); close(); }}
+    onKeyDown={event => {
+      if (event.key !== "Tab" || event.ctrlKey || event.altKey || event.metaKey) return;
+      const controls = Array.from((event.currentTarget as HTMLDialogElement).querySelectorAll<HTMLElement>("button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex='0']"));
+      const first = controls[0], last = controls[controls.length - 1];
+      if (event.shiftKey && (document.activeElement === first || document.activeElement === heading.current)) { event.preventDefault(); last?.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+    }}
+    className="fixed inset-0 m-auto max-h-[90dvh] w-[min(42rem,calc(100vw-2rem))] overflow-y-auto rounded-xl border border-slate-600 bg-slate-900 p-5 text-slate-100 shadow-xl backdrop:bg-slate-950/80 sm:p-7">
+    <div className="mb-5 flex items-start justify-between gap-4">
+      <div><p className="text-sm text-slate-400">Server setup · Step {step} of 6</p><h2 id="setup-title" ref={heading} tabIndex={-1} className="mt-2 text-2xl font-bold">{titles[state.step]}</h2></div>
+      <button type="button" onClick={close} disabled={state.step === "provisioning" || opening} className="cmd-btn min-h-11" aria-label="Close server setup">Close</button>
     </div>
-  );
-};
+    <ol aria-label="Setup steps" className="mb-6 flex flex-wrap gap-x-4 gap-y-2 text-sm text-slate-300">
+      {["Choose server", "Configure", "Check setup", "Review", "Create", "Complete"].map((label, index) => <li key={label} aria-current={step === index + 1 ? "step" : undefined}>{index + 1}. {label}</li>)}
+    </ol>
+    {state.error ? <div role="alert" className="mb-5 rounded-lg border border-red-400 p-3">{state.error.message}</div> : null}
+    {state.preflight?.issues.length ? <ul className="mb-5 list-inside list-disc text-slate-200">{state.preflight.issues.map((issue, index) => <li key={index}>{setupIssueMessage(issue.code)}</li>)}</ul> : null}
+    {(state.step === "choose-provider" || state.step === "error" && !state.applyFailure) ? <div className="space-y-4">
+      {!state.options || state.step === "error" ? <form onSubmit={event => { event.preventDefault(); void wizard.connect(); }} className="space-y-3">
+        <label htmlFor="setup-access-key" className="block">Administrator access key</label>
+        <input id="setup-access-key" type="password" autoComplete="off" value={wizard.accessKey} onChange={event => wizard.setAccessKey(event.target.value)} className={fieldClass} aria-describedby="setup-access-help" required />
+        <p id="setup-access-help" className="text-sm text-slate-400">Use the access key provided by your GameHub administrator. It stays in memory for this setup session.</p>
+        <button type="submit" className="cmd-btn min-h-11" disabled={state.loading || !wizard.accessKey.trim()}>{state.loading ? "Connecting…" : "Connect to GameHub"}</button>
+      </form> : null}
+      {state.options ? <div className="grid gap-3 sm:grid-cols-2">{state.options.providers.map(option => {
+        const available = option.profiles.some(profile => profile.available && profile.requestDefaults);
+        return <button key={option.providerId} type="button" disabled={!available || state.loading} onClick={() => wizard.selectProvider(option.providerId)} className="min-h-20 rounded-lg border border-slate-500 p-4 text-left focus-visible:outline-2 focus-visible:outline-cyan-400 disabled:opacity-60">
+          <span className="block font-semibold">{option.label}</span><span className="mt-2 block text-sm text-slate-400">{available ? "Create a managed server" : "Approved setup defaults need administrator configuration"}</span>
+        </button>;
+      })}</div> : null}
+      {state.options?.providers.length === 0 ? <p>No approved Java or Bedrock setups are available. Ask your administrator to configure one.</p> : null}
+      {state.error && config.providerId ? <button type="button" className="cmd-btn" onClick={wizard.back}>Back to settings</button> : null}
+    </div> : null}
+    {state.step === "configure" ? <form className="space-y-5" onSubmit={event => { event.preventDefault(); void wizard.checkSetup(); }}>
+      <p>{provider?.label}</p>
+      {(provider?.profiles.filter(p => p.available).length ?? 0) > 1 ? <div><label htmlFor="setup-profile" className="mb-2 block">Approved setup</label><select id="setup-profile" value={config.profileRef} onChange={event => wizard.updateConfiguration({ profileRef: event.target.value })} className={fieldClass}>{provider?.profiles.filter(p => p.available).map(profile => <option key={profile.profileRef} value={profile.profileRef}>{profile.label}</option>)}</select></div> : null}
+      <div><label htmlFor="setup-server-name" className="mb-2 block">Server name</label><input id="setup-server-name" value={config.displayName} onChange={event => wizard.updateConfiguration({ displayName: event.target.value })} className={fieldClass} required maxLength={120} /></div>
+      <div><label htmlFor="setup-world-name" className="mb-2 block">World name</label><input id="setup-world-name" value={config.worldName} onChange={event => wizard.updateConfiguration({ worldName: event.target.value })} className={fieldClass} required maxLength={128} /></div>
+      <p className="text-sm text-slate-400">Connection settings come from the approved setup. Checking does not create or start a server.</p>
+      <div className="flex flex-wrap gap-3"><button type="button" className="cmd-btn min-h-11" onClick={wizard.back}>Back</button><button type="submit" className="cmd-btn min-h-11" disabled={state.loading}>Check setup</button></div>
+    </form> : null}
+    {state.step === "preflight" ? <div><p role="status" aria-live="polite">Checking your settings with GameHub. No server is being created.</p><button type="button" className="cmd-btn mt-4 min-h-11" onClick={wizard.back}>Back to settings</button></div> : null}
+    {state.step === "review" ? <form onSubmit={event => { event.preventDefault(); void wizard.apply().then(result => { if (result) return refreshInventory(result.providerId, result.serverId, false); }); }}>
+      <SetupReview state={state} />
+      <label className="mt-5 flex items-start gap-3"><input type="checkbox" checked={state.approved} onChange={event => wizard.approve(event.target.checked)} className="mt-1 size-5 shrink-0" />I approve creating this managed server with these checked settings.</label>
+      <div className="mt-5 flex flex-wrap gap-3"><button type="button" className="cmd-btn min-h-11" onClick={wizard.back}>Edit settings</button><button type="submit" className="cmd-btn min-h-11" disabled={!state.approved}>Create Server</button></div>
+    </form> : null}
+    {state.step === "provisioning" ? <section aria-label="Provisioning progress" aria-busy="true"><p role="status" aria-live="polite">Creating your managed server. Waiting for GameHub to confirm the result.</p><p className="mt-4">Keep this window open. Closing is disabled while creation is in progress. The server will remain stopped.</p><p className="mt-4 break-all text-sm text-slate-400">Plan: {state.plan?.plan.planId}</p></section> : null}
+    {state.step === "error" && state.applyFailure ? <section aria-label="Provisioning failure"><p className="break-all">{state.apply ? `Operation: ${state.apply.operationId}` : `Plan: ${state.plan?.plan.planId}`}</p>
+      {state.applyFailure === "recheck" || state.applyFailure === "rolled-back" ? <button type="button" className="cmd-btn mt-4 min-h-11" onClick={() => { void wizard.checkSetup(); }}>Recheck setup</button> : <p className="mt-4">Keep this reference for your administrator. Cleanup and another provisioning attempt require operator review.</p>}
+    </section> : null}
+    {state.step === "complete" ? <div><SetupCompletion state={state} />{inventoryMessage ? <p role="alert" className="mt-4">{inventoryMessage}</p> : null}<div className="mt-5 flex flex-wrap gap-3"><button type="button" className="cmd-btn min-h-11" disabled={opening} onClick={() => { if (state.apply) void refreshInventory(state.apply.providerId, state.apply.serverId, true); }}>{opening ? "Refreshing summary…" : "Open Server"}</button><button type="button" className="cmd-btn min-h-11" onClick={close} disabled={opening}>Done</button></div></div> : null}
+  </dialog>;
+}

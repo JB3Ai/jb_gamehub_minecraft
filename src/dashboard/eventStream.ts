@@ -1,5 +1,6 @@
 import { ProviderEvent, WebSocketConnectionState } from "./types";
 import { reduceConnectionState } from "./state";
+import { dashboardWebSocketProtocols } from "./adminConnection";
 
 export class DashboardEventStream {
   private readonly url: string;
@@ -14,6 +15,7 @@ export class DashboardEventStream {
     url: string,
     onEvent: (event: ProviderEvent) => void,
     onConnectionState: (state: WebSocketConnectionState) => void,
+    private readonly accessKey?: string,
   ) {
     this.url = url;
     this.onEvent = onEvent;
@@ -36,7 +38,7 @@ export class DashboardEventStream {
   }
 
   private openSocket() {
-    this.socket = new WebSocket(this.url);
+    this.socket = this.accessKey ? new WebSocket(this.url, dashboardWebSocketProtocols(this.accessKey)) : new WebSocket(this.url);
 
     this.socket.onopen = () => {
       this.retries = 0;

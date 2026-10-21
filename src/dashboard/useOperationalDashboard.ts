@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
   getAnalyticsSummary,
   getEvents,
@@ -10,11 +10,13 @@ import {
   getServerStatus,
   getServers,
   getWorlds,
+  getWebSocketOptions,
   requestHistoryCleanup,
   runServerCommand,
   validateWorld,
 } from "./apiClient";
 import { DashboardEventStream } from "./eventStream";
+import { getDashboardAccessKey, subscribeAdminConnection } from "./adminConnection";
 import {
   applyProviderEvent,
   createInitialDashboardState,
@@ -52,6 +54,8 @@ async function trackStatusTransition(
 export function useOperationalDashboard() {
   const [state, setState] = useState<DashboardState>(createInitialDashboardState());
   const eventStreamRef = useRef<DashboardEventStream | null>(null);
+  const accessKey = useSyncExternalStore(subscribeAdminConnection, getDashboardAccessKey, getDashboardAccessKey);
+  const refreshGeneration = useRef(0);
 
   const selectedServer = useMemo(
     () => state.servers.find((server) => server.id === state.selectedServerId),
@@ -70,16 +74,27 @@ export function useOperationalDashboard() {
   }, []);
 
   const refreshData = useCallback(async () => {
+    const generation = ++refreshGeneration.current;
     setState((current) => ({ ...current, loading: true, error: undefined }));
     try {
+      const connection = await getWebSocketOptions();
       const providerList = await getProviders();
       const providerMap = Object.fromEntries(providerList.providers.map((provider) => [provider.id, provider]));
 
       const serversResponse = await getServers();
+      if (generation !== refreshGeneration.current) return;
+      if (connection.authenticationRequired && !accessKey) {
+        setState(current => ({ ...current, loading: false, error: undefined, providers: providerMap,
+          servers: serversResponse.servers.map(server => ({ ...server, status: normalizeLifecycleState(server.status) })),
+          selectedServerId: serversResponse.servers.some(server => server.id === current.selectedServerId) ? current.selectedServerId : serversResponse.servers[0]?.id,
+          operations: [], events: [], worldsByServer: {}, analyticsSummary: undefined, persistenceOverview: undefined }));
+        return;
+      }
       const operationsResponse = await getOperations(100);
       const eventsResponse = await getEvents(200);
       const analyticsResponse = await getAnalyticsSummary({ window: "24h" });
       const historyOverviewResponse = await getHistoryOverview();
+      if (generation !== refreshGeneration.current) return;
       const normalizedServers = serversResponse.servers.map((server) => ({
         ...server,
         status: normalizeLifecycleState(server.status),
@@ -117,37 +132,43 @@ export function useOperationalDashboard() {
         await getProvider(provider.id);
       }
     } catch (error) {
+      if (generation !== refreshGeneration.current) return;
       setState((current) => ({
         ...current,
         loading: false,
         error: error instanceof Error ? error.message : String(error),
       }));
     }
-  }, [loadServerWorlds, state.selectedServerId]);
+  }, [loadServerWorlds, state.selectedServerId, accessKey]);
 
   useEffect(() => {
     void refreshData();
   }, [refreshData]);
 
   useEffect(() => {
-    const stream = new DashboardEventStream(
-      `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}/ws`,
-      (event: ProviderEvent) => {
-        setState((current) => applyProviderEvent(current, event));
-      },
-      (connection) => {
-        setState((current) => ({ ...current, wsConnection: connection }));
-      },
-    );
-
-    eventStreamRef.current = stream;
-    stream.connect();
-
+    let disposed = false;
+    let stream: DashboardEventStream | undefined;
+    void getWebSocketOptions().then(options => {
+      if (disposed) return;
+      if (options.authenticationRequired && !accessKey) {
+        setState(current => ({ ...current, wsConnection: "disconnected" }));
+        return;
+      }
+      stream = new DashboardEventStream(
+        `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}/ws`,
+        (event: ProviderEvent) => { if (!disposed) setState(current => applyProviderEvent(current, event)); },
+        connection => { if (!disposed) setState(current => ({ ...current, wsConnection: connection })); },
+        accessKey || undefined,
+      );
+      eventStreamRef.current = stream;
+      stream.connect();
+    }).catch(() => { if (!disposed) setState(current => ({ ...current, wsConnection: "disconnected" })); });
     return () => {
-      stream.disconnect();
+      disposed = true;
+      stream?.disconnect();
       eventStreamRef.current = null;
     };
-  }, []);
+  }, [accessKey]);
 
   const selectServer = useCallback(
     async (serverId: string) => {

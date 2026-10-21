@@ -8,7 +8,7 @@ import { createHash } from "node:crypto";
 import { provisioningRouter, tokenAdminAuthorizer } from "../packages/core/provisioning-api";
 import { managedFixture } from "./helpers/managed-create-fixture";
 import { managedBedrockFixture } from "./helpers/managed-bedrock-fixture";
-import { applyProvisioning, createProvisioningPlan, getProvisioningSetupOptions, preflightProvisioning, ProvisioningClientError } from "../src/dashboard/apiClient";
+import { applyProvisioning, createProvisioningPlan, getProvisioningSetupOptions, preflightProvisioning, reconcileProvisioning, ProvisioningClientError } from "../src/dashboard/apiClient";
 import { initialSetupState, setupWizardReducer, setupRequestFromState } from "../src/setup/useSetupWizard";
 
 const token = "023B-fixture-admin-not-a-real-credential-0123456789";
@@ -16,12 +16,15 @@ for (const kind of ["java", "bedrock"] as const) test(`${kind} wizard performs e
   const f = kind === "java" ? await managedFixture(t) : await managedBedrockFixture(t), { manager } = await f.open();
   const id = f.request.providerId as "minecraft" | "minecraft-bedrock", ref = String(f.request.providerOptions!.profileRef);
   const sourceBefore = await fs.readFile(kind === "java" ? f.source : path.join(f.source, "bedrock_server.exe"));
-  const policy = { ...f.policy, setup: { profiles: { [ref]: { rootId: "root", endpoints: f.request.endpoints } } } }, policyBefore = JSON.stringify(policy);
+  const policy = { ...f.policy, setup: { profiles: { [ref]: { rootId: "root", directoryName: "family-created", endpoints: f.request.endpoints } } } }, policyBefore = JSON.stringify(policy);
   const app = express(); app.use(express.json()); app.use("/api/provisioning", provisioningRouter(() => manager, () => ({ policies: { [id]: policy }, authorize: tokenAdminAuthorizer(token) })));
+  app.get("/api/operations", async (req, res) => { res.json({ operations: await manager.listOperations({ providerId: id, serverId: String(req.query.serverId), limit: 500 }) }); });
+  app.get("/api/operations/:id", async (req, res) => { res.json(await manager.getOperation(req.params.id)); });
+  app.get("/api/servers", async (_req, res) => { res.json({ servers: await Promise.all((await manager.listServers()).map(async server => ({ ...server, status: (await manager.getServerStatus(server.id, server.providerId)).status }))) }); });
   const server = app.listen(0, "127.0.0.1"); await once(server, "listening");
   t.after(() => new Promise<void>(resolve => server.close(() => resolve())));
   const url = "http://127.0.0.1:" + (server.address() as { port: number }).port, nativeFetch = globalThis.fetch, calls: Array<{ route: string; body: any }> = [];
-  t.mock.method(globalThis, "fetch", (input: any, init?: RequestInit) => { const route = String(input); assert.match(route, /^\/api\/provisioning\/(setup-options|plans|preflight|applies)$/); calls.push({ route, body: init?.body ? JSON.parse(String(init.body)) : undefined }); return nativeFetch(url + route, init); });
+  t.mock.method(globalThis, "fetch", (input: any, init?: RequestInit) => { const route = String(input); assert.match(route, /^\/api\/(provisioning\/(setup-options|plans|preflight|applies)|operations|servers)(\/|\?|$)/); calls.push({ route, body: init?.body ? JSON.parse(String(init.body)) : undefined }); return nativeFetch(url + route, init); });
   const connection = { token }, options = await getProvisioningSetupOptions(connection);
   let state = setupWizardReducer(initialSetupState(), { type: "OPTIONS_LOADED", options, generation: 1 });
   state = setupWizardReducer(state, { type: "SELECT_PROVIDER", providerId: id, serverId: "family-created", generation: 2 });
@@ -42,6 +45,10 @@ for (const kind of ["java", "bedrock"] as const) test(`${kind} wizard performs e
   for (const file of preflight.creation!.files) { const data = await fs.readFile(path.join(f.root, preflight.creation!.directoryName, file.relativePath)); assert.equal(createHash("sha256").update(data).digest("hex"), file.sha256); }
   assert.deepEqual(await fs.readFile(kind === "java" ? f.source : path.join(f.source, "bedrock_server.exe")), sourceBefore); assert.equal(JSON.stringify(policy), policyBefore);
   assert.ok(!(await fs.readdir(path.join(f.root, preflight.creation!.directoryName))).includes("worlds"));
+  const readsBefore = calls.length, reconciled = await reconcileProvisioning(plan.plan.planId, connection);
+  assert.equal(reconciled.apply.operationId, result.operationId); assert.equal(reconciled.apply.state, "PROVISIONED");
+  assert.equal(calls.filter(c => c.route.endsWith("/applies")).length, 2, "Read-only reconciliation cannot apply again");
+  assert.ok(calls.slice(readsBefore).every(c => c.body === undefined));
 });
 
 test("apply client handles HTTP, network, malformed response and terminal rollback without retries or raw diagnostics", async t => {

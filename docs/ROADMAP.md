@@ -17,7 +17,8 @@
 - [ ] JBGH-021: Native Bedrock Server Provider (BDS adapter implemented; live native-client acceptance pending)
 - [x] JBGH-021A — CLOSED / PASS: Native BDS Live Acceptance
 - [x] JBGH-022 — CLOSED / PASS: [Unified Server Provisioning](./JBGH-022-unified-server-provisioning.md#jbgh-022-closure-review--closed--pass) (2026-10-18)
-- [ ] JBGH-023: Unified Setup Wizard (next; implementation not started)
+- [x] JBGH-023 — CLOSED / PASS: [Unified Setup Wizard](./JBGH-023-unified-setup-wizard.md#jbgh-023c-closure--closed--pass) (2026-10-21; Java/Bedrock stopped CREATE, completion, restart and dashboard WebSocket authentication)
+- [ ] JBGH-024: First-Run Onboarding (next; not started)
 
 ### JBGH-021A — CLOSED / PASS
 

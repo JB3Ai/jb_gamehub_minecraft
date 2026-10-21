@@ -1,4 +1,4 @@
-import type { SetupConfiguration, SetupOptionsResponse, SetupProviderId, SetupWizardStep, ProvisioningPlanResponse, ProvisioningPreflightResponse, ProvisioningApplyResponse } from "../dashboard/provisioningTypes";
+import type { SetupConfiguration, SetupOptionsResponse, SetupProviderId, SetupWizardStep, ProvisioningPlanResponse, ProvisioningPreflightResponse, ProvisioningApplyResponse, ReconciledSetup } from "../dashboard/provisioningTypes";
 export interface SetupWizardError { code?: string; message: string }
 export interface SetupWizardState {
   step: SetupWizardStep; configuration: SetupConfiguration; options?: SetupOptionsResponse;
@@ -12,6 +12,8 @@ export type SetupWizardAction =
   | { type: "OPTIONS_STARTED"; generation: number }
   | { type: "CREDENTIAL_CHANGED"; generation: number }
   | { type: "OPTIONS_LOADED"; generation: number; options: SetupOptionsResponse }
+  | { type: "RECONCILE_STARTED"; generation: number }
+  | { type: "RECONCILED"; generation: number; result: ReconciledSetup }
   | { type: "SELECT_PROVIDER"; providerId: SetupProviderId; serverId: string; generation: number }
   | { type: "UPDATE_CONFIGURATION"; patch: Partial<Pick<SetupConfiguration, "displayName" | "worldName" | "profileRef">>; serverId?: string; generation: number }
   | { type: "PLAN_STARTED"; generation: number }

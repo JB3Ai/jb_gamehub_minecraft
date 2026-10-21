@@ -33,6 +33,7 @@ export function SetupCompletion({ state }: { state: SetupWizardState }) {
 export function NewServerModal({ isOpen, onClose, onProvisioned }: NewServerModalProps) {
   const wizard = useSetupWizard(isOpen), { state } = wizard;
   const [inventoryMessage, setInventoryMessage] = useState(""), [opening, setOpening] = useState(false);
+  const [setupReference, setSetupReference] = useState("");
   const dialog = useRef<HTMLDialogElement>(null), heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
     if (!isOpen) return;
@@ -75,8 +76,14 @@ export function NewServerModal({ isOpen, onClose, onProvisioned }: NewServerModa
       {!state.options || state.step === "error" ? <form onSubmit={event => { event.preventDefault(); void wizard.connect(); }} className="space-y-3">
         <label htmlFor="setup-access-key" className="block">Administrator access key</label>
         <input id="setup-access-key" type="password" autoComplete="off" value={wizard.accessKey} onChange={event => wizard.setAccessKey(event.target.value)} className={fieldClass} aria-describedby="setup-access-help" required />
-        <p id="setup-access-help" className="text-sm text-slate-400">Use the access key provided by your GameHub administrator. It stays in memory for this setup session.</p>
+        <p id="setup-access-help" className="text-sm text-slate-400">Use your administrator access key. It stays only in this page's memory. Disconnect administrator or close the page to clear it.</p>
         <button type="submit" className="cmd-btn min-h-11" disabled={state.loading || !wizard.accessKey.trim()}>{state.loading ? "Connecting…" : "Connect to GameHub"}</button>
+      </form> : null}
+      {state.options ? <form className="space-y-3 border-t border-slate-600 pt-4" onSubmit={event => { event.preventDefault(); void wizard.reconcile(setupReference.trim()).then(result => { if (result) return refreshInventory(result.providerId, result.serverId, false); }); }}>
+        <label htmlFor="setup-reference" className="block">Existing setup reference</label>
+        <input id="setup-reference" value={setupReference} onChange={event => setSetupReference(event.target.value)} className={fieldClass} autoComplete="off" aria-describedby="setup-reference-help" />
+        <p id="setup-reference-help" className="text-sm text-slate-400">Lost the result of an earlier setup? Check its plan reference. This only reads the saved result; it does not create or start anything.</p>
+        <button type="submit" className="cmd-btn min-h-11" disabled={state.loading || !setupReference.trim()}>{state.loading ? "Checking saved setup…" : "Check existing setup"}</button>
       </form> : null}
       {state.options ? <div className="grid gap-3 sm:grid-cols-2">{state.options.providers.map(option => {
         const available = option.profiles.some(profile => profile.available && profile.requestDefaults);
@@ -103,6 +110,7 @@ export function NewServerModal({ isOpen, onClose, onProvisioned }: NewServerModa
     </form> : null}
     {state.step === "provisioning" ? <section aria-label="Provisioning progress" aria-busy="true"><p role="status" aria-live="polite">Creating your managed server. Waiting for GameHub to confirm the result.</p><p className="mt-4">Keep this window open. Closing is disabled while creation is in progress. The server will remain stopped.</p><p className="mt-4 break-all text-sm text-slate-400">Plan: {state.plan?.plan.planId}</p></section> : null}
     {state.step === "error" && state.applyFailure ? <section aria-label="Provisioning failure"><p className="break-all">{state.apply ? `Operation: ${state.apply.operationId}` : `Plan: ${state.plan?.plan.planId}`}</p>
+      <button type="button" className="cmd-btn mt-4 min-h-11" disabled={state.loading || !state.plan} onClick={() => { if (state.plan) void wizard.reconcile(state.plan.plan.planId).then(result => { if (result) return refreshInventory(result.providerId, result.serverId, false); }); }}>Check saved result</button>
       {state.applyFailure === "recheck" || state.applyFailure === "rolled-back" ? <button type="button" className="cmd-btn mt-4 min-h-11" onClick={() => { void wizard.checkSetup(); }}>Recheck setup</button> : <p className="mt-4">Keep this reference for your administrator. Cleanup and another provisioning attempt require operator review.</p>}
     </section> : null}
     {state.step === "complete" ? <div><SetupCompletion state={state} />{inventoryMessage ? <p role="alert" className="mt-4">{inventoryMessage}</p> : null}<div className="mt-5 flex flex-wrap gap-3"><button type="button" className="cmd-btn min-h-11" disabled={opening} onClick={() => { if (state.apply) void refreshInventory(state.apply.providerId, state.apply.serverId, true); }}>{opening ? "Refreshing summary…" : "Open Server"}</button><button type="button" className="cmd-btn min-h-11" onClick={close} disabled={opening}>Done</button></div></div> : null}

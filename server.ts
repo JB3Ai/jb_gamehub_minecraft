@@ -1,4 +1,5 @@
 import { provisioningRouter, provisioningApiOptionsFromEnvironment, authorizeProvisioning, type ProvisioningApiOptions } from "./packages/core/provisioning-api";
+import { websocketAuthorization, websocketProtocol } from "./packages/core/websocket-auth";
 import "dotenv/config";
 import express from "express";
 import http from "http";
@@ -104,6 +105,10 @@ async function readContentAudit(): Promise<unknown[]> {
 }
 
 app.use(express.json());
+const websocketAuthenticationRequired = () => Boolean(Object.keys(provisioningOptions.policies).length || providerManager?.listRuntimeAttachments().length || providerManager?.listManagedRuntimes().length);
+app.get("/api/websocket-options", (_req, res) => {
+  res.set("Cache-Control", "no-store").json({ authenticationRequired: websocketAuthenticationRequired() });
+});
 app.use(async (req, res, next) => {
   const protectedHistory = /^\/api\/(operations|events|history)(\/|$)/.test(req.path) || /^\/api\/servers\/[^/]+\/[^/]+\/history$/.test(req.path);
   if (protectedHistory && (Object.keys(provisioningOptions.policies).length > 0 || providerManager?.listRuntimeAttachments().length || providerManager?.listManagedRuntimes().length)) {
@@ -1181,9 +1186,10 @@ Be concise, witty, and directly execute the requested changes for the user!`;
 });
 
 function wireWebSocket(httpServer: http.Server) {
-  wsServer = new WebSocketServer({ server: httpServer, path: "/ws", verifyClient: (info, done) => {
-    if (!Object.keys(provisioningOptions.policies).length && !providerManager.listRuntimeAttachments().length && !providerManager.listManagedRuntimes().length) { done(true); return; }
-    const request = Object.assign(info.req, { get: (name: string) => info.req.headers[name.toLowerCase()] }) as unknown as express.Request;
+  wsServer = new WebSocketServer({ server: httpServer, path: "/ws", handleProtocols: websocketProtocol, verifyClient: (info, done) => {
+    if (!websocketAuthenticationRequired()) { done(true); return; }
+    const authorization = websocketAuthorization(info.req);
+    const request = Object.assign(info.req, { get: (name: string) => name.toLowerCase() === "authorization" ? authorization : info.req.headers[name.toLowerCase()] }) as unknown as express.Request;
     Promise.resolve().then(() => provisioningOptions.authorize(request)).then(async (principal) => {
       await providerManager.writeAudit({ actor: principal?.actor ?? "anonymous", action: "provisioning.authorization", result: principal?.admin ? "completed" : "failed", metadata: { transport: "websocket", authorized: principal?.admin === true } });
       done(principal?.admin === true, principal ? 403 : 401);

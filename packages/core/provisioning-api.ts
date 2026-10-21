@@ -13,8 +13,8 @@ export interface AdminPrincipal { actor: string; admin: boolean }
 export interface ProvisioningApiOptions {
   authorize: (request: express.Request) => AdminPrincipal | undefined | Promise<AdminPrincipal | undefined>;
   policies: Record<string, RuntimeAttachmentPolicy & {
-    /** Optional operator-owned presentation defaults. No paths or execution authority. */
-    setup?: { profiles: Record<string, { rootId: string; endpoints: ProvisioningEndpointRequest[]; label?: string }> };
+    /** Operator-owned setup defaults. Absolute roots and license records remain private. */
+    setup?: { profiles: Record<string, { rootId: string; directoryName: string; endpoints: ProvisioningEndpointRequest[]; label?: string }> };
   }>;
 }
 export function tokenAdminAuthorizer(token?: string): ProvisioningApiOptions["authorize"] {
@@ -74,6 +74,10 @@ export function provisioningRouter(manager: () => InMemoryProviderManager, optio
   };
   const stored = (id: unknown) => { if (typeof id !== "string") throw new ApiFault(400, "PLAN_ID_REQUIRED"); const value = manager().getProvisioningPlan(id); if (!value) throw new ApiFault(404, "PLAN_NOT_FOUND"); return value; };
   const policy = (providerId: string) => { const value = options().policies[providerId]; if (!value) throw new ApiFault(422, "POLICY_UNAVAILABLE"); return value; };
+  const assertSetupStorage = (providerId: string, profileRef: unknown, storage: { mode: string; rootId?: string; directoryName?: string }) => {
+    const setup = typeof profileRef === "string" ? options().policies[providerId]?.setup?.profiles?.[profileRef] : undefined;
+    if (storage.mode === "create" && setup && (typeof setup.directoryName !== "string" || !safeLeaf(setup.directoryName) || storage.rootId !== setup.rootId || storage.directoryName !== setup.directoryName)) throw new ApiFault(409, "SETUP_SCOPE_MISMATCH");
+  };
   router.get("/setup-options", route(async (_req, res) => {
     const providers = [];
     for (const [providerId, label, profileLabel] of [["minecraft", "Minecraft Java", "Java"], ["minecraft-bedrock", "Minecraft Bedrock", "Bedrock"]]) {
@@ -85,15 +89,16 @@ export function provisioningRouter(manager: () => InMemoryProviderManager, optio
         const defaults = typeof profile.configuration?.worldName === "string" && safeLeaf(profile.configuration.worldName) ? { worldName: profile.configuration.worldName } : {};
         const publicOption = { profileRef, revision: profile.revision, label: profileLabel, defaults };
         const setup = trusted.setup?.profiles?.[profileRef];
-        if (!setup || !Object.hasOwn(trusted.managedRoots, setup.rootId)) return [{ ...publicOption, available: false }];
+        if (!setup || typeof setup.directoryName !== "string" || !safeLeaf(setup.directoryName) || !Object.hasOwn(trusted.managedRoots, setup.rootId)) return [{ ...publicOption, available: false }];
         try {
           const serverId = profile.acceptanceRef ? trusted.managedCreate.acceptances[profile.acceptanceRef]?.serverId : undefined;
           const request = parseProvisioningRequest({ schemaVersion: 1, providerId, serverId: serverId ?? "setup-discovery", hostId: trusted.hostId,
-            storage: { mode: "create", rootId: setup.rootId }, endpoints: setup.endpoints, providerOptions: { profileRef } });
+            storage: { mode: "create", rootId: setup.rootId, directoryName: setup.directoryName }, endpoints: setup.endpoints, providerOptions: { profileRef } });
           if (request.endpoints.some(endpoint => endpoint.transport === "virtual" || endpoint.port.mode !== "fixed")) return [{ ...publicOption, available: false }];
           return [{ ...publicOption, available: true,
+            storage: { rootId: setup.rootId, directoryName: setup.directoryName },
             ...(typeof setup.label === "string" && /^[\p{L}\p{N} _.-]{1,80}$/u.test(setup.label) ? { label: setup.label } : {}),
-            requestDefaults: { hostId: request.hostId, rootId: setup.rootId, endpoints: request.endpoints, ...(serverId ? { serverId } : {}) } }];
+            requestDefaults: { hostId: request.hostId, endpoints: request.endpoints, ...(serverId ? { serverId } : {}) } }];
         } catch { return [{ ...publicOption, available: false }]; }
       });
       providers.push({ providerId, label, profiles });
@@ -101,13 +106,15 @@ export function provisioningRouter(manager: () => InMemoryProviderManager, optio
     res.set("Cache-Control", "no-store").json({ providers });
   }));
   router.post("/plans", route(async (req, res) => {
-    const plan = await manager().planProvisioning(req.body); manager().saveProvisioningPlan(plan);
+    const request = parseProvisioningRequest(req.body); assertSetupStorage(request.providerId, request.providerOptions?.profileRef, request.storage);
+    const plan = await manager().planProvisioning(request); manager().saveProvisioningPlan(plan);
     res.status(201).json({ plan, digest: provisioningDigest(plan), profile: manager().getProvisioningProfile(plan.providerId) });
   }));
   router.get("/plans/:id", route(async (req, res) => { const value = stored(req.params.id); const creation = manager().getManagedCreatePreview(value.plan.planId); res.json({ plan: value.plan, digest: provisioningDigest(value.plan), ...(value.preview ? { attachment: publicPreview(value.preview) } : {}), ...(creation ? { creation: publicCreation(creation) } : {}) }); }));
   router.post("/preflight", route(async (req, res) => {
     const input = fields(req.body, ["planId"]); const { plan } = stored(input.planId);
     const requestOptions = plan.request.providerOptions as unknown as Record<string, unknown> | undefined;
+    assertSetupStorage(plan.providerId, requestOptions?.profileRef, plan.request.storage);
     if (plan.mode === "create" && requestOptions?.profileRef !== undefined) {
       const preview = await manager().previewManagedCreation(plan, policy(plan.providerId));
       res.json({ status: "PASS", issues: [], creation: publicCreation(preview) }); return;
@@ -129,6 +136,8 @@ export function provisioningRouter(manager: () => InMemoryProviderManager, optio
   }));
   router.post("/applies", route(async (req, res) => {
     const input = fields(req.body, ["planId", "digest", "approved"]); const { plan } = stored(input.planId);
+    const requestOptions = plan.request.providerOptions as unknown as Record<string, unknown> | undefined;
+    assertSetupStorage(plan.providerId, requestOptions?.profileRef, plan.request.storage);
     if (plan.mode !== "create") throw new ApiFault(422, "CREATE_MODE_REQUIRED");
     if (input.approved !== true || typeof input.digest !== "string") throw new ApiFault(400, "APPROVAL_REQUIRED");
     const result = await manager().applyManagedCreation({ planId: plan.planId, digest: input.digest, approved: true }, policy(plan.providerId), res.locals.principal.actor);

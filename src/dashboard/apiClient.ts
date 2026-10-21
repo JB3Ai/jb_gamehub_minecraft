@@ -26,7 +26,14 @@ import {
   ValidationResult,
   WorldListResponse,
 } from "./types";
-import type { CreateProvisioningRequest, ProvisioningConnection, ProvisioningPlanResponse, ProvisioningPreflightResponse, SetupOptionsResponse, ProvisioningApplyRequest, ProvisioningApplyResponse } from "./provisioningTypes";
+import type { CreateProvisioningRequest, ProvisioningConnection, ProvisioningPlanResponse, ProvisioningPreflightResponse, SetupOptionsResponse, ProvisioningApplyRequest, ProvisioningApplyResponse, ReconciledSetup } from "./provisioningTypes";
+import { getDashboardAccessKey } from "./adminConnection";
+
+function dashboardFetch(input: string, init?: RequestInit): Promise<Response> {
+  const headers = new Headers(init?.headers), key = getDashboardAccessKey();
+  if (key && input.startsWith("/api/") && !headers.has("authorization")) headers.set("authorization", "Bearer " + key);
+  return fetch(input, { ...init, headers });
+}
 
 export function setupIssueMessage(code: string): string {
   if (code === "ENDPOINT_OCCUPIED") return "A selected connection port is already in use. Ask your administrator to update the setup.";
@@ -40,6 +47,7 @@ export class ProvisioningClientError extends Error {
     super(code === "UNAUTHENTICATED" ? "Connect with an administrator access key to check setup."
       : code === "FORBIDDEN" ? "A GameHub administrator must continue."
       : ["ENDPOINT_OCCUPIED", "PATH_COLLISION", "RESOURCE_CONFLICT", "LICENSE_ACCEPTANCE_REQUIRED", "UNSAFE_WORLD_NAME"].includes(code) ? setupIssueMessage(code)
+      : code === "OUTCOME_UNCONFIRMED" ? "GameHub could not confirm a completed setup for this reference. Keep the reference for your administrator. Do not create it again."
       : code === "INVALID_RESPONSE" ? "GameHub returned an unexpected setup response. Please reconnect and try again."
       : "Setup could not be checked. Your settings have been kept; check the connection or ask your administrator.");
   }
@@ -49,13 +57,15 @@ const text = (v: unknown, max = 2048): v is string => typeof v === "string" && v
 const providerId = (v: unknown) => v === "minecraft" || v === "minecraft-bedrock";
 const endpoints = (v: unknown) => Array.isArray(v) && v.length > 0 && v.length <= 8 && v.every(e => object(e) && text(e.id, 64) && text(e.protocol, 64) && ["tcp", "udp"].includes(e.transport) && text(e.bindAddress, 128) && object(e.port) && e.port.mode === "fixed" && Number.isInteger(e.port.value) && e.port.value >= 1 && e.port.value <= 65535);
 const issues = (v: unknown) => Array.isArray(v) && v.every(i => object(i) && text(i.code, 128) && ["blocking", "warning"].includes(i.severity));
-const setupProfile = (f: unknown) => object(f) && text(f.profileRef, 64) && text(f.revision, 64) && text(f.label, 80) && object(f.defaults) && (f.defaults.worldName === undefined || text(f.defaults.worldName, 128)) && typeof f.available === "boolean" && (!f.available || object(f.requestDefaults) && text(f.requestDefaults.hostId, 64) && text(f.requestDefaults.rootId, 64) && endpoints(f.requestDefaults.endpoints) && (f.requestDefaults.serverId === undefined || typeof f.requestDefaults.serverId === "string" && /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(f.requestDefaults.serverId)));
+const reference = (v: unknown) => typeof v === "string" && /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(v);
+const setupStorage = (v: unknown) => object(v) && reference(v.rootId) && reference(v.directoryName) && !/^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(v.directoryName);
+const setupProfile = (f: unknown) => object(f) && text(f.profileRef, 64) && text(f.revision, 64) && text(f.label, 80) && object(f.defaults) && (f.defaults.worldName === undefined || text(f.defaults.worldName, 128)) && typeof f.available === "boolean" && (!f.available || setupStorage(f.storage) && object(f.requestDefaults) && text(f.requestDefaults.hostId, 64) && endpoints(f.requestDefaults.endpoints) && (f.requestDefaults.serverId === undefined || reference(f.requestDefaults.serverId)));
 const setupProvider = (p: unknown) => object(p) && providerId(p.providerId) && text(p.label, 80) && Array.isArray(p.profiles) && p.profiles.every(setupProfile) && new Set(p.profiles.map(f => f.profileRef)).size === p.profiles.length;
-const createRequest = (r: unknown) => object(r) && r.schemaVersion === 1 && providerId(r.providerId) && text(r.serverId, 64) && text(r.displayName, 120) && text(r.hostId, 64) && object(r.storage) && r.storage.mode === "create" && text(r.storage.rootId, 64) && endpoints(r.endpoints) && object(r.providerOptions) && text(r.providerOptions.profileRef, 64) && text(r.providerOptions.worldName, 128);
-async function setupRequest(route: string, connection: ProvisioningConnection, body?: unknown): Promise<any> {
+const createRequest = (r: unknown) => object(r) && r.schemaVersion === 1 && providerId(r.providerId) && text(r.serverId, 64) && text(r.displayName, 120) && text(r.hostId, 64) && setupStorage(r.storage) && r.storage.mode === "create" && endpoints(r.endpoints) && object(r.providerOptions) && text(r.providerOptions.profileRef, 64) && text(r.providerOptions.worldName, 128);
+async function setupRequest(route: string, connection: ProvisioningConnection, body?: unknown, base = "/api/provisioning"): Promise<any> {
   if (!connection.token.trim()) throw new ProvisioningClientError("UNAUTHENTICATED", 401);
   let response: Response;
-  try { response = await fetch(`/api/provisioning${route}`, { method: body === undefined ? "GET" : "POST", signal: connection.signal,
+  try { response = await dashboardFetch(`${base}${route}`, { method: body === undefined ? "GET" : "POST", signal: connection.signal,
     headers: { authorization: `Bearer ${connection.token}`, ...(body === undefined ? {} : { "content-type": "application/json" }) },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }) }); }
   catch (error) { if (connection.signal?.aborted) throw error; throw new ProvisioningClientError("NETWORK_ERROR"); }
@@ -70,12 +80,18 @@ export async function getProvisioningSetupOptions(connection: ProvisioningConnec
   return result as unknown as SetupOptionsResponse;
 }
 export async function createProvisioningPlan(request: CreateProvisioningRequest, connection: ProvisioningConnection): Promise<ProvisioningPlanResponse> {
-  const result = await setupRequest("/plans", connection, request), plan = result?.plan;
+  return parseSetupPlan(await setupRequest("/plans", connection, request));
+}
+function parseSetupPlan(result: any): ProvisioningPlanResponse {
+  const plan = result?.plan;
   if (!object(result) || !text(result.digest, 128) || !object(plan) || plan.schemaVersion !== 1 || !text(plan.planId, 160) || !providerId(plan.providerId) || !text(plan.serverId, 64) || !text(plan.displayName, 120) || plan.mode !== "create" || !["planned", "blocked", "expired"].includes(plan.status) || !createRequest(plan.request) || !object(plan.validation) || typeof plan.validation.valid !== "boolean" || !issues(plan.validation.errors)) throw new ProvisioningClientError("INVALID_RESPONSE");
   return result as unknown as ProvisioningPlanResponse;
 }
 export async function preflightProvisioning(planId: string, connection: ProvisioningConnection): Promise<ProvisioningPreflightResponse> {
-  const result = await setupRequest("/preflight", connection, { planId }), c = result?.creation;
+  return parseSetupPreflight(await setupRequest("/preflight", connection, { planId }));
+}
+function parseSetupPreflight(result: any): ProvisioningPreflightResponse {
+  const c = result?.creation;
   if (!object(result) || !["PASS", "WARN", "FAIL"].includes(result.status) || !issues(result.issues)) throw new ProvisioningClientError("INVALID_RESPONSE");
   if (result.status === "PASS" && (!object(c) || !/^[a-f0-9]{64}$/.test(c.digest) || c.ownership !== "MANAGED" || !text(c.profileId, 64) || !text(c.serverId, 64) || !text(c.directoryName, 128) || !text(c.worldName, 128) || c.startup !== "remain-stopped" || !endpoints(c.endpoints) || !Array.isArray(c.files) || !c.files.every(f => object(f) && text(f.name) && text(f.relativePath) && /^[a-f0-9]{64}$/.test(f.sha256) && Number.isInteger(f.size) && f.size >= 0) || !Array.isArray(c.deferredValidations) || !c.deferredValidations.every(v => typeof v === "string"))) throw new ProvisioningClientError("INVALID_RESPONSE");
   return result as unknown as ProvisioningPreflightResponse;
@@ -86,6 +102,26 @@ export async function applyProvisioning(input: ProvisioningApplyRequest, connect
   if (!object(result) || !text(result.operationId, 200) || !providerId(result.providerId) || !text(result.serverId, 64) || !text(result.state, 80) || !text(result.outcome, 80) || result.ownership !== "MANAGED" || !Array.isArray(result.residuals) || !result.residuals.every(r => object(r) && text(r.code, 128) && (r.directoryName === undefined || text(r.directoryName, 128)) && (r.retainedClaims === undefined || Number.isInteger(r.retainedClaims) && r.retainedClaims >= 0)) || (result.error !== undefined && (!object(result.error) || !text(result.error.code, 128) || !text(result.error.message)))) throw new ProvisioningClientError("INVALID_RESPONSE");
   // Raw diagnostics and directory names are never displayed by the wizard.
   return result as unknown as ProvisioningApplyResponse;
+}
+
+export async function reconcileProvisioning(planId: string, connection: ProvisioningConnection): Promise<ReconciledSetup> {
+  if (!/^plan_[a-f0-9]{64}$/.test(planId)) throw new ProvisioningClientError("OUTCOME_UNCONFIRMED");
+  const stored = await setupRequest(`/plans/${encodeURIComponent(planId)}`, connection);
+  const plan = parseSetupPlan(stored), p = plan.plan;
+  const preflight = parseSetupPreflight({ status: "PASS", issues: [], creation: stored.creation });
+  const c = preflight.creation!;
+  if (p.planId !== planId || p.providerId !== p.request.providerId || p.serverId !== p.request.serverId || p.displayName !== p.request.displayName || c.serverId !== p.serverId || c.profileId !== p.request.providerOptions.profileRef || c.directoryName !== p.request.storage.directoryName || c.worldName !== p.request.providerOptions.worldName || JSON.stringify(c.endpoints) !== JSON.stringify(p.request.endpoints)) throw new ProvisioningClientError("INVALID_RESPONSE");
+  const query = new URLSearchParams({ providerId: p.providerId, serverId: p.serverId, type: "server.provision.apply", limit: "500" });
+  const history = await setupRequest(`/operations?${query}`, connection, undefined, "/api");
+  if (!object(history) || !Array.isArray(history.operations)) throw new ProvisioningClientError("INVALID_RESPONSE");
+  const matches = history.operations.filter(o => object(o) && o.providerId === p.providerId && o.serverId === p.serverId && o.type === "server.provision.apply" && object(o.result) && o.result.planId === planId);
+  // A missing/ambiguous match is never evidence that another CREATE would be safe.
+  if (matches.length !== 1 || !text(matches[0].operationId, 200)) throw new ProvisioningClientError("OUTCOME_UNCONFIRMED");
+  const operation = await setupRequest(`/operations/${encodeURIComponent(matches[0].operationId)}`, connection, undefined, "/api"), r = operation?.result;
+  if (!object(operation) || operation.operationId !== matches[0].operationId || operation.providerId !== p.providerId || operation.serverId !== p.serverId || operation.type !== "server.provision.apply" || operation.status !== "completed" || operation.error || !object(r) || r.planId !== planId || r.providerId !== p.providerId || r.serverId !== p.serverId || r.state !== "PROVISIONED" || r.outcome !== "applied" || !Array.isArray(r.issues) || r.issues.length !== 0) throw new ProvisioningClientError("OUTCOME_UNCONFIRMED");
+  const inventory = await setupRequest("/servers", connection, undefined, "/api");
+  if (!object(inventory) || !Array.isArray(inventory.servers) || inventory.servers.filter(s => object(s) && s.providerId === p.providerId && s.id === p.serverId && s.ownership === "MANAGED" && s.status === "offline").length !== 1) throw new ProvisioningClientError("OUTCOME_UNCONFIRMED");
+  return { plan, preflight, apply: { operationId: operation.operationId, providerId: p.providerId, serverId: p.serverId, state: "PROVISIONED", outcome: "applied", ownership: "MANAGED", residuals: [] } };
 }
 
 async function parseResponse<T>(response: Response): Promise<T> {
@@ -105,45 +141,51 @@ async function parseResponse<T>(response: Response): Promise<T> {
   return (await response.json()) as T;
 }
 
+export async function getWebSocketOptions(): Promise<{ authenticationRequired: boolean }> {
+  const result = await parseResponse<{ authenticationRequired: boolean }>(await dashboardFetch("/api/websocket-options"));
+  if (typeof result?.authenticationRequired !== "boolean") throw new Error("Live connection settings unavailable.");
+  return result;
+}
+
 export async function getProviders(): Promise<ProviderListResponse> {
-  return parseResponse<ProviderListResponse>(await fetch("/api/providers"));
+  return parseResponse<ProviderListResponse>(await dashboardFetch("/api/providers"));
 }
 
 export async function getProvider(providerId: string): Promise<ProviderCapabilitiesResponse> {
-  return parseResponse<ProviderCapabilitiesResponse>(await fetch(`/api/providers/${providerId}`));
+  return parseResponse<ProviderCapabilitiesResponse>(await dashboardFetch(`/api/providers/${providerId}`));
 }
 
 export async function getServers(): Promise<ServerInventoryResponse> {
-  return parseResponse<ServerInventoryResponse>(await fetch("/api/servers"));
+  return parseResponse<ServerInventoryResponse>(await dashboardFetch("/api/servers"));
 }
 
 export async function getServerStatus(serverId: string): Promise<ServerStatusResponse> {
-  return parseResponse<ServerStatusResponse>(await fetch(`/api/servers/${serverId}/status`));
+  return parseResponse<ServerStatusResponse>(await dashboardFetch(`/api/servers/${serverId}/status`));
 }
 
 export async function getWorlds(serverId: string): Promise<WorldListResponse> {
-  return parseResponse<WorldListResponse>(await fetch(`/api/servers/${serverId}/worlds`));
+  return parseResponse<WorldListResponse>(await dashboardFetch(`/api/servers/${serverId}/worlds`));
 }
 
 export async function validateWorld(serverId: string, worldId: string): Promise<ValidationResult> {
-  return parseResponse<ValidationResult>(await fetch(`/api/servers/${serverId}/worlds/${worldId}/validate`, { method: "POST" }));
+  return parseResponse<ValidationResult>(await dashboardFetch(`/api/servers/${serverId}/worlds/${worldId}/validate`, { method: "POST" }));
 }
 
 export async function getOperation(operationId: string): Promise<OperationRecord> {
-  return parseResponse<OperationRecord>(await fetch(`/api/operations/${operationId}`));
+  return parseResponse<OperationRecord>(await dashboardFetch(`/api/operations/${operationId}`));
 }
 
 export async function getOperations(limit = 100): Promise<OperationListResponse> {
-  return parseResponse<OperationListResponse>(await fetch(`/api/operations?limit=${limit}`));
+  return parseResponse<OperationListResponse>(await dashboardFetch(`/api/operations?limit=${limit}`));
 }
 
 export async function getEvents(limit = 200): Promise<EventListResponse> {
-  return parseResponse<EventListResponse>(await fetch(`/api/events?limit=${limit}`));
+  return parseResponse<EventListResponse>(await dashboardFetch(`/api/events?limit=${limit}`));
 }
 
 export async function runServerCommand(serverId: string, command: "start" | "stop" | "restart"): Promise<OperationRef> {
   return parseResponse<OperationRef>(
-    await fetch(`/api/servers/${serverId}/${command}`, {
+    await dashboardFetch(`/api/servers/${serverId}/${command}`, {
       method: "POST",
     }),
   );
@@ -158,16 +200,16 @@ export async function getAnalyticsSummary(params: { window?: "24h" | "7d" | "30d
   if (params.serverId) {
     search.set("serverId", params.serverId);
   }
-  return parseResponse<ApiEnvelope<AnalyticsSummary>>(await fetch(`/api/analytics/summary?${search.toString()}`));
+  return parseResponse<ApiEnvelope<AnalyticsSummary>>(await dashboardFetch(`/api/analytics/summary?${search.toString()}`));
 }
 
 export async function getHistoryOverview() {
-  return parseResponse<ApiEnvelope<HistoryOverview>>(await fetch("/api/history/overview"));
+  return parseResponse<ApiEnvelope<HistoryOverview>>(await dashboardFetch("/api/history/overview"));
 }
 
 export async function requestHistoryCleanup(actor = "dashboard-user") {
   return parseResponse<HistoryCleanupSummary>(
-    await fetch("/api/history/cleanup", {
+    await dashboardFetch("/api/history/cleanup", {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -181,12 +223,12 @@ export async function requestHistoryCleanup(actor = "dashboard-user") {
 }
 
 export async function getAiProvidersInfo(): Promise<AiProvidersInfo> {
-  return parseResponse<AiProvidersInfo>(await fetch("/api/ai/providers"));
+  return parseResponse<AiProvidersInfo>(await dashboardFetch("/api/ai/providers"));
 }
 
 export async function askAiStudio(request: AiAskRequest): Promise<AiAskResponse> {
   return parseResponse<AiAskResponse>(
-    await fetch("/api/ai/ask", {
+    await dashboardFetch("/api/ai/ask", {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -197,41 +239,41 @@ export async function askAiStudio(request: AiAskRequest): Promise<AiAskResponse>
 }
 
 export async function getAiAuditTrail(limit = 50): Promise<{ audits: AiAuditEntry[] }> {
-  return parseResponse<{ audits: AiAuditEntry[] }>(await fetch(`/api/ai/audit?limit=${limit}`));
+  return parseResponse<{ audits: AiAuditEntry[] }>(await dashboardFetch(`/api/ai/audit?limit=${limit}`));
 }
 
 export async function getFamilies(): Promise<{ families: FamilySummary[] }> {
-  return parseResponse<{ families: FamilySummary[] }>(await fetch("/api/families"));
+  return parseResponse<{ families: FamilySummary[] }>(await dashboardFetch("/api/families"));
 }
 
 export async function getFamilyChildren(familyId: string): Promise<{ children: ChildProfile[] }> {
-  return parseResponse<{ children: ChildProfile[] }>(await fetch(`/api/families/${familyId}/children`));
+  return parseResponse<{ children: ChildProfile[] }>(await dashboardFetch(`/api/families/${familyId}/children`));
 }
 
 export async function getChildRules(childId: string): Promise<{ rules: FamilyRule[] }> {
-  return parseResponse<{ rules: FamilyRule[] }>(await fetch(`/api/children/${childId}/rules`));
+  return parseResponse<{ rules: FamilyRule[] }>(await dashboardFetch(`/api/children/${childId}/rules`));
 }
 
 export async function getChildSessions(childId: string): Promise<{ sessions: FamilySession[] }> {
-  return parseResponse<{ sessions: FamilySession[] }>(await fetch(`/api/children/${childId}/sessions?limit=20`));
+  return parseResponse<{ sessions: FamilySession[] }>(await dashboardFetch(`/api/children/${childId}/sessions?limit=20`));
 }
 
 export async function getChildPlaytime(childId: string): Promise<{ usage: FamilyPlaytime }> {
-  return parseResponse<{ usage: FamilyPlaytime }>(await fetch(`/api/children/${childId}/playtime`));
+  return parseResponse<{ usage: FamilyPlaytime }>(await dashboardFetch(`/api/children/${childId}/playtime`));
 }
 
 export async function getChildOverrides(childId: string): Promise<{ overrides: FamilyOverride[] }> {
-  return parseResponse<{ overrides: FamilyOverride[] }>(await fetch(`/api/children/${childId}/overrides`));
+  return parseResponse<{ overrides: FamilyOverride[] }>(await dashboardFetch(`/api/children/${childId}/overrides`));
 }
 
 export async function getChildIdentities(childId: string): Promise<{ identities: Array<{ providerId: string; externalPlayerId: string }> }> {
   return parseResponse<{ identities: Array<{ providerId: string; externalPlayerId: string }> }>(
-    await fetch(`/api/children/${childId}/identities`),
+    await dashboardFetch(`/api/children/${childId}/identities`),
   );
 }
 
 export async function getChildRewards(childId: string): Promise<{ rewards: FamilyReward[] }> {
-  return parseResponse<{ rewards: FamilyReward[] }>(await fetch(`/api/children/${childId}/rewards`));
+  return parseResponse<{ rewards: FamilyReward[] }>(await dashboardFetch(`/api/children/${childId}/rewards`));
 }
 
 export async function getChildEntitlements(
@@ -242,7 +284,7 @@ export async function getChildEntitlements(
   if (input.providerId) search.set("providerId", input.providerId);
   if (input.serverId) search.set("serverId", input.serverId);
   return parseResponse<{ entitlements: FamilyEntitlements }>(
-    await fetch(`/api/children/${childId}/entitlements?${search.toString()}`),
+    await dashboardFetch(`/api/children/${childId}/entitlements?${search.toString()}`),
   );
 }
 
@@ -251,7 +293,7 @@ export async function evaluateChildAccess(
   input: { providerId: string; serverId: string; externalPlayerId: string },
 ): Promise<{ decision: { decision: string; reason: string; remainingMinutes?: number }; session?: FamilySession }> {
   return parseResponse<{ decision: { decision: string; reason: string; remainingMinutes?: number }; session?: FamilySession }>(
-    await fetch(`/api/children/${childId}/evaluate-access`, {
+    await dashboardFetch(`/api/children/${childId}/evaluate-access`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(input),
@@ -289,15 +331,15 @@ export interface ContentImportPlanResponse {
 }
 
 export async function getContentSources(): Promise<{ root: string; sources: Array<{ path: string; kind: "file" | "directory" }> }> {
-  return parseResponse(await fetch("/api/content/sources"));
+  return parseResponse(await dashboardFetch("/api/content/sources"));
 }
 
 export async function getContentItems(): Promise<{ items: ContentLibraryItem[] }> {
-  return parseResponse(await fetch("/api/content"));
+  return parseResponse(await dashboardFetch("/api/content"));
 }
 
 export async function scanContent(sourcePath: string, serverId = "minecraft-main"): Promise<{ report: { items: ContentLibraryItem[]; events: Array<{ type: string; timestamp: string }> } }> {
-  return parseResponse(await fetch("/api/content/scan", {
+  return parseResponse(await dashboardFetch("/api/content/scan", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ sourcePath, serverId }),
@@ -305,7 +347,7 @@ export async function scanContent(sourcePath: string, serverId = "minecraft-main
 }
 
 export async function createContentImportPlan(contentId: string, input: { serverId?: string; worldId?: string } = {}): Promise<{ plan: ContentImportPlanResponse }> {
-  const response = await fetch("/api/content/import-plans", {
+  const response = await dashboardFetch("/api/content/import-plans", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ contentId, serverId: input.serverId || "minecraft-main", worldId: input.worldId }),
@@ -317,11 +359,11 @@ export async function createContentImportPlan(contentId: string, input: { server
 }
 
 export async function getContentImportPlan(operationId: string): Promise<{ plan: ContentImportPlanResponse }> {
-  return parseResponse(await fetch(`/api/content/import-plans/${operationId}`));
+  return parseResponse(await dashboardFetch(`/api/content/import-plans/${operationId}`));
 }
 
 export async function executeContentImportPlan(operationId: string): Promise<{ result: { status: string; installedPath?: string; error?: { code: string; message: string }; audit: Array<{ action: string; result: string; timestamp: string }> } }> {
-  const response = await fetch(`/api/content/import-plans/${operationId}/execute`, {
+  const response = await dashboardFetch(`/api/content/import-plans/${operationId}/execute`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ approve: true }),
@@ -333,9 +375,9 @@ export async function executeContentImportPlan(operationId: string): Promise<{ r
 }
 
 export async function getContentInventory(): Promise<{ inventory: Array<{ contentType: string; path: string; items: Array<{ path: string; kind: string }> }> }> {
-  return parseResponse(await fetch("/api/content/inventory"));
+  return parseResponse(await dashboardFetch("/api/content/inventory"));
 }
 
 export async function getContentHistory(): Promise<{ audit: Array<{ action: string; result: string; timestamp: string; destinationPath?: string }> }> {
-  return parseResponse(await fetch("/api/content/history"));
+  return parseResponse(await dashboardFetch("/api/content/history"));
 }

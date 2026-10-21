@@ -1,11 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { initialSetupState, setupWizardReducer, setupRequestFromState } from "./useSetupWizard";
+import { initialSetupState, setupWizardReducer, setupRequestFromState, assertSetupPlanMatches } from "./useSetupWizard";
 import type { SetupWizardState } from "./types";
 import type { SetupOptionsResponse, ProvisioningPlanResponse, ProvisioningPreflightResponse } from "../dashboard/provisioningTypes";
 
 const options: SetupOptionsResponse = { providers: ["minecraft", "minecraft-bedrock"].map((providerId: "minecraft" | "minecraft-bedrock") => ({ providerId, label: providerId === "minecraft" ? "Minecraft Java" : "Minecraft Bedrock", profiles: [{ profileRef: providerId + "-fixture-choice", revision: "9", label: "Family default", defaults: { worldName: "Default World" }, available: true,
-  requestDefaults: { hostId: "fixture-host", rootId: "fixture-root", endpoints: [{ id: "fixture-game", protocol: "fixture-protocol", transport: "udp", bindAddress: "127.0.0.1", port: { mode: "fixed", value: 29801 } }] } }] })) };
+  storage: { rootId: "fixture-root", directoryName: "family-stable" }, requestDefaults: { hostId: "fixture-host", endpoints: [{ id: "fixture-game", protocol: "fixture-protocol", transport: "udp", bindAddress: "127.0.0.1", port: { mode: "fixed", value: 29801 } }] } }] })) };
 function configured(): SetupWizardState {
   let state = setupWizardReducer(initialSetupState(), { type: "OPTIONS_LOADED", options, generation: 1 });
   state = setupWizardReducer(state, { type: "SELECT_PROVIDER", providerId: "minecraft", serverId: "family-stable", generation: 2 });
@@ -70,7 +70,7 @@ test("late async results cannot restore stale plan/review after edit, provider s
   const closed = setupWizardReducer(switched, { type: "RESET", generation: 7 });
   assert.deepEqual(closed, initialSetupState(7)); assert.deepEqual(setupWizardReducer(closed, { type: "OPTIONS_LOADED", generation: 1, options }), closed);
 });
-for (const defect of ["wrong-world", "wrong-server", "wrong-profile", "bad-digest", "wrong-startup", "wrong-endpoints", "blocking-issue"] as const) test("review fails closed for " + defect, () => {
+for (const defect of ["wrong-world", "wrong-server", "wrong-profile", "bad-digest", "wrong-startup", "wrong-endpoints", "wrong-directory", "blocking-issue"] as const) test("review fails closed for " + defect, () => {
   const f = checking(), response = structuredClone(f.preflight);
   if (defect === "wrong-world") response.creation!.worldName = "Other";
   if (defect === "wrong-server") response.creation!.serverId = "other";
@@ -78,8 +78,35 @@ for (const defect of ["wrong-world", "wrong-server", "wrong-profile", "bad-diges
   if (defect === "bad-digest") response.creation!.digest = "";
   if (defect === "wrong-startup") (response.creation as any).startup = "start-now";
   if (defect === "wrong-endpoints") response.creation!.endpoints[0].port.value++;
+  if (defect === "wrong-directory") response.creation!.directoryName = "unreviewed-target";
   if (defect === "blocking-issue") response.issues = [{ code: "BLOCKED", severity: "blocking" }];
   const state = setupWizardReducer(f.state, { type: "PREFLIGHT_PASSED", generation: 4, preflight: response }); assert.equal(state.step, "error"); assert.equal(state.preflight, undefined); assert.deepEqual(state.configuration, f.state.configuration);
+});
+
+for (const [providerId, serverId] of [["minecraft", "java-023c-live"], ["minecraft-bedrock", "bedrock-023c-live"]] as const) test(`${providerId} uses only the reviewed storage leaf, independently of display name`, () => {
+  const reviewed = structuredClone(options), profile = reviewed.providers.find(p => p.providerId === providerId)!.profiles[0];
+  profile.storage = { rootId: "root", directoryName: serverId }; profile.requestDefaults!.serverId = serverId;
+  let state = setupWizardReducer(initialSetupState(), { type: "OPTIONS_LOADED", options: reviewed, generation: 1 });
+  state = setupWizardReducer(state, { type: "SELECT_PROVIDER", providerId, serverId: "ignored-generated-id", generation: 2 });
+  state = setupWizardReducer(state, { type: "UPDATE_CONFIGURATION", patch: { displayName: "First friendly name" }, generation: 3 });
+  const before = setupRequestFromState(state);
+  state = setupWizardReducer(state, { type: "UPDATE_CONFIGURATION", patch: { displayName: "Renamed household server" }, generation: 4 });
+  const after = setupRequestFromState(state);
+  assert.deepEqual(after.storage, { mode: "create", rootId: "root", directoryName: serverId });
+  assert.deepEqual(before.storage, after.storage); assert.equal(after.serverId, serverId);
+  for (const directoryName of [undefined, "", "../other", "D:\\private-root", "con"]) {
+    (profile.storage as any).directoryName = directoryName;
+    assert.throws(() => setupRequestFromState(state));
+  }
+});
+
+for (const defect of ["missing-directory", "wrong-directory", "wrong-root"] as const) test(`plan response ${defect} is rejected before preflight`, () => {
+  const f = checking(), input = setupRequestFromState(f.state), plan = structuredClone(f.plan);
+  if (defect === "missing-directory") delete (plan.plan.request.storage as any).directoryName;
+  if (defect === "wrong-directory") plan.plan.request.storage.directoryName = "unreviewed-target";
+  if (defect === "wrong-root") plan.plan.request.storage.rootId = "unreviewed-root";
+  assert.throws(() => assertSetupPlanMatches(input, plan));
+  assert.doesNotThrow(() => assertSetupPlanMatches(input, f.plan));
 });
 test("failed preflight and authentication retry preserve configuration and cannot approve or apply", () => {
   const f = checking();

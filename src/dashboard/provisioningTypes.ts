@@ -8,7 +8,8 @@ export interface SetupEndpoint {
 export interface SetupProfileOption {
   profileRef: string; revision: string; label: string; defaults: { worldName?: string };
   available: boolean;
-  requestDefaults?: { hostId: string; rootId: string; endpoints: SetupEndpoint[]; serverId?: string };
+  storage?: { rootId: string; directoryName: string };
+  requestDefaults?: { hostId: string; endpoints: SetupEndpoint[]; serverId?: string };
 }
 export interface SetupProviderOption { providerId: SetupProviderId; label: string; profiles: SetupProfileOption[] }
 export interface SetupOptionsResponse { providers: SetupProviderOption[] }
@@ -18,7 +19,7 @@ export interface SetupConfiguration {
 export interface ProvisioningIssue { code: string; severity: "blocking" | "warning" }
 export interface CreateProvisioningRequest {
   schemaVersion: 1; providerId: SetupProviderId; serverId: string; displayName: string; hostId: string;
-  storage: { mode: "create"; rootId: string };
+  storage: { mode: "create"; rootId: string; directoryName: string };
   endpoints: SetupEndpoint[]; providerOptions: { profileRef: string; worldName: string };
 }
 export interface PublicProvisioningPlan {
@@ -44,4 +45,10 @@ export interface ProvisioningApplyResponse {
   state: string; outcome: string; ownership: "MANAGED";
   error?: { code: string; message: string };
   residuals: Array<{ code: string; directoryName?: string; retainedClaims?: number }>;
+}
+/** Read-only reconciliation of a previously submitted CREATE. It never approves or applies. */
+export interface ReconciledSetup {
+  plan: ProvisioningPlanResponse;
+  preflight: ProvisioningPreflightResponse;
+  apply: ProvisioningApplyResponse;
 }

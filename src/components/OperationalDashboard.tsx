@@ -1,4 +1,5 @@
 import React from "react";
+import { getDashboardAccessKey, setDashboardAccessKey, subscribeAdminConnection } from "../dashboard/adminConnection";
 import { NewServerModal } from "./NewServerModal";
 import {
   askAiStudio,
@@ -1081,6 +1082,7 @@ export function OperationalDashboard({
 }) {
   const [activePanel, setActivePanel] = React.useState<PanelId>("servers");
   const [setupOpen, setSetupOpen] = React.useState(false);
+  const administratorConnected = Boolean(React.useSyncExternalStore(subscribeAdminConnection, getDashboardAccessKey, getDashboardAccessKey));
 
   return (
     <main className="dashboard-shell">
@@ -1094,6 +1096,7 @@ export function OperationalDashboard({
           <span className={`chip ${statusClass(state.wsConnection)}`}>{wsStateLabel(state.wsConnection)}</span>
           <button type="button" className="cmd-btn" onClick={onRefresh}>Refresh</button>
           <button type="button" className="cmd-btn" onClick={() => setSetupOpen(true)}>Create server</button>
+          {administratorConnected ? <button type="button" className="cmd-btn" onClick={() => setDashboardAccessKey("")}>Disconnect administrator</button> : null}
         </div>
       </header>
 

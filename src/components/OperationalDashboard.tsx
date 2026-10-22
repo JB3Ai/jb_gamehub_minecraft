@@ -1082,6 +1082,7 @@ export function OperationalDashboard({
 }) {
   const [activePanel, setActivePanel] = React.useState<PanelId>("servers");
   const [setupOpen, setSetupOpen] = React.useState(false);
+  const [setupIntent, setSetupIntent] = React.useState<"create" | "onboarding">("create");
   const administratorConnected = Boolean(React.useSyncExternalStore(subscribeAdminConnection, getDashboardAccessKey, getDashboardAccessKey));
 
   return (
@@ -1092,16 +1093,17 @@ export function OperationalDashboard({
           <h1>JBGH-013 Operational Dashboard</h1>
           <p className="subtitle">REST for commands. WebSocket for live state and event visibility.</p>
         </div>
-        <div className="header-actions">
+        <div className="header-actions flex-wrap">
           <span className={`chip ${statusClass(state.wsConnection)}`}>{wsStateLabel(state.wsConnection)}</span>
           <button type="button" className="cmd-btn" onClick={onRefresh}>Refresh</button>
-          <button type="button" className="cmd-btn" onClick={() => setSetupOpen(true)}>Create server</button>
+          <button type="button" className="cmd-btn" onClick={() => { setSetupIntent("onboarding"); setSetupOpen(true); }}>GameHub setup</button>
+          <button type="button" className="cmd-btn" onClick={() => { setSetupIntent("create"); setSetupOpen(true); }}>Create server</button>
           {administratorConnected ? <button type="button" className="cmd-btn" onClick={() => setDashboardAccessKey("")}>Disconnect administrator</button> : null}
         </div>
       </header>
 
       {state.error ? <div className="error-banner">Backend unavailable: {state.error}</div> : null}
-      {setupOpen ? <NewServerModal isOpen onClose={() => setSetupOpen(false)} onProvisioned={async (providerId, serverId, open) => {
+      {setupOpen ? <NewServerModal isOpen intent={setupIntent} onClose={() => setSetupOpen(false)} onProvisioned={async (providerId, serverId, open) => {
         if (!onProvisioned) throw new Error("Server summary is unavailable.");
         await onProvisioned(providerId, serverId, open);
         if (open) setActivePanel("servers");

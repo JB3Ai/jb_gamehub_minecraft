@@ -208,7 +208,7 @@ test("v4 migration preserves existing operations and adds durable provisioning t
   await repo.close();
   const database = new DatabaseSync(path.join(f.root, "state.sqlite"));
   // Remove every post-v4 table before exercising forward migrations from a genuine v4 fixture.
-  database.exec("DROP TABLE managed_runtime_boot_authorizations; DROP TABLE managed_runtime_bundles; DROP TABLE provisioning_create_previews; DROP TABLE managed_runtime_definitions; DROP TABLE provisioning_file_intents; DROP TABLE provisioning_file_receipts; DROP TABLE provisioning_plans; DROP TABLE runtime_attachments; DROP TABLE provisioning_external_intents; DROP TABLE provisioning_applies; DROP TABLE provisioning_claims; DROP TABLE provisioning_journal; DROP TABLE provisioning_effects; PRAGMA user_version=4;");
+  database.exec("DROP TABLE onboarding_state; DROP TABLE setup_configuration; DROP TABLE managed_runtime_boot_authorizations; DROP TABLE managed_runtime_bundles; DROP TABLE provisioning_create_previews; DROP TABLE managed_runtime_definitions; DROP TABLE provisioning_file_intents; DROP TABLE provisioning_file_receipts; DROP TABLE provisioning_plans; DROP TABLE runtime_attachments; DROP TABLE provisioning_external_intents; DROP TABLE provisioning_applies; DROP TABLE provisioning_claims; DROP TABLE provisioning_journal; DROP TABLE provisioning_effects; PRAGMA user_version=4;");
   database.close();
   const migrated = await f.open();
   assert.equal((await migrated.getOperation("legacy"))?.status, "completed");

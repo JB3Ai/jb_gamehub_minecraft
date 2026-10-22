@@ -88,11 +88,11 @@ test("migrations v8/v9 preserve v7 adopted records and create managed effect tab
   const db = new DatabaseSync(path.join(f.base, "state.sqlite"));
   const adoptedData = JSON.stringify({ effectId: "pre-v8-adopted", operationId: "legacy-attachment", digest: "approved-v7", fencingToken: 1, attachedAt: "2026-10-12T10:00:00Z", descriptor: { serverId: "existing-adopted", providerId: "minecraft", runtimeRoot: path.join(f.base, "adopted"), ownership: "ADOPTED", destructiveOwnership: false } });
   db.prepare("INSERT INTO runtime_attachments(effect_id,server_id,data) VALUES (?,?,?)").run("pre-v8-adopted", "existing-adopted", adoptedData);
-  db.exec("DROP TABLE managed_runtime_boot_authorizations; DROP TABLE managed_runtime_bundles; DROP TABLE provisioning_create_previews; DROP TABLE managed_runtime_definitions; DROP TABLE provisioning_file_intents; DROP TABLE provisioning_file_receipts; PRAGMA user_version=7;");
+  db.exec("DROP TABLE onboarding_state; DROP TABLE setup_configuration; DROP TABLE managed_runtime_boot_authorizations; DROP TABLE managed_runtime_bundles; DROP TABLE provisioning_create_previews; DROP TABLE managed_runtime_definitions; DROP TABLE provisioning_file_intents; DROP TABLE provisioning_file_receipts; PRAGMA user_version=7;");
   db.close(); const migrated = await f.open();
   assert.deepEqual(migrated.repository.provisioning.attachmentRecords()[0], JSON.parse(adoptedData));
   const observed = new DatabaseSync(path.join(f.base, "state.sqlite"));
   const tables = observed.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map((row) => row.name);
   for (const table of ["runtime_attachments", "provisioning_external_intents", "managed_runtime_definitions", "provisioning_file_intents", "provisioning_file_receipts"]) assert.ok(tables.includes(table));
-  assert.equal(observed.prepare("PRAGMA user_version").get()?.user_version, 10); observed.close();
+  assert.equal(observed.prepare("PRAGMA user_version").get()?.user_version, 12); observed.close();
 });

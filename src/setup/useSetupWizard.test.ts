@@ -32,10 +32,10 @@ test("readiness precedes setup options and only a current PASS/WARNING can conti
     let state = setupWizardReducer(initial, { type: "READINESS_STARTED", generation: 1 });
     state = setupWizardReducer(state, { type: "READINESS_LOADED", generation: 1, report: readinessReport(status) });
     assert.equal(state.step, "host-readiness"); assert.equal(state.approved, false);
-    const next = setupWizardReducer(state, { type: "OPTIONS_STARTED", generation: 2 });
-    const loaded = setupWizardReducer(next, { type: "OPTIONS_LOADED", generation: 2, options });
-    assert.equal(loaded.step, status === "BLOCKED" ? "host-readiness" : "choose-provider");
-    assert.equal(loaded.approved, false);
+    const next = setupWizardReducer(state, { type: "HOST_LOAD_STARTED", generation: 2 });
+    assert.equal(next.step, status === "BLOCKED" ? "host-readiness" : "configure-host");
+    assert.equal(setupWizardReducer(next, { type: "OPTIONS_LOADED", generation: 2, options }), next);
+    assert.equal(next.approved, false);
   }
 });
 

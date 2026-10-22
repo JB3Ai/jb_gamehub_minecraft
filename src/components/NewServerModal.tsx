@@ -4,9 +4,11 @@ import type { SetupWizardState } from "../setup/types";
 import { setupIssueMessage } from "../dashboard/apiClient";
 import { canContinueReadiness } from "../setup/hostReadiness";
 import { HostReadinessResults } from "./HostReadinessResults";
+import { HostConfigurationStep } from "./HostConfigurationStep";
 
 export interface NewServerModalProps {
   isOpen: boolean; onClose: () => void;
+  intent?: "create" | "onboarding";
   onProvisioned?: (providerId: string, serverId: string, open: boolean) => Promise<void>;
 }
 export function SetupReview({ state }: { state: SetupWizardState }) {
@@ -32,8 +34,8 @@ export function SetupCompletion({ state }: { state: SetupWizardState }) {
     <dt>Status</dt><dd>Ready to manage</dd><dt>Ownership</dt><dd>Managed</dd><dt>Startup</dt><dd>Created stopped</dd>
   </dl><p className="mt-4 text-slate-300">Your server is ready to manage. It has not been started.</p></section>;
 }
-export function NewServerModal({ isOpen, onClose, onProvisioned }: NewServerModalProps) {
-  const wizard = useSetupWizard(isOpen), { state } = wizard;
+export function NewServerModal({ isOpen, onClose, onProvisioned, intent = "create" }: NewServerModalProps) {
+  const wizard = useSetupWizard(isOpen, undefined, intent), { state } = wizard;
   const [inventoryMessage, setInventoryMessage] = useState(""), [opening, setOpening] = useState(false);
   const [setupReference, setSetupReference] = useState("");
   const dialog = useRef<HTMLDialogElement>(null), heading = useRef<HTMLHeadingElement>(null);
@@ -53,8 +55,10 @@ export function NewServerModal({ isOpen, onClose, onProvisioned }: NewServerModa
     finally { setOpening(false); }
   };
   const config = state.configuration, provider = state.options?.providers.find(p => p.providerId === config.providerId);
-  const titles = { "host-readiness": "Host readiness", "choose-provider": "Choose your server", configure: "Configure essentials", preflight: "Checking setup", review: "Review your setup", provisioning: "Creating server", complete: "Server summary", error: "Setup needs attention" };
-  const step = state.step === "host-readiness" ? 1 : state.step === "choose-provider" ? 2 : state.step === "configure" || state.step === "error" ? 3 : state.step === "preflight" ? 4 : state.step === "review" ? 5 : state.step === "provisioning" ? 6 : 7;
+  const titles = { "host-readiness": "Host readiness", "configure-host": "Configure host", "review-host": "Review host configuration", "saving-host": "Saving host configuration", "completing-onboarding": "Completing setup", "setup-complete": "GameHub is ready", "choose-provider": "Choose your server", configure: "Configure essentials", preflight: "Checking setup", review: "Review your setup", provisioning: "Creating server", complete: "Server summary", error: "Setup needs attention" };
+  const hostFlow = ["host-readiness", "configure-host", "review-host", "saving-host", "completing-onboarding", "setup-complete"].includes(state.step);
+  const steps = hostFlow ? ["host-readiness", "configure-host", "review-host", "saving-host", "completing-onboarding", "setup-complete"] : ["choose-provider", "configure", "preflight", "review", "provisioning", "complete"];
+  const step = Math.max(1, steps.indexOf(state.step) + 1);
   const fieldClass = "w-full rounded-lg border border-slate-500 bg-slate-950 p-3 text-slate-100 focus-visible:outline-2 focus-visible:outline-cyan-400";
   return <dialog ref={dialog} aria-labelledby="setup-title" onCancel={event => { event.preventDefault(); close(); }}
     onKeyDown={event => {
@@ -66,14 +70,18 @@ export function NewServerModal({ isOpen, onClose, onProvisioned }: NewServerModa
     }}
     className="fixed inset-0 m-auto max-h-[90dvh] w-[min(42rem,calc(100vw-2rem))] overflow-y-auto rounded-xl border border-slate-600 bg-slate-900 p-5 text-slate-100 shadow-xl backdrop:bg-slate-950/80 sm:p-7">
     <div className="mb-5 flex items-start justify-between gap-4">
-      <div><p className="text-sm text-slate-400">Server setup · Step {step} of 7</p><h2 id="setup-title" ref={heading} tabIndex={-1} className="mt-2 text-2xl font-bold">{titles[state.step]}</h2></div>
-      <button type="button" onClick={close} disabled={state.step === "provisioning" || opening} className="cmd-btn min-h-11" aria-label="Close server setup">Close</button>
+      <div><p className="text-sm text-slate-400">{hostFlow ? "GameHub setup" : "Server setup"} · Step {step} of 6</p><h2 id="setup-title" ref={heading} tabIndex={-1} className="mt-2 text-2xl font-bold">{titles[state.step]}</h2></div>
+      <button type="button" onClick={close} disabled={state.step === "provisioning" || state.step === "saving-host" || state.step === "completing-onboarding" || opening} className="cmd-btn min-h-11" aria-label="Close server setup">Close</button>
     </div>
     <ol aria-label="Setup steps" className="mb-6 flex flex-wrap gap-x-4 gap-y-2 text-sm text-slate-300">
-      {["Host readiness", "Choose server", "Configure", "Check setup", "Review", "Create", "Complete"].map((label, index) => <li key={label} aria-current={step === index + 1 ? "step" : undefined}>{index + 1}. {label}</li>)}
+      {(hostFlow ? ["Host readiness", "Configure host", "Review", "Save settings", "Complete setup", "Done"] : ["Choose server", "Configure server", "Check setup", "Review server", "Create", "Complete"]).map((label, index) => <li key={label} aria-current={step === index + 1 ? "step" : undefined}>{index + 1}. {label}</li>)}
     </ol>
     {state.error ? <div role="alert" className="mb-5 rounded-lg border border-red-400 p-3">{state.error.message}</div> : null}
+    {state.hostSaved && state.hostView?.warnings?.length ? <ul aria-label="Saved host configuration warnings" className="mb-5 space-y-2 rounded-lg border border-amber-400 p-3" role="status">{state.hostView.warnings.map(code => <li key={code}>{code === "JAVA_PORT_OCCUPIED" ? "The Java default port is in use. Server preflight must select an approved available endpoint." : code === "BEDROCK_PORT_OCCUPIED" ? "The Bedrock default port is in use. Server preflight must select an approved available endpoint." : "Storage write access remains unverified; saving settings did not create a storage probe file."}</li>)}</ul> : null}
     {state.preflight?.issues.length ? <ul className="mb-5 list-inside list-disc text-slate-200">{state.preflight.issues.map((issue, index) => <li key={index}>{setupIssueMessage(issue.code)}</li>)}</ul> : null}
+    {["configure-host", "review-host", "saving-host"].includes(state.step) ? <HostConfigurationStep wizard={wizard} /> : null}
+    {state.step === "completing-onboarding" ? <section aria-busy="true"><p role="status" aria-live="polite">Checking current host readiness and confirming setup completion. No Minecraft server is being created or started.</p></section> : null}
+    {state.step === "setup-complete" ? <section aria-label="GameHub setup complete"><p>Host configuration has been saved.</p><p className="mt-3">No Minecraft server has been created or started.</p>{state.onboarding?.configurationChanged ? <p className="mt-3">Host settings differ from the completed revision. Completion remains recorded; current readiness and provisioning checks still apply.</p> : null}<button type="button" className="cmd-btn mt-5 min-h-11" disabled={state.loading} onClick={close}>Continue to GameHub</button></section> : null}
     {(state.step === "host-readiness" || state.step === "error" && !state.applyFailure) ? <div className="space-y-4">
       <p>No installation, directory creation, database migration, provisioning or server start occurs during this check.</p>
       <form onSubmit={event => { event.preventDefault(); void wizard.connect(); }} className="space-y-3">

@@ -1,4 +1,5 @@
 import { SqliteProvisioningRepository, provisioningMigration } from "./sqlite-provisioning-repository";
+import { SqliteSetupConfigurationRepository } from "./sqlite-setup-configuration";
 import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -35,7 +36,7 @@ interface Migration {
   up: string;
 }
 
-const SCHEMA_VERSION = 10;
+const SCHEMA_VERSION = 12;
 
 const migrations: Migration[] = [
   {
@@ -258,6 +259,8 @@ const migrations: Migration[] = [
   { version: 10, name: "managed_runtime_boot_authorizations", up: `
     CREATE TABLE managed_runtime_boot_authorizations (operation_id TEXT PRIMARY KEY, data TEXT NOT NULL);
   ` },
+  { version: 11, name: "host_setup_configuration", up: "CREATE TABLE setup_configuration (host_id TEXT PRIMARY KEY, revision INTEGER NOT NULL, data TEXT NOT NULL);" },
+  { version: 12, name: "host_onboarding_state", up: "CREATE TABLE onboarding_state (host_id TEXT PRIMARY KEY, data TEXT NOT NULL);" },
 ];
 
 function parseJson<T>(raw: unknown): T | undefined {
@@ -282,6 +285,7 @@ function utcCutoffIso(nowIso: string, retentionDays: number): string {
 
 export class SqlitePersistenceRepository implements PersistenceRepository {
   readonly provisioning = new SqliteProvisioningRepository(() => this.requireDb());
+  readonly setupConfiguration = new SqliteSetupConfigurationRepository(() => this.requireDb());
   private readonly filePath: string;
   private db: DatabaseSync | undefined;
 

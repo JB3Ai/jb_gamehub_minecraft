@@ -1,6 +1,6 @@
 /** Public HTTP projections only; no imports of private provider/policy models. */
 export type SetupProviderId = "minecraft" | "minecraft-bedrock";
-export type SetupWizardStep = "host-readiness" | "choose-provider" | "configure" | "preflight" | "review" | "provisioning" | "complete" | "error";
+export type SetupWizardStep = "host-readiness" | "configure-host" | "review-host" | "saving-host" | "completing-onboarding" | "setup-complete" | "choose-provider" | "configure" | "preflight" | "review" | "provisioning" | "complete" | "error";
 export interface SetupEndpoint {
   id: string; protocol: string; transport: "tcp" | "udp"; bindAddress: string;
   port: { mode: "fixed"; value: number };

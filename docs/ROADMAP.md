@@ -18,7 +18,7 @@
 - [x] JBGH-021A — CLOSED / PASS: Native BDS Live Acceptance
 - [x] JBGH-022 — CLOSED / PASS: [Unified Server Provisioning](./JBGH-022-unified-server-provisioning.md#jbgh-022-closure-review--closed--pass) (2026-10-18)
 - [x] JBGH-023 — CLOSED / PASS: [Unified Setup Wizard](./JBGH-023-unified-setup-wizard.md#jbgh-023c-closure--closed--pass) (2026-10-21; Java/Bedrock stopped CREATE, completion, restart and dashboard WebSocket authentication)
-- [ ] JBGH-024 — OPEN: [First-Run Onboarding](./JBGH-024-first-run-onboarding.md) (024A host readiness/environment discovery CLOSED / PASS, 2026-10-22; 024B storage/runtime configuration and persistence next; 024C–024D pending)
+- [x] JBGH-024 — CLOSED / PASS: [First-Run Onboarding](./JBGH-024-first-run-onboarding.md#024c--durable-first-run-completion-and-handoff) (2026-10-22; 024A readiness, 024B revisioned settings, 024C durable READY/dashboard handoff, restart and preservation acceptance)
 - [ ] JBGH-028 — Smart Worlds Framework (locked future milestone; baseline: [JBGH_World_switcher PRD](./JBGH_World_switcher.md), JBGH-SW-001 draft v0.1; first task: 028A repository gap analysis against the exact PRD before implementation; the source document's legacy JBGH-020 heading maps to JBGH-028)
 
 ### JBGH-021A — CLOSED / PASS

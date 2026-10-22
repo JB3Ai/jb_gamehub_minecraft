@@ -1,7 +1,8 @@
 import { provisioningRouter, provisioningApiOptionsFromEnvironment, authorizeProvisioning, type ProvisioningApiOptions } from "./packages/core/provisioning-api";
 import { websocketAuthorization, websocketProtocol } from "./packages/core/websocket-auth";
 import { onboardingRouter } from "./packages/core/onboarding-api";
-import { observeHost, observeStorage, observeDatabase } from "./packages/host-platform/readiness";
+import { observeHost, observeStorage, observeDatabase, hashSetupReference } from "./packages/host-platform/readiness";
+import { setupCatalog } from "./packages/core/setup-configuration";
 import { discoverJavaRuntimes, javaPrerequisites } from "./packages/minecraft-provider/host-readiness";
 import { bedrockPrerequisites } from "./packages/bedrock-provider/host-readiness";
 import "dotenv/config";
@@ -133,7 +134,11 @@ app.use("/api/setup", onboardingRouter(() => providerManager, () => provisioning
     }) }), javaPrerequisites(provisioningOptions.policies.minecraft, selected === "minecraft"), bedrockPrerequisites(provisioningOptions.policies["minecraft-bedrock"], selected === "minecraft-bedrock")]);
     return [...java, javaSources, bedrockSources];
   },
-}), () => ({ databasePath: activeRuntimeConfig && path.resolve(activeRuntimeConfig.persistenceDbPath) })));
+}), () => ({ databasePath: activeRuntimeConfig && path.resolve(activeRuntimeConfig.persistenceDbPath) }), () => {
+  if (!activeRuntimeConfig || !providerManager.setupConfiguration) throw new Error("CONFIGURATION_UNAVAILABLE");
+  return { catalog: setupCatalog(provisioningOptions, path.resolve(activeRuntimeConfig.persistenceDbPath), { javaPort: activeRuntimeConfig.minecraftJavaPort, bedrockPort: activeRuntimeConfig.minecraftBedrockPort }), repository: providerManager.setupConfiguration,
+    probes: { host: observeHost, storage: observeStorage, database: observeDatabase, fileHash: hashSetupReference } };
+}));
 // Legacy lifecycle URLs must not become an authorization bypass for attached servers.
 app.use("/api/servers/:id", async (req, res, next) => {
   try {

@@ -89,7 +89,7 @@ test("v10 boot migration preserves the v9 G-C1 definition and receipts without l
   const f = await created(t), receipts = f.repository.provisioning.fileReceipts(f.operation.operationId);
   await f.manager.shutdown();
   const db = new DatabaseSync(path.join(f.base, "state.sqlite"));
-  db.exec("DROP TABLE managed_runtime_boot_authorizations; PRAGMA user_version=9;"); db.close();
+  db.exec("DROP TABLE onboarding_state; DROP TABLE setup_configuration; DROP TABLE managed_runtime_boot_authorizations; PRAGMA user_version=9;"); db.close();
   const reopened = await f.open();
   assert.deepEqual(reopened.repository.provisioning.managedDefinitions()[0], f.definition);
   assert.deepEqual(reopened.repository.provisioning.fileReceipts(f.operation.operationId), receipts);

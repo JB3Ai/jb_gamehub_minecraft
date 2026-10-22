@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { constants } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
@@ -86,4 +87,18 @@ export async function requiredFilesPresent(locations: Array<string | undefined>)
     catch { return false; }
   }
   return true;
+}
+
+/** Selection validation only; never executes or copies the referenced runtime. */
+export async function hashSetupReference(location: string): Promise<string> {
+  if (!await requiredFilesPresent([location])) throw new Error("RUNTIME_REFERENCE_UNAVAILABLE");
+  await observeStorage(path.dirname(location));
+  const file = await fs.open(location, "r");
+  try {
+    const stat = await file.stat();
+    if (!stat.isFile() || stat.size > 512 * 1024 * 1024) throw new Error("RUNTIME_REFERENCE_UNAVAILABLE");
+    const hash = createHash("sha256");
+    for await (const chunk of file.createReadStream({ autoClose: false })) hash.update(chunk);
+    return hash.digest("hex");
+  } finally { await file.close(); }
 }

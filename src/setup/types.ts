@@ -1,11 +1,15 @@
 import type { SetupConfiguration, SetupOptionsResponse, SetupProviderId, SetupWizardStep, ProvisioningPlanResponse, ProvisioningPreflightResponse, ProvisioningApplyResponse, ReconciledSetup } from "../dashboard/provisioningTypes";
 import type { HostReadinessReport } from "./hostReadiness";
+import type { HostConfigurationView, HostSettings } from "./hostConfiguration";
+import type { OnboardingState } from "./onboarding";
 export type { HostReadinessReport, HostReadinessCheck } from "./hostReadiness";
 export interface SetupWizardError { code?: string; message: string }
 export interface SetupWizardState {
   step: SetupWizardStep; configuration: SetupConfiguration; options?: SetupOptionsResponse;
   loading: boolean; generation: number; error?: SetupWizardError;
   readiness?: HostReadinessReport;
+  hostView?: HostConfigurationView; hostDraft?: HostSettings; hostSaved?: boolean; hostReloadRequired?: boolean;
+  onboarding?: OnboardingState;
   plan?: ProvisioningPlanResponse; preflight?: ProvisioningPreflightResponse;
   approved: boolean; apply?: ProvisioningApplyResponse;
   applyFailure?: "recheck" | "rolled-back" | "partial" | "unknown";
@@ -13,6 +17,14 @@ export interface SetupWizardState {
 export type SetupWizardAction =
   | { type: "OPEN" | "RESET"; generation: number }
   | { type: "OPTIONS_STARTED"; generation: number }
+  | { type: "ONBOARDING_CHECK_STARTED" | "ONBOARDING_COMPLETE_STARTED"; generation: number }
+  | { type: "ONBOARDING_READY"; generation: number; onboarding: OnboardingState }
+  | { type: "HOST_LOAD_STARTED"; generation: number }
+  | { type: "HOST_LOADED"; generation: number; view: HostConfigurationView }
+  | { type: "HOST_EDIT"; generation: number; patch: Partial<HostSettings> }
+  | { type: "HOST_REVIEW" | "HOST_BACK" | "HOST_SAVE_STARTED"; generation: number }
+  | { type: "HOST_SAVED"; generation: number; view: HostConfigurationView }
+  | { type: "HOST_ERROR"; generation: number; error: SetupWizardError; reloadRequired?: boolean }
   | { type: "READINESS_STARTED"; generation: number }
   | { type: "READINESS_LOADED"; generation: number; report: HostReadinessReport }
   | { type: "READINESS_FAILED"; generation: number; error: SetupWizardError }

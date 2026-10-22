@@ -1,4 +1,5 @@
 import { RuntimeAttachmentService } from "../core/runtime-attachment-service";
+import type { SetupConfigurationRepository } from "../core/setup-configuration";
 import { ManagedCreationService, type ManagedCreationOptions } from "../core/managed-create-service";
 import type { ManagedCreationAdapter, ManagedCreationRepository, ManagedCreatePreview, ManagedRuntimeDefinition } from "../core/managed-create";
 import type { ManagedRuntimeBootControl } from "../core/managed-boot";
@@ -290,6 +291,7 @@ export interface RetentionCleanupSummary {
 }
 
 export interface PersistenceRepository {
+  readonly setupConfiguration?: SetupConfigurationRepository;
   readonly provisioning?: ProvisioningApplyRepository & Partial<RuntimeAttachmentRepository & ManagedCreationRepository>;
   initialize(): Promise<void>;
   close(): Promise<void>;
@@ -877,6 +879,7 @@ export interface ProviderManagerOptions {
 }
 
 export class InMemoryProviderManager {
+  get setupConfiguration(): SetupConfigurationRepository | undefined { return this.repository.setupConfiguration; }
   private readonly providers = new Map<string, GameProvider>();
   private readonly eventBus = new InMemoryEventBus();
   private readonly operations = new Map<string, OperationRecord>();

@@ -1,8 +1,11 @@
 import type { SetupConfiguration, SetupOptionsResponse, SetupProviderId, SetupWizardStep, ProvisioningPlanResponse, ProvisioningPreflightResponse, ProvisioningApplyResponse, ReconciledSetup } from "../dashboard/provisioningTypes";
+import type { HostReadinessReport } from "./hostReadiness";
+export type { HostReadinessReport, HostReadinessCheck } from "./hostReadiness";
 export interface SetupWizardError { code?: string; message: string }
 export interface SetupWizardState {
   step: SetupWizardStep; configuration: SetupConfiguration; options?: SetupOptionsResponse;
   loading: boolean; generation: number; error?: SetupWizardError;
+  readiness?: HostReadinessReport;
   plan?: ProvisioningPlanResponse; preflight?: ProvisioningPreflightResponse;
   approved: boolean; apply?: ProvisioningApplyResponse;
   applyFailure?: "recheck" | "rolled-back" | "partial" | "unknown";
@@ -10,6 +13,9 @@ export interface SetupWizardState {
 export type SetupWizardAction =
   | { type: "OPEN" | "RESET"; generation: number }
   | { type: "OPTIONS_STARTED"; generation: number }
+  | { type: "READINESS_STARTED"; generation: number }
+  | { type: "READINESS_LOADED"; generation: number; report: HostReadinessReport }
+  | { type: "READINESS_FAILED"; generation: number; error: SetupWizardError }
   | { type: "CREDENTIAL_CHANGED"; generation: number }
   | { type: "OPTIONS_LOADED"; generation: number; options: SetupOptionsResponse }
   | { type: "RECONCILE_STARTED"; generation: number }

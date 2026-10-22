@@ -4,13 +4,27 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { NewServerModal, SetupReview, SetupCompletion } from "./NewServerModal";
 import { initialSetupState } from "../setup/useSetupWizard";
+import { HostReadinessResults } from "./HostReadinessResults";
+import { readinessReport } from "../../tests/helpers/wizard-readiness";
 
 test("setup shell exposes labelled dialog/connection and never renders old engine/version choices", () => {
   const html = renderToStaticMarkup(<NewServerModal isOpen onClose={() => {}} />);
   assert.match(html, /<dialog/); assert.match(html, /aria-labelledby="setup-title"/); assert.match(html, /aria-label="Setup steps"/);
   assert.match(html, /type="password"/); assert.match(html, /for="setup-access-key"/); assert.match(html, /Connect to GameHub/);
+  assert.match(html, /<h2[^>]*>Host readiness<\/h2>/); assert.match(html, /disabled="">Continue/);
   for (const unsupported of ["Purpur", "Fabric", "Vanilla", "Geyser", "Latest Stable", "Deploy Server Now"]) assert.ok(!html.includes(unsupported));
   assert.equal(renderToStaticMarkup(<NewServerModal isOpen={false} onClose={() => {}} />), "");
+});
+
+test("readiness results render explicit states, live recheck status and associated remediation", () => {
+  for (const status of ["PASS", "WARNING", "BLOCKED"] as const) {
+    const report = readinessReport(status); report.checks[0].remediation = "Review host configuration.";
+    const html = renderToStaticMarkup(<HostReadinessResults report={report} loading={false} />);
+    assert.ok(html.includes(status === "PASS" ? "Overall: READY" : status === "WARNING" ? "Overall: READY WITH WARNINGS" : "Overall: BLOCKED"));
+    assert.match(html, /aria-live="polite"/); assert.match(html, /Review host configuration\./);
+    assert.ok(!html.includes("D:\\"));
+  }
+  assert.match(renderToStaticMarkup(<HostReadinessResults loading />), /aria-busy="true"/);
 });
 test("review and completion present user-safe stopped result and escaped values", () => {
   const state = initialSetupState(); state.step = "review"; state.configuration = { providerId: "minecraft-bedrock", profileRef: "private-profile-reference", serverId: "internal-id", displayName: "Family <Server>", worldName: "Family World" };

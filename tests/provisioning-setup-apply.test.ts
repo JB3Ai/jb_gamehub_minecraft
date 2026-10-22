@@ -1,3 +1,4 @@
+import { readySetupState } from "./helpers/wizard-readiness";
 import test from "node:test";
 import assert from "node:assert/strict";
 import express from "express";
@@ -26,7 +27,7 @@ for (const kind of ["java", "bedrock"] as const) test(`${kind} wizard performs e
   const url = "http://127.0.0.1:" + (server.address() as { port: number }).port, nativeFetch = globalThis.fetch, calls: Array<{ route: string; body: any }> = [];
   t.mock.method(globalThis, "fetch", (input: any, init?: RequestInit) => { const route = String(input); assert.match(route, /^\/api\/(provisioning\/(setup-options|plans|preflight|applies)|operations|servers)(\/|\?|$)/); calls.push({ route, body: init?.body ? JSON.parse(String(init.body)) : undefined }); return nativeFetch(url + route, init); });
   const connection = { token }, options = await getProvisioningSetupOptions(connection);
-  let state = setupWizardReducer(initialSetupState(), { type: "OPTIONS_LOADED", options, generation: 1 });
+  let state = setupWizardReducer(readySetupState(), { type: "OPTIONS_LOADED", options, generation: 1 });
   state = setupWizardReducer(state, { type: "SELECT_PROVIDER", providerId: id, serverId: "family-created", generation: 2 });
   state = setupWizardReducer(state, { type: "UPDATE_CONFIGURATION", patch: { displayName: "Family Server", worldName: "Family World" }, generation: 3 });
   const plan = await createProvisioningPlan(setupRequestFromState(state), connection);

@@ -1,13 +1,15 @@
+import { readySetupState } from "../../tests/helpers/wizard-readiness";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { initialSetupState, setupWizardReducer, setupRequestFromState, assertSetupPlanMatches } from "./useSetupWizard";
 import type { SetupWizardState } from "./types";
 import type { SetupOptionsResponse, ProvisioningPlanResponse, ProvisioningPreflightResponse } from "../dashboard/provisioningTypes";
+import { readinessReport } from "../../tests/helpers/wizard-readiness";
 
 const options: SetupOptionsResponse = { providers: ["minecraft", "minecraft-bedrock"].map((providerId: "minecraft" | "minecraft-bedrock") => ({ providerId, label: providerId === "minecraft" ? "Minecraft Java" : "Minecraft Bedrock", profiles: [{ profileRef: providerId + "-fixture-choice", revision: "9", label: "Family default", defaults: { worldName: "Default World" }, available: true,
   storage: { rootId: "fixture-root", directoryName: "family-stable" }, requestDefaults: { hostId: "fixture-host", endpoints: [{ id: "fixture-game", protocol: "fixture-protocol", transport: "udp", bindAddress: "127.0.0.1", port: { mode: "fixed", value: 29801 } }] } }] })) };
 function configured(): SetupWizardState {
-  let state = setupWizardReducer(initialSetupState(), { type: "OPTIONS_LOADED", options, generation: 1 });
+  let state = setupWizardReducer(readySetupState(), { type: "OPTIONS_LOADED", options, generation: 1 });
   state = setupWizardReducer(state, { type: "SELECT_PROVIDER", providerId: "minecraft", serverId: "family-stable", generation: 2 });
   return setupWizardReducer(state, { type: "UPDATE_CONFIGURATION", patch: { displayName: "Family Server", worldName: "Family World" }, generation: 3 });
 }
@@ -22,6 +24,33 @@ function checking() {
 function review() { const f = checking(); return setupWizardReducer(f.state, { type: "PREFLIGHT_PASSED", generation: 4, preflight: f.preflight }); }
 function applying() { return setupWizardReducer(setupWizardReducer(review(), { type: "APPROVAL_CHANGED", approved: true, generation: 4 }), { type: "APPLY_STARTED", generation: 5 }); }
 const applied = { operationId: "op-created", providerId: "minecraft" as const, serverId: "family-stable", ownership: "MANAGED" as const, state: "PROVISIONED", outcome: "applied", residuals: [] };
+
+test("readiness precedes setup options and only a current PASS/WARNING can continue", () => {
+  for (const status of ["PASS", "WARNING", "BLOCKED"] as const) {
+    const initial = initialSetupState(); assert.equal(initial.step, "host-readiness");
+    assert.equal(setupWizardReducer(initial, { type: "OPTIONS_LOADED", options, generation: 1 }), initial);
+    let state = setupWizardReducer(initial, { type: "READINESS_STARTED", generation: 1 });
+    state = setupWizardReducer(state, { type: "READINESS_LOADED", generation: 1, report: readinessReport(status) });
+    assert.equal(state.step, "host-readiness"); assert.equal(state.approved, false);
+    const next = setupWizardReducer(state, { type: "OPTIONS_STARTED", generation: 2 });
+    const loaded = setupWizardReducer(next, { type: "OPTIONS_LOADED", generation: 2, options });
+    assert.equal(loaded.step, status === "BLOCKED" ? "host-readiness" : "choose-provider");
+    assert.equal(loaded.approved, false);
+  }
+});
+
+test("recheck, credential edits, reset and late async responses cannot restore stale readiness", () => {
+  const initial = readySetupState();
+  for (const type of ["READINESS_STARTED", "CREDENTIAL_CHANGED", "RESET"] as const) {
+    const state = setupWizardReducer(initial, { type, generation: 2 });
+    assert.equal(state.readiness, undefined); assert.equal(state.options, undefined);
+    assert.equal(setupWizardReducer(state, { type: "READINESS_LOADED", generation: 1, report: readinessReport() }), state);
+    assert.equal(setupWizardReducer(state, { type: "OPTIONS_LOADED", generation: 1, options }), state);
+  }
+  const started = setupWizardReducer(initialSetupState(), { type: "READINESS_STARTED", generation: 1 });
+  const malformed = setupWizardReducer(started, { type: "READINESS_LOADED", generation: 1, report: { ...readinessReport(), status: "PASS", checks: readinessReport("BLOCKED").checks } });
+  assert.equal(malformed.readiness, undefined); assert.equal(malformed.error?.code, "INVALID_RESPONSE");
+});
 test("apply requires review and explicit approval, locks navigation, and completes only a matching clean result", () => {
   const state = review(); assert.equal(setupWizardReducer(state, { type: "APPLY_STARTED", generation: 5 }), state);
   const running = applying(); assert.equal(running.step, "provisioning");
@@ -86,7 +115,7 @@ for (const defect of ["wrong-world", "wrong-server", "wrong-profile", "bad-diges
 for (const [providerId, serverId] of [["minecraft", "java-023c-live"], ["minecraft-bedrock", "bedrock-023c-live"]] as const) test(`${providerId} uses only the reviewed storage leaf, independently of display name`, () => {
   const reviewed = structuredClone(options), profile = reviewed.providers.find(p => p.providerId === providerId)!.profiles[0];
   profile.storage = { rootId: "root", directoryName: serverId }; profile.requestDefaults!.serverId = serverId;
-  let state = setupWizardReducer(initialSetupState(), { type: "OPTIONS_LOADED", options: reviewed, generation: 1 });
+  let state = setupWizardReducer(readySetupState(), { type: "OPTIONS_LOADED", options: reviewed, generation: 1 });
   state = setupWizardReducer(state, { type: "SELECT_PROVIDER", providerId, serverId: "ignored-generated-id", generation: 2 });
   state = setupWizardReducer(state, { type: "UPDATE_CONFIGURATION", patch: { displayName: "First friendly name" }, generation: 3 });
   const before = setupRequestFromState(state);
@@ -119,7 +148,7 @@ test("failed preflight and authentication retry preserve configuration and canno
 });
 test("unavailable profiles cannot be selected and empty fields never form a request", () => {
   const unavailable = structuredClone(options); unavailable.providers[0].profiles[0].available = false;
-  const state = setupWizardReducer(initialSetupState(), { type: "OPTIONS_LOADED", generation: 1, options: unavailable });
+  const state = setupWizardReducer(readySetupState(), { type: "OPTIONS_LOADED", generation: 1, options: unavailable });
   assert.deepEqual(setupWizardReducer(state, { type: "SELECT_PROVIDER", providerId: "minecraft", serverId: "none", generation: 2 }), state);
   assert.throws(() => setupRequestFromState(state));
 });

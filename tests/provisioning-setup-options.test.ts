@@ -1,3 +1,4 @@
+import { readySetupState } from "./helpers/wizard-readiness";
 import test from "node:test";
 import assert from "node:assert/strict";
 import express from "express";
@@ -51,7 +52,7 @@ for (const kind of ["java", "bedrock"] as const) test(`${kind} setup discovery a
   assert.ok(!responseText.includes('managedRoot')); assert.ok(!responseText.includes(f.root));
   const discovery = t.mock.method(manager, "previewManagedCreation", () => { throw new Error("discovery must not inspect files"); });
   await getProvisioningSetupOptions(connection); discovery.mock.restore();
-  let state = setupWizardReducer(initialSetupState(), { type: "OPTIONS_LOADED", options, generation: 1 });
+  let state = setupWizardReducer(readySetupState(), { type: "OPTIONS_LOADED", options, generation: 1 });
   state = setupWizardReducer(state, { type: "SELECT_PROVIDER", providerId, serverId: "family-fixture", generation: 2 });
   state = setupWizardReducer(state, { type: "UPDATE_CONFIGURATION", patch: { displayName: "Family Server", worldName: "Family World" }, generation: 3 });
   const request = setupRequestFromState(state), plan = await createProvisioningPlan(request, connection);

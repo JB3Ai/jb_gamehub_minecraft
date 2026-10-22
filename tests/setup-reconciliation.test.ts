@@ -1,3 +1,4 @@
+import { readySetupState } from "./helpers/wizard-readiness";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { ProvisioningClientError, reconcileProvisioning } from "../src/dashboard/apiClient";
@@ -25,7 +26,7 @@ test("lost apply response reconciles exact stored plan and opaque operation with
   const result = await reconcileProvisioning(planId, { token });
   assert.equal(result.apply.operationId, f.operation.operationId); assert.equal(calls.length, 4);
   assert.ok(!calls.some(url => /applies|preflight/.test(url)));
-  let state = setupWizardReducer(initialSetupState(), { type: "OPTIONS_LOADED", options: f.options, generation: 1 });
+  let state = setupWizardReducer(readySetupState(), { type: "OPTIONS_LOADED", options: f.options, generation: 1 });
   state = setupWizardReducer(state, { type: "RECONCILE_STARTED", generation: 2 });
   state = setupWizardReducer(state, { type: "RECONCILED", result, generation: 2 });
   assert.equal(state.step, "complete"); assert.equal(state.approved, false); assert.equal(state.configuration.displayName, "Family server");
@@ -56,7 +57,7 @@ for (const change of ["missing", "ambiguous", "provider", "server", "plan", "typ
 
 test("reconciliation scope mismatch and late result cannot overwrite approved current state", () => {
   const f = fixture(), result: ReconciledSetup = { plan: f.plan as any, preflight: { status: "PASS", issues: [], creation: f.plan.creation as any }, apply: { operationId: f.operation.operationId, providerId: "minecraft", serverId: f.operation.serverId, state: "PROVISIONED", outcome: "applied", ownership: "MANAGED", residuals: [] } };
-  let state = setupWizardReducer(initialSetupState(), { type: "OPTIONS_LOADED", options: f.options, generation: 1 });
+  let state = setupWizardReducer(readySetupState(), { type: "OPTIONS_LOADED", options: f.options, generation: 1 });
   state = setupWizardReducer(state, { type: "RECONCILE_STARTED", generation: 2 });
   const edited = structuredClone(result); edited.plan.plan.request.storage.directoryName = "changed";
   assert.equal(setupWizardReducer(state, { type: "RECONCILED", result: edited, generation: 2 }).error?.code, "SETUP_SCOPE_MISMATCH");

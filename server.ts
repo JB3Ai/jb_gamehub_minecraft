@@ -1,5 +1,9 @@
 import { provisioningRouter, provisioningApiOptionsFromEnvironment, authorizeProvisioning, type ProvisioningApiOptions } from "./packages/core/provisioning-api";
 import { websocketAuthorization, websocketProtocol } from "./packages/core/websocket-auth";
+import { onboardingRouter } from "./packages/core/onboarding-api";
+import { observeHost, observeStorage, observeDatabase } from "./packages/host-platform/readiness";
+import { discoverJavaRuntimes, javaPrerequisites } from "./packages/minecraft-provider/host-readiness";
+import { bedrockPrerequisites } from "./packages/bedrock-provider/host-readiness";
 import "dotenv/config";
 import express from "express";
 import http from "http";
@@ -118,6 +122,18 @@ app.use(async (req, res, next) => {
   next();
 });
 app.use("/api/provisioning", provisioningRouter(() => providerManager, () => provisioningOptions));
+app.use("/api/setup", onboardingRouter(() => providerManager, () => provisioningOptions, selected => ({
+  host: observeHost,
+  storage: observeStorage,
+  database: observeDatabase,
+  runtimes: async () => {
+    const [java, javaSources, bedrockSources] = await Promise.all([discoverJavaRuntimes({ selected: selected === "minecraft", approvedLocations: Object.values(provisioningOptions.policies.minecraft?.managedCreate?.profiles ?? {}).flatMap(profile => {
+    const location = profile.runtime && provisioningOptions.policies.minecraft?.artifactLocations[profile.runtime.reference];
+    return location ? [location] : [];
+    }) }), javaPrerequisites(provisioningOptions.policies.minecraft, selected === "minecraft"), bedrockPrerequisites(provisioningOptions.policies["minecraft-bedrock"], selected === "minecraft-bedrock")]);
+    return [...java, javaSources, bedrockSources];
+  },
+}), () => ({ databasePath: activeRuntimeConfig && path.resolve(activeRuntimeConfig.persistenceDbPath) })));
 // Legacy lifecycle URLs must not become an authorization bypass for attached servers.
 app.use("/api/servers/:id", async (req, res, next) => {
   try {

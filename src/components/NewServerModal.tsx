@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from "react";
 import { useSetupWizard } from "../setup/useSetupWizard";
 import type { SetupWizardState } from "../setup/types";
 import { setupIssueMessage } from "../dashboard/apiClient";
+import { canContinueReadiness } from "../setup/hostReadiness";
+import { HostReadinessResults } from "./HostReadinessResults";
 
 export interface NewServerModalProps {
   isOpen: boolean; onClose: () => void;
@@ -51,8 +53,8 @@ export function NewServerModal({ isOpen, onClose, onProvisioned }: NewServerModa
     finally { setOpening(false); }
   };
   const config = state.configuration, provider = state.options?.providers.find(p => p.providerId === config.providerId);
-  const titles = { "choose-provider": "Choose your server", configure: "Configure essentials", preflight: "Checking setup", review: "Review your setup", provisioning: "Creating server", complete: "Server summary", error: "Setup needs attention" };
-  const step = state.step === "choose-provider" ? 1 : state.step === "configure" || state.step === "error" ? 2 : state.step === "preflight" ? 3 : state.step === "review" ? 4 : state.step === "provisioning" ? 5 : 6;
+  const titles = { "host-readiness": "Host readiness", "choose-provider": "Choose your server", configure: "Configure essentials", preflight: "Checking setup", review: "Review your setup", provisioning: "Creating server", complete: "Server summary", error: "Setup needs attention" };
+  const step = state.step === "host-readiness" ? 1 : state.step === "choose-provider" ? 2 : state.step === "configure" || state.step === "error" ? 3 : state.step === "preflight" ? 4 : state.step === "review" ? 5 : state.step === "provisioning" ? 6 : 7;
   const fieldClass = "w-full rounded-lg border border-slate-500 bg-slate-950 p-3 text-slate-100 focus-visible:outline-2 focus-visible:outline-cyan-400";
   return <dialog ref={dialog} aria-labelledby="setup-title" onCancel={event => { event.preventDefault(); close(); }}
     onKeyDown={event => {
@@ -64,21 +66,26 @@ export function NewServerModal({ isOpen, onClose, onProvisioned }: NewServerModa
     }}
     className="fixed inset-0 m-auto max-h-[90dvh] w-[min(42rem,calc(100vw-2rem))] overflow-y-auto rounded-xl border border-slate-600 bg-slate-900 p-5 text-slate-100 shadow-xl backdrop:bg-slate-950/80 sm:p-7">
     <div className="mb-5 flex items-start justify-between gap-4">
-      <div><p className="text-sm text-slate-400">Server setup · Step {step} of 6</p><h2 id="setup-title" ref={heading} tabIndex={-1} className="mt-2 text-2xl font-bold">{titles[state.step]}</h2></div>
+      <div><p className="text-sm text-slate-400">Server setup · Step {step} of 7</p><h2 id="setup-title" ref={heading} tabIndex={-1} className="mt-2 text-2xl font-bold">{titles[state.step]}</h2></div>
       <button type="button" onClick={close} disabled={state.step === "provisioning" || opening} className="cmd-btn min-h-11" aria-label="Close server setup">Close</button>
     </div>
     <ol aria-label="Setup steps" className="mb-6 flex flex-wrap gap-x-4 gap-y-2 text-sm text-slate-300">
-      {["Choose server", "Configure", "Check setup", "Review", "Create", "Complete"].map((label, index) => <li key={label} aria-current={step === index + 1 ? "step" : undefined}>{index + 1}. {label}</li>)}
+      {["Host readiness", "Choose server", "Configure", "Check setup", "Review", "Create", "Complete"].map((label, index) => <li key={label} aria-current={step === index + 1 ? "step" : undefined}>{index + 1}. {label}</li>)}
     </ol>
     {state.error ? <div role="alert" className="mb-5 rounded-lg border border-red-400 p-3">{state.error.message}</div> : null}
     {state.preflight?.issues.length ? <ul className="mb-5 list-inside list-disc text-slate-200">{state.preflight.issues.map((issue, index) => <li key={index}>{setupIssueMessage(issue.code)}</li>)}</ul> : null}
-    {(state.step === "choose-provider" || state.step === "error" && !state.applyFailure) ? <div className="space-y-4">
-      {!state.options || state.step === "error" ? <form onSubmit={event => { event.preventDefault(); void wizard.connect(); }} className="space-y-3">
+    {(state.step === "host-readiness" || state.step === "error" && !state.applyFailure) ? <div className="space-y-4">
+      <p>No installation, directory creation, database migration, provisioning or server start occurs during this check.</p>
+      <form onSubmit={event => { event.preventDefault(); void wizard.connect(); }} className="space-y-3">
         <label htmlFor="setup-access-key" className="block">Administrator access key</label>
         <input id="setup-access-key" type="password" autoComplete="off" value={wizard.accessKey} onChange={event => wizard.setAccessKey(event.target.value)} className={fieldClass} aria-describedby="setup-access-help" required />
         <p id="setup-access-help" className="text-sm text-slate-400">Use your administrator access key. It stays only in this page's memory. Disconnect administrator or close the page to clear it.</p>
-        <button type="submit" className="cmd-btn min-h-11" disabled={state.loading || !wizard.accessKey.trim()}>{state.loading ? "Connecting…" : "Connect to GameHub"}</button>
-      </form> : null}
+        <button type="submit" className="cmd-btn min-h-11" disabled={state.loading || !wizard.accessKey.trim()}>{state.loading ? "Checking…" : state.readiness || state.error ? "Recheck" : "Connect to GameHub"}</button>
+      </form>
+      <HostReadinessResults report={state.readiness} loading={state.loading} />
+      <button type="button" className="cmd-btn min-h-11" disabled={state.loading || !canContinueReadiness(state.readiness)} onClick={() => { void wizard.continueReadiness(); }}>Continue</button>
+    </div> : null}
+    {state.step === "choose-provider" ? <div className="space-y-4">
       {state.options ? <form className="space-y-3 border-t border-slate-600 pt-4" onSubmit={event => { event.preventDefault(); void wizard.reconcile(setupReference.trim()).then(result => { if (result) return refreshInventory(result.providerId, result.serverId, false); }); }}>
         <label htmlFor="setup-reference" className="block">Existing setup reference</label>
         <input id="setup-reference" value={setupReference} onChange={event => setSetupReference(event.target.value)} className={fieldClass} autoComplete="off" aria-describedby="setup-reference-help" />

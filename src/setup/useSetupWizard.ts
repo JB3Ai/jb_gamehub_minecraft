@@ -2,9 +2,10 @@ import { useEffect, useReducer, useRef, useState } from "react";
 import { applyProvisioning, createProvisioningPlan, getProvisioningSetupOptions, preflightProvisioning, reconcileProvisioning, ProvisioningClientError } from "../dashboard/apiClient";
 import type { CreateProvisioningRequest, ProvisioningPlanResponse, SetupConfiguration, SetupProviderId } from "../dashboard/provisioningTypes";
 import type { SetupWizardAction, SetupWizardState } from "./types";
-import { setDashboardAccessKey } from "../dashboard/adminConnection";
+import { getDashboardAccessKey, setDashboardAccessKey } from "../dashboard/adminConnection";
+import { assessHostReadiness, canContinueReadiness, parseHostReadiness, HostReadinessClientError } from "./hostReadiness";
 
-export const initialSetupState = (generation = 0): SetupWizardState => ({ step: "choose-provider", configuration: { serverId: "", displayName: "", worldName: "" }, loading: false, approved: false, generation });
+export const initialSetupState = (generation = 0): SetupWizardState => ({ step: "host-readiness", configuration: { serverId: "", displayName: "", worldName: "" }, loading: false, approved: false, generation });
 const sameJson = (a: unknown, b: unknown): boolean => {
   const ordered = (v: any): any => Array.isArray(v) ? v.map(ordered) : v && typeof v === "object" ? Object.fromEntries(Object.keys(v).sort().map(key => [key, ordered(v[key])])) : v;
   return JSON.stringify(ordered(a)) === JSON.stringify(ordered(b));
@@ -28,9 +29,16 @@ export function setupWizardReducer(state: SetupWizardState, action: SetupWizardA
     return { ...next, step: "error", loading: false, apply: matches ? result : undefined, applyFailure: failure, error: { code, message } };
   }
   if (action.type === "COMPLETE") return state.step === "complete" ? initialSetupState(action.generation) : state;
-  if (action.type === "OPTIONS_STARTED") return { ...next, loading: true, error: undefined };
-  if (action.type === "CREDENTIAL_CHANGED") return { ...next, step: "choose-provider", options: undefined, plan: undefined, preflight: undefined, loading: false, error: undefined };
-  if (action.type === "OPTIONS_LOADED") return { ...next, options: action.options, loading: false, error: undefined, step: "choose-provider" };
+  if (action.type === "READINESS_STARTED") return { ...next, step: "host-readiness", loading: true, readiness: undefined, options: undefined, plan: undefined, preflight: undefined, approved: false, error: undefined };
+  if (action.type === "READINESS_LOADED") {
+    if (state.step !== "host-readiness" || !state.loading) return state;
+    try { return { ...next, readiness: parseHostReadiness(action.report), loading: false, error: undefined }; }
+    catch { return { ...next, readiness: undefined, loading: false, error: { code: "INVALID_RESPONSE", message: "GameHub returned an invalid readiness report. Recheck before continuing." } }; }
+  }
+  if (action.type === "READINESS_FAILED") return { ...next, step: "host-readiness", readiness: undefined, loading: false, error: action.error };
+  if (action.type === "OPTIONS_STARTED") return state.step === "host-readiness" && canContinueReadiness(state.readiness) ? { ...next, loading: true, error: undefined } : state;
+  if (action.type === "CREDENTIAL_CHANGED") return { ...next, step: "host-readiness", readiness: undefined, options: undefined, plan: undefined, preflight: undefined, loading: false, error: undefined };
+  if (action.type === "OPTIONS_LOADED") return state.step === "host-readiness" && state.loading && canContinueReadiness(state.readiness) ? { ...next, options: action.options, loading: false, error: undefined, step: "choose-provider" } : state;
   if (action.type === "RECONCILE_STARTED") return ["choose-provider", "error"].includes(state.step) ? { ...next, loading: true, error: undefined } : state;
   if (action.type === "RECONCILED") {
     if (!["choose-provider", "error"].includes(state.step) || !state.loading) return state;
@@ -77,11 +85,12 @@ export function assertSetupPlanMatches(input: CreateProvisioningRequest, planned
   if (plan.providerId !== input.providerId || plan.serverId !== input.serverId || plan.mode !== "create" || plan.displayName !== input.displayName || request.serverId !== input.serverId || request.providerOptions.profileRef !== input.providerOptions.profileRef || request.providerOptions.worldName !== input.providerOptions.worldName || request.hostId !== input.hostId || request.storage.mode !== "create" || request.storage.rootId !== input.storage.rootId || request.storage.directoryName !== input.storage.directoryName || !sameJson(request.endpoints, input.endpoints) || plan.status === "expired") throw new ProvisioningClientError("INVALID_RESPONSE");
 }
 export interface SetupWizardApi {
+  readiness?: typeof assessHostReadiness;
   options: typeof getProvisioningSetupOptions; plan: typeof createProvisioningPlan; preflight: typeof preflightProvisioning;
   apply: typeof applyProvisioning;
   reconcile?: typeof reconcileProvisioning;
 }
-const realApi: SetupWizardApi = { options: getProvisioningSetupOptions, plan: createProvisioningPlan, preflight: preflightProvisioning, apply: applyProvisioning, reconcile: reconcileProvisioning };
+const realApi: SetupWizardApi = { readiness: assessHostReadiness, options: getProvisioningSetupOptions, plan: createProvisioningPlan, preflight: preflightProvisioning, apply: applyProvisioning, reconcile: reconcileProvisioning };
 export function useSetupWizard(isOpen: boolean, api: SetupWizardApi = realApi) {
   const [state, dispatch] = useReducer(setupWizardReducer, undefined, () => initialSetupState());
   const [accessKey, setAccessKey] = useState("");
@@ -92,7 +101,7 @@ export function useSetupWizard(isOpen: boolean, api: SetupWizardApi = realApi) {
   const invalidate = () => { request.current.abort?.abort(); request.current.busy = false; return ++request.current.generation; };
   useEffect(() => {
     request.current.abort?.abort(); request.current.busy = false; const generation = ++request.current.generation;
-    dispatch({ type: isOpen ? "OPEN" : "RESET", generation }); setAccessKey(""); draftId.current = ""; submitted.current = false;
+    dispatch({ type: isOpen ? "OPEN" : "RESET", generation }); setAccessKey(isOpen ? getDashboardAccessKey() : ""); draftId.current = ""; submitted.current = false;
     return () => { request.current.abort?.abort(); request.current.generation++; request.current.busy = false; };
   }, [isOpen]);
   useEffect(() => {
@@ -106,7 +115,18 @@ export function useSetupWizard(isOpen: boolean, api: SetupWizardApi = realApi) {
     dispatch({ type: "ERROR", generation, error: error instanceof ProvisioningClientError ? { code: error.code, message: error.message } : { message: "Setup could not be checked. Your settings have been kept; please try again." } });
   };
   const connect = async () => {
-    if (!isOpen || request.current.busy) return;
+    if (!isOpen || request.current.busy || applying.current || state.step === "complete") return;
+    const generation = invalidate(), abort = new AbortController(); request.current.abort = abort; request.current.busy = true;
+    dispatch({ type: "READINESS_STARTED", generation });
+    try {
+      const report = await (api.readiness ?? assessHostReadiness)(accessKey, "", abort.signal);
+      if (generation === request.current.generation) dispatch({ type: "READINESS_LOADED", generation, report });
+    } catch (error) {
+      if (generation === request.current.generation) dispatch({ type: "READINESS_FAILED", generation, error: error instanceof HostReadinessClientError ? { code: error.code, message: error.message } : { message: "Host readiness could not be checked. Recheck before continuing." } });
+    } finally { if (generation === request.current.generation) request.current.busy = false; }
+  };
+  const continueReadiness = async () => {
+    if (!isOpen || request.current.busy || state.step !== "host-readiness" || !canContinueReadiness(state.readiness)) return;
     const generation = invalidate(), abort = new AbortController(); request.current.abort = abort; request.current.busy = true;
     dispatch({ type: "OPTIONS_STARTED", generation });
     try { const options = await api.options({ token: accessKey, signal: abort.signal }); if (generation === request.current.generation) { setDashboardAccessKey(accessKey); dispatch({ type: "OPTIONS_LOADED", generation, options }); } }
@@ -161,7 +181,7 @@ export function useSetupWizard(isOpen: boolean, api: SetupWizardApi = realApi) {
   };
   return { state, accessKey, apply, reconcile, canClose: () => !applying.current,
     approve: (approved: boolean) => dispatch({ type: "APPROVAL_CHANGED", approved, generation: request.current.generation }),
-    setAccessKey: (value: string) => { if (applying.current) return; invalidate(); setAccessKey(value); dispatch({ type: "CREDENTIAL_CHANGED", generation: request.current.generation }); }, connect, checkSetup,
+    setAccessKey: (value: string) => { if (applying.current) return; invalidate(); setAccessKey(value); dispatch({ type: "CREDENTIAL_CHANGED", generation: request.current.generation }); }, connect, continueReadiness, checkSetup,
     selectProvider: (providerId: SetupProviderId) => dispatch({ type: "SELECT_PROVIDER", providerId, serverId: id(), generation: invalidate() }),
     updateConfiguration: (patch: Partial<Pick<SetupConfiguration, "displayName" | "worldName" | "profileRef">>) => dispatch({ type: "UPDATE_CONFIGURATION", patch, serverId: id(), generation: invalidate() }),
     back: () => { if (!applying.current) dispatch({ type: "BACK", generation: invalidate() }); }, reset: () => { if (applying.current) return; setAccessKey(""); draftId.current = ""; dispatch({ type: state.step === "complete" ? "COMPLETE" : "RESET", generation: invalidate() }); } };

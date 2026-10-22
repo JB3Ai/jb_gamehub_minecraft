@@ -28,6 +28,7 @@ import {
 } from "./types";
 import type { CreateProvisioningRequest, ProvisioningConnection, ProvisioningPlanResponse, ProvisioningPreflightResponse, SetupOptionsResponse, ProvisioningApplyRequest, ProvisioningApplyResponse, ReconciledSetup } from "./provisioningTypes";
 import { getDashboardAccessKey } from "./adminConnection";
+export { getHostReadiness } from "../setup/hostReadiness";
 
 function dashboardFetch(input: string, init?: RequestInit): Promise<Response> {
   const headers = new Headers(init?.headers), key = getDashboardAccessKey();

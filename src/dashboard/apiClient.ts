@@ -25,6 +25,7 @@ import {
   ServerStatusResponse,
   ValidationResult,
   WorldListResponse,
+  PlayerPresence,
 } from "./types";
 import type { CreateProvisioningRequest, ProvisioningConnection, ProvisioningPlanResponse, ProvisioningPreflightResponse, SetupOptionsResponse, ProvisioningApplyRequest, ProvisioningApplyResponse, ReconciledSetup } from "./provisioningTypes";
 import { getDashboardAccessKey } from "./adminConnection";
@@ -160,12 +161,33 @@ export async function getServers(): Promise<ServerInventoryResponse> {
   return parseResponse<ServerInventoryResponse>(await dashboardFetch("/api/servers"));
 }
 
-export async function getServerStatus(serverId: string): Promise<ServerStatusResponse> {
-  return parseResponse<ServerStatusResponse>(await dashboardFetch(`/api/servers/${serverId}/status`));
+function serverRoute(serverId: string, providerId?: string): string {
+  return providerId ? `/api/providers/${encodeURIComponent(providerId)}/servers/${encodeURIComponent(serverId)}` : `/api/servers/${encodeURIComponent(serverId)}`;
+}
+export async function getServerStatus(serverId: string, providerId?: string): Promise<ServerStatusResponse> {
+  const requestedAt = Date.now();
+  const value = await lifecycleRead<ServerStatusResponse>(`${serverRoute(serverId, providerId)}/status`);
+  if (!value || !["online", "offline", "starting", "stopping", "error"].includes(value.status)) throw new Error("Server status unavailable.");
+  return { ...value, requestedAt };
 }
 
-export async function getWorlds(serverId: string): Promise<WorldListResponse> {
-  return parseResponse<WorldListResponse>(await dashboardFetch(`/api/servers/${serverId}/worlds`));
+export class PlayerPresenceError extends Error {
+  constructor(readonly status = 0) { super(status === 401 || status === 403 ? "Connect as an administrator to view player names." : "Player names are unavailable. Refresh to check again."); }
+}
+export async function getPlayerPresence(providerId: string, serverId: string, signal?: AbortSignal): Promise<PlayerPresence> {
+  let response: Response;
+  try { response = await dashboardFetch(`${serverRoute(serverId, providerId)}/players`, { signal }); }
+  catch { throw new PlayerPresenceError(); }
+  if (!response.ok) throw new PlayerPresenceError(response.status);
+  let value: PlayerPresence;
+  try { value = await response.json(); } catch { throw new PlayerPresenceError(); }
+  if (!value || value.providerId !== providerId || value.serverId !== serverId || !["available", "not-running", "unsupported"].includes(value.state) || typeof value.observedAt !== "string" || !Number.isFinite(Date.parse(value.observedAt)) || typeof value.namesComplete !== "boolean" || !Array.isArray(value.players) || value.players.length > 256
+    || value.players.some(p => !p || typeof p.displayName !== "string" || !p.displayName.trim() || p.displayName.length > 64 || /[\p{C}<>\\/:=@]/u.test(p.displayName)) || value.state !== "available" && value.players.length) throw new PlayerPresenceError();
+  return { providerId, serverId, state: value.state, observedAt: value.observedAt, namesComplete: value.namesComplete, players: value.players.map(({ displayName }) => ({ displayName })) };
+}
+
+export async function getWorlds(serverId: string, providerId?: string): Promise<WorldListResponse> {
+  return parseResponse<WorldListResponse>(await dashboardFetch(`${serverRoute(serverId, providerId)}/worlds`));
 }
 
 export async function validateWorld(serverId: string, worldId: string): Promise<ValidationResult> {
@@ -173,7 +195,13 @@ export async function validateWorld(serverId: string, worldId: string): Promise<
 }
 
 export async function getOperation(operationId: string): Promise<OperationRecord> {
-  return parseResponse<OperationRecord>(await dashboardFetch(`/api/operations/${operationId}`));
+  return lifecycleRead<OperationRecord>(`/api/operations/${encodeURIComponent(operationId)}`);
+}
+
+async function lifecycleRead<T>(url: string): Promise<T> {
+  const abort = new AbortController(), timer = setTimeout(() => abort.abort(), 5000);
+  try { return await parseResponse<T>(await dashboardFetch(url, { signal: abort.signal })); }
+  finally { clearTimeout(timer); }
 }
 
 export async function getOperations(limit = 100): Promise<OperationListResponse> {
@@ -184,12 +212,22 @@ export async function getEvents(limit = 200): Promise<EventListResponse> {
   return parseResponse<EventListResponse>(await dashboardFetch(`/api/events?limit=${limit}`));
 }
 
-export async function runServerCommand(serverId: string, command: "start" | "stop" | "restart"): Promise<OperationRef> {
-  return parseResponse<OperationRef>(
-    await dashboardFetch(`/api/servers/${serverId}/${command}`, {
-      method: "POST",
-    }),
-  );
+export class LifecycleRequestError extends Error {
+  constructor(readonly rejected: boolean) { super("Server command could not be confirmed."); }
+}
+export async function runServerCommand(serverId: string, command: "start" | "stop" | "restart", providerId?: string): Promise<OperationRef> {
+  const abort = new AbortController(), timer = setTimeout(() => abort.abort(), 10000);
+  try {
+  let response: Response;
+  try { response = await dashboardFetch(`${serverRoute(serverId, providerId)}/${command}`, { method: "POST", signal: abort.signal }); }
+  catch { throw new LifecycleRequestError(false); }
+  if (!response.ok) throw new LifecycleRequestError([400, 401, 403, 404, 405, 409, 422].includes(response.status));
+  try {
+    const ref = await response.json();
+    if (!ref || typeof ref.operationId !== "string" || !["queued", "running", "completed", "failed", "cancelled"].includes(ref.status)) throw new Error();
+    return ref;
+  } catch { throw new LifecycleRequestError(false); }
+  } finally { clearTimeout(timer); }
 }
 
 export async function getAnalyticsSummary(params: { window?: "24h" | "7d" | "30d"; providerId?: string; serverId?: string } = {}) {

@@ -1,5 +1,8 @@
 import React from "react";
 import { getDashboardAccessKey, setDashboardAccessKey, subscribeAdminConnection } from "../dashboard/adminConnection";
+import { OperationalHome, CommandConfirmation } from "./OperationalHome";
+import type { ServerKey, ServerCommand } from "../dashboard/homeModel";
+import { inventoryKey, serverIdentity, unresolvedOperation } from "../dashboard/homeModel";
 import { NewServerModal } from "./NewServerModal";
 import {
   askAiStudio,
@@ -43,7 +46,7 @@ import {
   WorldRuntime,
 } from "../dashboard/types";
 
-const PANEL_ORDER = ["servers", "status", "operations", "worlds", "content-library", "events", "analytics", "family", "rewards", "ai-studio"] as const;
+const PANEL_ORDER = ["home", "servers", "status", "operations", "worlds", "content-library", "events", "analytics", "family", "rewards", "ai-studio"] as const;
 
 type PanelId = (typeof PANEL_ORDER)[number];
 
@@ -87,8 +90,7 @@ function formatDuration(value: number | null | undefined): string {
 
 function summarizeEvent(event: DashboardState["events"][number]): string {
   if (event.type === "operation.failed") {
-    const payload = event.payload as { error?: { message?: string } } | undefined;
-    return payload?.error?.message || "Operation failed";
+    return "Operation failed. Recheck server status before another action.";
   }
 
   if (event.type === "world.validation.completed") {
@@ -149,10 +151,10 @@ function statusClass(state: string): string {
 export function SectionNavigation({ activePanel, onSelect }: { activePanel: PanelId; onSelect: (panel: PanelId) => void }) {
   return (
     <nav className="panel-nav" aria-label="Dashboard sections">
-      <button className="mobile-nav-toggle" aria-label="Toggle sections" type="button">
-        Sections
-      </button>
-      {PANEL_ORDER.map((panel) => (
+      <button type="button" className={`nav-pill ${activePanel === "home" ? "is-active" : ""}`} aria-current={activePanel === "home" ? "page" : undefined} onClick={() => onSelect("home")}>Home</button>
+      <details className="advanced-navigation" open={activePanel !== "home"}>
+        <summary>Advanced</summary><div className="advanced-links">
+      {PANEL_ORDER.filter(panel => panel !== "home").map((panel) => (
         <button
           key={panel}
           type="button"
@@ -162,6 +164,8 @@ export function SectionNavigation({ activePanel, onSelect }: { activePanel: Pane
           {panel.toUpperCase()}
         </button>
       ))}
+        </div>
+      </details>
     </nav>
   );
 }
@@ -173,7 +177,7 @@ export function ServersPanel({
 }: {
   servers: ServerInventoryItem[];
   selectedServerId?: string;
-  onSelectServer: (serverId: string) => void;
+  onSelectServer: (serverId: string, providerId?: string) => void;
 }) {
   if (servers.length === 0) {
     return <div className="empty-state">No providers or servers discovered.</div>;
@@ -272,17 +276,21 @@ export function OperationsPanel({
   operations,
   selectedServerId,
   onCommand,
+  commandsBlocked = false,
+  lifecycleState,
 }: {
   operations: OperationRecord[];
   selectedServerId?: string;
   onCommand: (command: "start" | "stop" | "restart") => void;
+  commandsBlocked?: boolean;
+  lifecycleState?: string;
 }) {
   return (
     <>
       <div className="command-row">
-        <button type="button" disabled={!selectedServerId} className="cmd-btn" onClick={() => onCommand("start")}>START</button>
-        <button type="button" disabled={!selectedServerId} className="cmd-btn" onClick={() => onCommand("stop")}>STOP</button>
-        <button type="button" disabled={!selectedServerId} className="cmd-btn" onClick={() => onCommand("restart")}>RESTART</button>
+        <button type="button" disabled={!selectedServerId || commandsBlocked || lifecycleState !== undefined && lifecycleState !== "offline"} className="cmd-btn" onClick={() => onCommand("start")}>START</button>
+        <button type="button" disabled={!selectedServerId || commandsBlocked || lifecycleState !== undefined && lifecycleState !== "online"} className="cmd-btn" onClick={() => onCommand("stop")}>STOP</button>
+        <button type="button" disabled={!selectedServerId || commandsBlocked || lifecycleState !== undefined && lifecycleState !== "online"} className="cmd-btn" onClick={() => onCommand("restart")}>RESTART</button>
       </div>
       {operations.length === 0 ? (
         <div className="empty-state">No operations yet. Issue a command to begin.</div>
@@ -315,7 +323,7 @@ export function OperationsPanel({
                   <td>{formatTimestamp(operation.createdAt)}</td>
                   <td>{formatTimestamp(operation.startedAt)}</td>
                   <td>{formatTimestamp(operation.completedAt)}</td>
-                  <td>{operation.error?.message || "-"}</td>
+                  <td>{operation.error ? "Operation failed. Recheck status before another action." : "-"}</td>
                 </tr>
               ))}
             </tbody>
@@ -1065,6 +1073,9 @@ export function OperationalDashboard({
   worlds,
   onSelectServer,
   onCommand,
+  onServerCommand,
+  onRecheckCommand,
+  onAssociateCommand,
   onValidateWorld,
   onRefresh,
   onProvisioned,
@@ -1073,28 +1084,34 @@ export function OperationalDashboard({
   state: DashboardState;
   selectedServer?: ServerInventoryItem;
   worlds: WorldRuntime[];
-  onSelectServer: (serverId: string) => void;
+  onSelectServer: (serverId: string, providerId?: string) => void;
   onCommand: (command: "start" | "stop" | "restart") => void;
+  onServerCommand?: (key: ServerKey, command: ServerCommand) => void;
+  onRecheckCommand?: (key: ServerKey) => Promise<void> | undefined;
+  onAssociateCommand?: (key: ServerKey, operationId: string, reviewed: boolean) => Promise<void> | undefined;
   onValidateWorld: (worldId: string) => void;
   onRefresh: () => void;
   onProvisioned?: (providerId: string, serverId: string, open: boolean) => Promise<void>;
   onCleanupHistory: () => void;
 }) {
-  const [activePanel, setActivePanel] = React.useState<PanelId>("servers");
+  const [activePanel, setActivePanel] = React.useState<PanelId>("home");
   const [setupOpen, setSetupOpen] = React.useState(false);
   const [setupIntent, setSetupIntent] = React.useState<"create" | "onboarding">("create");
+  const [advancedConfirmation, setAdvancedConfirmation] = React.useState<{ key: ServerKey; command: "stop" | "restart" }>();
+  const advancedTarget = advancedConfirmation && state.servers.find(s => s.providerId === advancedConfirmation.key.providerId && s.id === advancedConfirmation.key.serverId);
+  const commandsBlocked = (server?: ServerInventoryItem) => !server || state.loading || state.commandsAuthorized === false || state.commandRecoveryBlocked || server.statusUnconfirmed || Boolean(state.pendingCommands?.[serverIdentity(inventoryKey(server))]) || unresolvedOperation(state.operations, inventoryKey(server));
   const administratorConnected = Boolean(React.useSyncExternalStore(subscribeAdminConnection, getDashboardAccessKey, getDashboardAccessKey));
 
   return (
     <main className="dashboard-shell">
       <header className="dashboard-header">
         <div>
-          <p className="eyebrow">JB3 GAMEHUB OPERATOR SURFACE</p>
-          <h1>JBGH-013 Operational Dashboard</h1>
-          <p className="subtitle">REST for commands. WebSocket for live state and event visibility.</p>
+          <p className="eyebrow">JB³ GAMEHUB</p>
+          <h1>Your GameHub</h1>
+          <p className="subtitle">A place for your family to play.</p>
         </div>
         <div className="header-actions flex-wrap">
-          <span className={`chip ${statusClass(state.wsConnection)}`}>{wsStateLabel(state.wsConnection)}</span>
+          {activePanel !== "home" ? <span className={`chip ${statusClass(state.wsConnection)}`}>{wsStateLabel(state.wsConnection)}</span> : null}
           <button type="button" className="cmd-btn" onClick={onRefresh}>Refresh</button>
           <button type="button" className="cmd-btn" onClick={() => { setSetupIntent("onboarding"); setSetupOpen(true); }}>GameHub setup</button>
           <button type="button" className="cmd-btn" onClick={() => { setSetupIntent("create"); setSetupOpen(true); }}>Create server</button>
@@ -1102,16 +1119,24 @@ export function OperationalDashboard({
         </div>
       </header>
 
-      {state.error ? <div className="error-banner">Backend unavailable: {state.error}</div> : null}
+      {state.error && activePanel !== "home" ? <div className="error-banner">Dashboard information is unavailable. Refresh to try again.</div> : null}
       {setupOpen ? <NewServerModal isOpen intent={setupIntent} onClose={() => setSetupOpen(false)} onProvisioned={async (providerId, serverId, open) => {
         if (!onProvisioned) throw new Error("Server summary is unavailable.");
         await onProvisioned(providerId, serverId, open);
-        if (open) setActivePanel("servers");
+        if (open) setActivePanel("home");
       }} /> : null}
 
       <SectionNavigation activePanel={activePanel} onSelect={setActivePanel} />
 
-      <div className="dash-grid">
+      {activePanel === "home" ? <OperationalHome state={state}
+        onRecheckCommand={onRecheckCommand} onAssociateCommand={onAssociateCommand}
+        onCommand={(key, command) => onServerCommand?.(key, command)} onRefresh={onRefresh}
+        onCreate={() => { setSetupIntent("create"); setSetupOpen(true); }}
+        onConnect={() => { setSetupIntent("onboarding"); setSetupOpen(true); }}
+        onDetails={key => { onSelectServer(key.serverId, key.providerId); setActivePanel("status"); }}
+        onActivity={() => setActivePanel("operations")} /> : null}
+      {activePanel !== "home" ? <p className="eyebrow">ADVANCED · SERVER DETAILS AND TOOLS</p> : null}
+      {activePanel !== "home" ? <div className="dash-grid">
         <SectionCard id="servers" title="SERVERS" activePanel={activePanel}>
           <ServersPanel servers={state.servers} selectedServerId={state.selectedServerId} onSelectServer={onSelectServer} />
         </SectionCard>
@@ -1121,7 +1146,11 @@ export function OperationalDashboard({
         </SectionCard>
 
         <SectionCard id="operations" title="OPERATIONS" activePanel={activePanel}>
-          <OperationsPanel operations={state.operations} selectedServerId={state.selectedServerId} onCommand={onCommand} />
+          <OperationsPanel operations={state.operations} selectedServerId={state.selectedServerId} lifecycleState={selectedServer?.status} commandsBlocked={commandsBlocked(selectedServer)} onCommand={command => {
+            if (commandsBlocked(selectedServer) || !selectedServer) return;
+            if (command === "start") onCommand(command);
+            else setAdvancedConfirmation({ key: inventoryKey(selectedServer), command });
+          }} />
         </SectionCard>
 
         <SectionCard id="worlds" title="WORLDS" activePanel={activePanel}>
@@ -1151,7 +1180,11 @@ export function OperationalDashboard({
         <SectionCard id="ai-studio" title="AI STUDIO" activePanel={activePanel}>
           <AiStudioPanel providerId={selectedServer?.providerId} serverId={selectedServer?.id} />
         </SectionCard>
-      </div>
+      </div> : null}
+      {advancedConfirmation && advancedTarget ? <CommandConfirmation server={advancedTarget} command={advancedConfirmation.command} onCancel={() => setAdvancedConfirmation(undefined)} onConfirm={() => {
+        if (advancedTarget.status === "online" && !commandsBlocked(advancedTarget)) onServerCommand?.(advancedConfirmation.key, advancedConfirmation.command);
+        setAdvancedConfirmation(undefined);
+      }} /> : null}
     </main>
   );
 }

@@ -1,6 +1,7 @@
 import { provisioningRouter, provisioningApiOptionsFromEnvironment, authorizeProvisioning, type ProvisioningApiOptions } from "./packages/core/provisioning-api";
 import { websocketAuthorization, websocketProtocol } from "./packages/core/websocket-auth";
 import { onboardingRouter } from "./packages/core/onboarding-api";
+import { playerPresenceRouter } from "./packages/core/player-presence-api";
 import { observeHost, observeStorage, observeDatabase, hashSetupReference } from "./packages/host-platform/readiness";
 import { setupCatalog } from "./packages/core/setup-configuration";
 import { discoverJavaRuntimes, javaPrerequisites } from "./packages/minecraft-provider/host-readiness";
@@ -150,6 +151,7 @@ app.use("/api/servers/:id", async (req, res, next) => {
     next();
   } catch { res.status(503).json({ error: { code: "AUTHORIZATION_UNAVAILABLE", message: "Authorization unavailable." } }); }
 });
+app.use("/api", playerPresenceRouter(() => providerManager, () => provisioningOptions));
 app.all("/api/providers/:providerId/servers/:serverId/:action", async (req, res) => {
   try {
     const principal = await authorizeProvisioning(req, res, providerManager, provisioningOptions); if (!principal) return;

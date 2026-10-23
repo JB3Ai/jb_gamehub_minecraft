@@ -151,12 +151,14 @@ test("failed operation rendering shows failure information", () => {
   );
 
   assert.match(html, /FAILED/);
-  assert.match(html, /Start command failed/);
+  assert.match(html, /Recheck status before another action/);
+  assert.doesNotMatch(html, /Start command failed/);
 });
 
 test("responsive navigation renders section controls", () => {
   const html = renderToStaticMarkup(<SectionNavigation activePanel="servers" onSelect={() => undefined} />);
-  assert.match(html, /aria-label="Toggle sections"/);
+  assert.match(html, /<summary>Advanced<\/summary>/);
+  assert.match(html, />Home<\/button>/);
   assert.match(html, /SERVERS/);
   assert.match(html, /EVENTS/);
   assert.match(html, /CONTENT-LIBRARY/);

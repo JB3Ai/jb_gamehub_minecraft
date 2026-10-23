@@ -96,8 +96,11 @@ export interface ServerInventoryItem {
   name: string;
   serverType: string;
   status: ServerLifecycleState | "error";
+  statusUnconfirmed?: boolean;
   availability: boolean;
   lastStatusUpdate: string;
+  players?: number;
+  playersObservedAt?: string;
   endpoints: {
     java: string;
     bedrock?: string;
@@ -117,6 +120,16 @@ export interface ConnectionEndpoint {
   port?: number;
   display: string;
   metadata?: Record<string, unknown>;
+  capabilities?: string[];
+}
+
+export interface PlayerPresence {
+  providerId: string;
+  serverId: string;
+  state: "available" | "not-running" | "unsupported";
+  observedAt: string;
+  players: Array<{ displayName: string }>;
+  namesComplete: boolean;
 }
 
 export interface ServerInventoryResponse {
@@ -127,6 +140,7 @@ export interface ServerStatusResponse {
   status: "online" | "offline" | "starting" | "stopping" | "error";
   players?: number;
   uptimeSeconds?: number;
+  requestedAt?: number;
 }
 
 export interface WorldSummary {
@@ -163,7 +177,7 @@ export interface OperationRef {
 
 export interface OperationRecord {
   operationId: string;
-  type: "server.start" | "server.stop" | "server.restart" | "world.validate";
+  type: "server.start" | "server.stop" | "server.restart" | "world.validate" | "server.provision.apply";
   providerId: string;
   serverId?: string;
   worldId?: string;
@@ -217,6 +231,12 @@ export interface DashboardState {
   providers: Record<string, ProviderMetadata>;
   servers: ServerInventoryItem[];
   selectedServerId?: string;
+  selectedProviderId?: string;
+  commandsAuthorized?: boolean;
+  pendingCommands?: Record<string, "start" | "stop" | "restart">;
+  commandErrors?: Record<string, string>;
+  commandRecoveries?: Record<string, import("./commandJournal").CommandRecovery>;
+  commandRecoveryBlocked?: boolean;
   operations: OperationRecord[];
   worldsByServer: Record<string, WorldRuntime[]>;
   events: ProviderEvent[];

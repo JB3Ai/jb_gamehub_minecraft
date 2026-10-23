@@ -19,13 +19,19 @@ import { DashboardEventStream } from "./eventStream";
 import { getDashboardAccessKey, subscribeAdminConnection } from "./adminConnection";
 import {
   applyProviderEvent,
+  applyServerObservation,
+  mergeServerInventory,
   createInitialDashboardState,
   markWorldValidating,
   setWorldValidation,
   setWorldsForServer,
   upsertOperation,
 } from "./state";
-import { DashboardState, OperationRecord, ProviderEvent, ServerLifecycleState, WorldRuntime } from "./types";
+import { DashboardState, ProviderEvent, ServerLifecycleState, WorldRuntime } from "./types";
+
+import { LifecycleCommands } from "./lifecycleCommands";
+import { sessionCommandJournal } from "./commandJournal";
+import { sameServer, inventoryKey, lifecycleOperation, unresolvedOperation, type ServerKey } from "./homeModel";
 
 function normalizeLifecycleState(status: string): ServerLifecycleState {
   if (status === "online" || status === "offline" || status === "starting" || status === "stopping") {
@@ -34,36 +40,73 @@ function normalizeLifecycleState(status: string): ServerLifecycleState {
   return "unknown";
 }
 
-async function trackStatusTransition(
-  serverId: string,
-  expected: ServerLifecycleState,
-  applyStatus: (status: ServerLifecycleState) => void,
-): Promise<void> {
-  const maxChecks = 25;
-  for (let i = 0; i < maxChecks; i += 1) {
-    const status = await getServerStatus(serverId);
-    const normalized = normalizeLifecycleState(status.status);
-    applyStatus(normalized);
-    if (normalized === expected) {
-      return;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 600));
-  }
-}
-
 export function useOperationalDashboard() {
   const [state, setState] = useState<DashboardState>(createInitialDashboardState());
   const eventStreamRef = useRef<DashboardEventStream | null>(null);
   const accessKey = useSyncExternalStore(subscribeAdminConnection, getDashboardAccessKey, getDashboardAccessKey);
   const refreshGeneration = useRef(0);
+  const stateRef = useRef(state);
+  stateRef.current = state;
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; refreshGeneration.current++; }; }, []);
+  const observeStatus = useCallback((key: ServerKey, status: Awaited<ReturnType<typeof getServerStatus>>) => {
+    if (!mounted.current) return;
+    setState(current => applyServerObservation(current, key, status, status.requestedAt ?? Date.now()));
+  }, []);
+  const commandRunner = useRef<LifecycleCommands | null>(null);
+  if (!commandRunner.current) commandRunner.current = new LifecycleCommands({
+    allowed: (key, command) => {
+      const current = stateRef.current, server = current.servers.find(s => sameServer(s, key));
+      return current.commandsAuthorized === true && !current.loading && !!server && !server.statusUnconfirmed && !unresolvedOperation(current.operations, key)
+        && server.status === (command === "start" ? "offline" : "online");
+    },
+    request: (key, command) => runServerCommand(key.serverId, command, key.providerId),
+    operation: getOperation,
+    status: key => getServerStatus(key.serverId, key.providerId),
+    observed: observeStatus,
+    operationObserved: operation => { if (mounted.current) setState(current => ({ ...current, operations: upsertOperation(current.operations, operation) })); },
+    journal: sessionCommandJournal(),
+    changed: (pendingCommands, commandErrors, commandRecoveries, commandRecoveryBlocked) => { if (mounted.current) setState(current => ({ ...current, pendingCommands, commandErrors, commandRecoveries, commandRecoveryBlocked })); },
+  });
+  useEffect(() => { commandRunner.current?.restore(); return () => commandRunner.current?.dispose(); }, []);
+  const refreshStatuses = useCallback(async () => {
+    if (!stateRef.current.commandsAuthorized) return;
+    await Promise.all(stateRef.current.servers.map(async server => {
+      const key = inventoryKey(server), requestedAt = Date.now();
+      try {
+        const status = await getServerStatus(key.serverId, key.providerId);
+        // A newer live event wins over an older in-flight status read.
+        const latest = stateRef.current.servers.find(s => sameServer(s, key));
+        if (latest && (!Number.isFinite(Date.parse(latest.lastStatusUpdate)) || Date.parse(latest.lastStatusUpdate) <= requestedAt)) observeStatus(key, status);
+      } catch {
+        if (mounted.current) setState(current => applyServerObservation(current, key, undefined, requestedAt));
+      }
+    }));
+    // External commands must also settle when their terminal WebSocket event was missed.
+    await Promise.all(stateRef.current.operations.filter(op => lifecycleOperation(op) && ["queued", "running"].includes(op.status)).map(async op => {
+      try {
+        const latest = await getOperation(op.operationId);
+        if (mounted.current && latest.operationId === op.operationId && latest.providerId === op.providerId && latest.serverId === op.serverId) {
+          setState(current => ({ ...current, operations: upsertOperation(current.operations, latest) }));
+        }
+      } catch { /* Keep unresolved controls locked; the next read may confirm the outcome. */ }
+    }));
+    await commandRunner.current?.refresh();
+  }, [observeStatus]);
+  useEffect(() => {
+    let disposed = false;
+    const poll = async () => { await refreshStatuses(); if (!disposed) timer = setTimeout(poll, 5000); };
+    let timer = setTimeout(poll, 0);
+    return () => { disposed = true; clearTimeout(timer); };
+  }, [refreshStatuses, accessKey]);
 
   const selectedServer = useMemo(
-    () => state.servers.find((server) => server.id === state.selectedServerId),
-    [state.servers, state.selectedServerId],
+    () => state.servers.find((server) => server.id === state.selectedServerId && (!state.selectedProviderId || server.providerId === state.selectedProviderId)),
+    [state.servers, state.selectedServerId, state.selectedProviderId],
   );
 
-  const loadServerWorlds = useCallback(async (serverId: string) => {
-    const worldsResponse = await getWorlds(serverId);
+  const loadServerWorlds = useCallback(async (serverId: string, providerId?: string) => {
+    const worldsResponse = await getWorlds(serverId, providerId);
     const worlds: WorldRuntime[] = worldsResponse.worlds.map((world) => ({
       id: world.id,
       name: world.name,
@@ -78,9 +121,12 @@ export function useOperationalDashboard() {
     setState((current) => ({ ...current, loading: true, error: undefined }));
     try {
       const connection = await getWebSocketOptions();
+      if (generation !== refreshGeneration.current) return;
+      setState(current => ({ ...current, commandsAuthorized: !connection.authenticationRequired || !!accessKey }));
       const providerList = await getProviders();
       const providerMap = Object.fromEntries(providerList.providers.map((provider) => [provider.id, provider]));
 
+      const inventoryRequestedAt = Date.now();
       const serversResponse = await getServers();
       if (generation !== refreshGeneration.current) return;
       if (connection.authenticationRequired && !accessKey) {
@@ -90,10 +136,9 @@ export function useOperationalDashboard() {
           operations: [], events: [], worldsByServer: {}, analyticsSummary: undefined, persistenceOverview: undefined }));
         return;
       }
-      const operationsResponse = await getOperations(100);
-      const eventsResponse = await getEvents(200);
-      const analyticsResponse = await getAnalyticsSummary({ window: "24h" });
-      const historyOverviewResponse = await getHistoryOverview();
+      const [operationsResponse, eventsResponse, analyticsResponse, historyOverviewResponse] = await Promise.all([
+        getOperations(100), getEvents(200), getAnalyticsSummary({ window: "24h" }), getHistoryOverview(),
+      ]);
       if (generation !== refreshGeneration.current) return;
       const normalizedServers = serversResponse.servers.map((server) => ({
         ...server,
@@ -114,7 +159,7 @@ export function useOperationalDashboard() {
         loading: false,
         error: undefined,
         providers: providerMap,
-        servers: normalizedServers,
+        servers: mergeServerInventory(current.servers, normalizedServers, inventoryRequestedAt),
         selectedServerId,
         operations: operationsResponse.operations,
         events: persistedEvents,
@@ -125,7 +170,8 @@ export function useOperationalDashboard() {
       }));
 
       if (selectedServerId) {
-        await loadServerWorlds(selectedServerId);
+        try { await loadServerWorlds(selectedServerId, normalizedServers.find(s => s.id === selectedServerId && (!state.selectedProviderId || s.providerId === state.selectedProviderId))?.providerId); }
+        catch { /* Missing optional world details must not block a successful inventory/status refresh. */ }
       }
 
       for (const provider of providerList.providers) {
@@ -139,7 +185,7 @@ export function useOperationalDashboard() {
         error: error instanceof Error ? error.message : String(error),
       }));
     }
-  }, [loadServerWorlds, state.selectedServerId, accessKey]);
+  }, [loadServerWorlds, state.selectedServerId, state.selectedProviderId, accessKey]);
 
   useEffect(() => {
     void refreshData();
@@ -171,29 +217,18 @@ export function useOperationalDashboard() {
   }, [accessKey]);
 
   const selectServer = useCallback(
-    async (serverId: string) => {
-      setState((current) => ({ ...current, selectedServerId: serverId }));
-      await loadServerWorlds(serverId);
+    async (serverId: string, providerId?: string) => {
+      setState((current) => ({ ...current, selectedServerId: serverId, selectedProviderId: providerId }));
+      try { await loadServerWorlds(serverId, providerId); } catch { /* Status remains independently refreshable. */ }
       try {
-        const status = await getServerStatus(serverId);
-        setState((current) => ({
-          ...current,
-          servers: current.servers.map((server) =>
-            server.id === serverId
-              ? {
-                  ...server,
-                  status: normalizeLifecycleState(status.status),
-                  availability: status.status === "online" || status.status === "starting",
-                  lastStatusUpdate: new Date().toISOString(),
-                }
-              : server,
-          ),
-        }));
+        const status = await getServerStatus(serverId, providerId);
+        const server = stateRef.current.servers.find(s => s.id === serverId && (!providerId || s.providerId === providerId));
+        if (server) observeStatus(inventoryKey(server), status);
       } catch {
         // Keep existing status if status refresh fails.
       }
     },
-    [loadServerWorlds],
+    [loadServerWorlds, observeStatus],
   );
 
   const showProvisionedServer = useCallback(async (providerId: string, serverId: string, open: boolean) => {
@@ -203,62 +238,15 @@ export function useOperationalDashboard() {
     setState(current => ({ ...current, loading: false,
       servers: inventory.servers.map(server => ({ ...server, status: normalizeLifecycleState(server.status) })),
       selectedServerId: open ? serverId : current.selectedServerId,
+      selectedProviderId: open ? providerId : current.selectedProviderId,
     }));
   }, []);
 
-  const runCommand = useCallback(
-    async (command: "start" | "stop" | "restart") => {
-      if (!state.selectedServerId) {
-        return;
-      }
-
-      try {
-        const ref = await runServerCommand(state.selectedServerId, command);
-        const operation = await getOperation(ref.operationId);
-        setState((current) => ({
-          ...current,
-          operations: upsertOperation(current.operations, operation),
-        }));
-
-        const expectedStatus: ServerLifecycleState = command === "stop" ? "offline" : "online";
-        await trackStatusTransition(state.selectedServerId, expectedStatus, (nextStatus) => {
-          setState((current) => ({
-            ...current,
-            servers: current.servers.map((server) =>
-              server.id === state.selectedServerId
-                ? {
-                    ...server,
-                    status: nextStatus,
-                    availability: nextStatus === "online" || nextStatus === "starting",
-                    lastStatusUpdate: new Date().toISOString(),
-                  }
-                : server,
-            ),
-          }));
-        });
-      } catch (error) {
-        const fallback: OperationRecord = {
-          operationId: `ui_${Date.now()}`,
-          type: command === "start" ? "server.start" : command === "stop" ? "server.stop" : "server.restart",
-          providerId: selectedServer?.providerId || "unknown",
-          serverId: state.selectedServerId,
-          status: "failed",
-          createdAt: new Date().toISOString(),
-          completedAt: new Date().toISOString(),
-          error: {
-            code: "COMMAND_FAILED",
-            message: error instanceof Error ? error.message : String(error),
-          },
-        };
-
-        setState((current) => ({
-          ...current,
-          operations: upsertOperation(current.operations, fallback),
-        }));
-      }
-    },
-    [selectedServer?.providerId, state.selectedServerId],
-  );
+  const runCommand = useCallback(async (command: "start" | "stop" | "restart", key?: ServerKey) => {
+    const server = selectedServer;
+    const target = key || (server && inventoryKey(server));
+    if (target) await commandRunner.current?.submit(target, command);
+  }, [selectedServer]);
 
   const runWorldValidation = useCallback(
     async (worldId: string) => {
@@ -303,23 +291,15 @@ export function useOperationalDashboard() {
 
   const applyManualRefresh = useCallback(async () => {
     await refreshData();
-    if (state.selectedServerId) {
-      const status = await getServerStatus(state.selectedServerId);
-      setState((current) => ({
-        ...current,
-        servers: current.servers.map((server) =>
-          server.id === state.selectedServerId
-            ? {
-                ...server,
-                status: normalizeLifecycleState(status.status),
-                availability: status.status === "online" || status.status === "starting",
-                lastStatusUpdate: new Date().toISOString(),
-              }
-            : server,
-        ),
-      }));
-    }
-  }, [refreshData, state.selectedServerId]);
+    await refreshStatuses();
+  }, [refreshData, refreshStatuses]);
+
+  const previousConnection = useRef(state.wsConnection);
+  useEffect(() => {
+    const previous = previousConnection.current;
+    previousConnection.current = state.wsConnection;
+    if (state.wsConnection === "connected" && previous === "reconnecting") void applyManualRefresh();
+  }, [state.wsConnection, applyManualRefresh]);
 
   const cleanupHistory = useCallback(async () => {
     setState((current) => ({
@@ -357,6 +337,8 @@ export function useOperationalDashboard() {
     showProvisionedServer,
     refreshData: applyManualRefresh,
     runCommand,
+    recheckCommand: (key: ServerKey) => commandRunner.current?.recheck(key),
+    associateCommand: (key: ServerKey, operationId: string, reviewed: boolean) => commandRunner.current?.associate(key, operationId, reviewed),
     runWorldValidation,
     cleanupHistory,
   };

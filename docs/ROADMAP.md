@@ -19,6 +19,7 @@
 - [x] JBGH-022 — CLOSED / PASS: [Unified Server Provisioning](./JBGH-022-unified-server-provisioning.md#jbgh-022-closure-review--closed--pass) (2026-10-18)
 - [x] JBGH-023 — CLOSED / PASS: [Unified Setup Wizard](./JBGH-023-unified-setup-wizard.md#jbgh-023c-closure--closed--pass) (2026-10-21; Java/Bedrock stopped CREATE, completion, restart and dashboard WebSocket authentication)
 - [x] JBGH-024 — CLOSED / PASS: [First-Run Onboarding](./JBGH-024-first-run-onboarding.md#024c--durable-first-run-completion-and-handoff) (2026-10-22; 024A readiness, 024B revisioned settings, 024C durable READY/dashboard handoff, restart and preservation acceptance)
+- [x] JBGH-025 — CLOSED / PASS: [Daily Operations](./JBGH-025-daily-operations.md) (2026-10-23; 025A Home, 025B connection/player experience, 025C recovery/confirmation, 025D acceptance; 238/238 focused, 5/5 contracts, 688/689 full suite with only known unrelated Content Library 422; real 023C runtimes preserved, no real first boot/player join)
 - [ ] JBGH-028 — Smart Worlds Framework (locked future milestone; baseline: [JBGH_World_switcher PRD](./JBGH_World_switcher.md), JBGH-SW-001 draft v0.1; first task: 028A repository gap analysis against the exact PRD before implementation; the source document's legacy JBGH-020 heading maps to JBGH-028)
 
 ### JBGH-021A — CLOSED / PASS

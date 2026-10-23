@@ -33,7 +33,7 @@ export function createInitialDashboardState(): DashboardState {
 }
 
 export function upsertServer(servers: ServerInventoryItem[], next: ServerInventoryItem): ServerInventoryItem[] {
-  const existingIndex = servers.findIndex((server) => server.id === next.id);
+  const existingIndex = servers.findIndex((server) => server.id === next.id && server.providerId === next.providerId);
   if (existingIndex === -1) {
     return [...servers, next];
   }
@@ -41,6 +41,26 @@ export function upsertServer(servers: ServerInventoryItem[], next: ServerInvento
   const copy = [...servers];
   copy[existingIndex] = { ...copy[existingIndex], ...next };
   return copy;
+}
+
+export function applyServerObservation(state: DashboardState, key: { providerId: string; serverId: string }, observation: import("./types").ServerStatusResponse | undefined, requestedAt: number): DashboardState {
+  return { ...state, servers: state.servers.map(server => {
+    if (server.id !== key.serverId || server.providerId !== key.providerId || Date.parse(server.lastStatusUpdate) > requestedAt) return server;
+    if (!observation) return { ...server, statusUnconfirmed: true, players: undefined, playersObservedAt: undefined };
+    const status = toLifecycleState(observation.status), players = status === "online" && Number.isInteger(observation.players) && observation.players! >= 0 ? observation.players : undefined;
+    return { ...server, status, statusUnconfirmed: false, players, playersObservedAt: players !== undefined ? new Date().toISOString() : undefined,
+      availability: status === "online" || status === "starting", lastStatusUpdate: new Date().toISOString() };
+  }) };
+}
+
+/** A late inventory response may refresh metadata, but cannot replace a newer live observation. */
+export function mergeServerInventory(current: ServerInventoryItem[], incoming: ServerInventoryItem[], requestedAt: number): ServerInventoryItem[] {
+  return incoming.map(server => {
+    const latest = current.find(s => s.providerId === server.providerId && s.id === server.id);
+    if (!latest || Date.parse(latest.lastStatusUpdate) <= requestedAt || !Number.isFinite(Date.parse(latest.lastStatusUpdate))) return server;
+    return { ...server, status: latest.status, availability: latest.availability, lastStatusUpdate: latest.lastStatusUpdate,
+      statusUnconfirmed: latest.statusUnconfirmed, players: latest.players, playersObservedAt: latest.playersObservedAt };
+  });
 }
 
 export function upsertOperation(operations: OperationRecord[], next: OperationRecord): OperationRecord[] {
@@ -141,14 +161,19 @@ export function applyProviderEvent(state: DashboardState, incoming: ProviderEven
     nextState = {
       ...nextState,
       servers: nextState.servers.map((server) => {
-        if (server.id !== incoming.serverId) {
+        if (server.id !== incoming.serverId || (incoming.providerId ? server.providerId !== incoming.providerId : state.servers.filter(s => s.id === incoming.serverId).length !== 1)) {
           return server;
         }
 
-        const lifecycle = toLifecycleState(incoming.status);
+        if (!Number.isFinite(Date.parse(incoming.timestamp)) || Date.parse(incoming.timestamp) < Date.parse(server.lastStatusUpdate)) return server;
+
+        const lifecycle = toLifecycleState(incoming.status || (incoming.payload as { status?: string } | undefined)?.status);
         return {
           ...server,
           status: lifecycle,
+          statusUnconfirmed: false,
+          players: lifecycle === "online" && server.status === "online" ? server.players : undefined,
+          playersObservedAt: lifecycle === "online" && server.status === "online" ? server.playersObservedAt : undefined,
           availability: lifecycle === "online" || lifecycle === "starting",
           lastStatusUpdate: incoming.timestamp,
         };

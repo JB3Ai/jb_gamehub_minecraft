@@ -3,22 +3,8 @@ import { OperationalDashboard } from "./components/OperationalDashboard";
 import { useOperationalDashboard } from "./dashboard/useOperationalDashboard";
 
 export default function App() {
-  const { state, selectedServer, selectServer, showProvisionedServer, refreshData, runCommand, runWorldValidation, cleanupHistory } = useOperationalDashboard();
+  const { state, selectedServer, selectServer, showProvisionedServer, refreshData, runCommand, runWorldValidation, cleanupHistory, recheckCommand, associateCommand } = useOperationalDashboard();
   const worlds = selectedServer ? state.worldsByServer[selectedServer.id] || [] : [];
-
-  if (state.loading && state.servers.length === 0) {
-    return (
-      <main className="dashboard-shell">
-        <header className="dashboard-header">
-          <div>
-            <p className="eyebrow">JB3 GAMEHUB OPERATOR SURFACE</p>
-            <h1>JBGH-013 Operational Dashboard</h1>
-            <p className="subtitle">Loading providers, servers, worlds, and event stream.</p>
-          </div>
-        </header>
-      </main>
-    );
-  }
 
   return (
     <OperationalDashboard
@@ -33,6 +19,9 @@ export default function App() {
       onCommand={(command) => {
         void runCommand(command);
       }}
+      onServerCommand={(key, command) => { void runCommand(command, key); }}
+      onRecheckCommand={recheckCommand}
+      onAssociateCommand={associateCommand}
       onValidateWorld={(worldId) => {
         void runWorldValidation(worldId);
       }}
